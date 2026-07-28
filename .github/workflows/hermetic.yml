@@ -1,0 +1,209 @@
+# Suggested repo home: .github/workflows/hermetic.yml
+#
+# Tier 1 of TESTING-STRATEGY.md: every PR, fully hermetic, no NVIDIA key, no credits, no human.
+# Tier 2 (nightly against real NIM) and Tier 3 (macOS path assertions) are separate jobs below.
+
+name: hermetic
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  schedule:
+    - cron: '17 9 * * *' # nightly — enables the real-upstream job
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Tier 1: hermetic, mock upstream ──────────────────────────────────────────────────────────
+  hermetic:
+    name: hermetic (mock NIM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Assert zero runtime dependencies
+        run: |
+          # DESIGN.md §2 / §13.8: the CLI must run on stock Node with no npm install.
+          deps=$(node -e "const p=require('./package.json');console.log(Object.keys({...p.dependencies}).length)")
+          [ "$deps" = "0" ] || { echo "::error::package.json declares $deps runtime dependencies; spec requires zero"; exit 1; }
+          test ! -d node_modules || echo "::warning::node_modules present in checkout"
+
+      - name: Install prerequisites
+        run: |
+          npm install -g pm2@latest
+          python3 -m venv /opt/litellm
+          /opt/litellm/bin/pip install --quiet 'litellm[proxy]==1.93.0'
+          echo '/opt/litellm/bin' >> "$GITHUB_PATH"
+
+      - name: Guard the litellm pin
+        run: |
+          # Security control, not hygiene: 1.82.7/1.82.8 shipped a credential stealer.
+          v=$(/opt/litellm/bin/litellm --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          case "$v" in 1.82.7|1.82.8) echo "::error::litellm $v is a known-compromised release"; exit 1 ;; esac
+          echo "litellm $v"
+
+      - name: Start mock NIM
+        run: |
+          node test/mock-nim.mjs > /tmp/mock-nim.log 2>&1 &
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:8080/__state >/dev/null && break; sleep 0.25; done
+          curl -fsS http://127.0.0.1:8080/__state | tee /dev/stderr >/dev/null
+
+      - name: Hermetic suite
+        env:
+          NIM_BASE_URL: http://127.0.0.1:8080/v1
+        run: bash test/run-hermetic.sh
+
+      - name: Golden files
+        # TESTING-STRATEGY.md C2 — config.yaml / run.sh / ecosystem / manifest are pure functions of
+        # (port, model ids, paths, key). Normalise the volatile parts, diff against fixtures.
+        run: |
+          if [ -d test/fixtures ]; then
+            bash test/golden-check.sh
+          else
+            echo "::notice::test/fixtures absent — golden-file check not yet implemented (C2)"
+          fi
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermetic-diagnostics
+          path: |
+            /tmp/mock-nim.log
+            ~/.pm2/logs/
+            ~/.config/claude-nim-proxy/config.yaml
+            ~/.config/claude-nim-proxy/ecosystem.config.cjs
+            ~/.config/claude-nim-proxy/manifest.json
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Assert no secret reached the artifacts
+        if: always()
+        run: |
+          # Belt and braces: the suite checks this too, but a leak into an uploaded artifact is
+          # worse than a leak on a throwaway runner.
+          ! grep -rq 'sk-litellm-' ~/.config/claude-nim-proxy/config.yaml 2>/dev/null || {
+            echo "::error::master key found in config.yaml — it belongs only in litellm.env"; exit 1; }
+
+  # ── Tier 1b: interactive path under a pty (CI otherwise only exercises --yes) ────────────────
+  interactive:
+    name: interactive prompts (pty)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: sudo apt-get update && sudo apt-get install -y expect
+      - name: Start mock NIM
+        run: |
+          node test/mock-nim.mjs > /tmp/mock-nim.log 2>&1 &
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:8080/__state >/dev/null && break; sleep 0.25; done
+      - name: Prompt behaviour
+        run: |
+          if [ -f test/interactive.expect ]; then
+            expect -f test/interactive.expect
+          else
+            echo "::notice::test/interactive.expect absent — pty tests not yet implemented (C3)"
+          fi
+        # Asserts: masked key never echoes, empty input takes the default, substring search narrows,
+        # `more` pages, and Ctrl-C at each prompt leaves nothing written (§12.1 last row).
+
+  # ── Tier 3: macOS-specific file/mode assertions (no GUI, no Desktop) ────────────────────────
+  macos-paths:
+    name: macOS paths and modes
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install prerequisites
+        run: |
+          npm install -g pm2@latest
+          python3 -m venv /tmp/litellm
+          /tmp/litellm/bin/pip install --quiet 'litellm[proxy]==1.93.0'
+          echo '/tmp/litellm/bin' >> "$GITHUB_PATH"
+      - name: Start mock NIM
+        run: |
+          node test/mock-nim.mjs > /tmp/mock-nim.log 2>&1 &
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:8080/__state >/dev/null && break; sleep 0.25; done
+      - name: Hermetic suite on a real Mac
+        env:
+          NIM_BASE_URL: http://127.0.0.1:8080/v1
+        run: bash test/run-hermetic.sh
+      - name: macOS-only assertions
+        run: |
+          # These are the gaps a Linux container cannot cover.
+          set -x
+          stat -f '%Lp %N' ~/.config/claude-nim-proxy 2>/dev/null || true
+          # status must degrade gracefully when no Desktop 3P config exists (§5.3, §9.2)
+          node claude-nim-proxy.mjs status | tee /tmp/status.txt
+          grep -qi 'not detectable\|not configured' /tmp/status.txt \
+            || echo "::warning::status did not report the Desktop 3P peek as undetectable on a clean machine"
+          # `defaults read` on an unset domain must not crash the wizard
+          defaults read com.anthropic.claudefordesktop 2>&1 | head -3 || true
+          test ! -d "$HOME/Library/Application Support/Claude-3p/configLibrary" \
+            || echo "::warning::configLibrary exists on a clean runner — unexpected"
+      - name: Assert the wizard never wrote Desktop config
+        run: |
+          # DESIGN.md §5.3: the wizard must NEVER write configLibrary or install managed prefs.
+          if [ -d "$HOME/Library/Application Support/Claude-3p/configLibrary" ]; then
+            echo "::error::wizard wrote to configLibrary — forbidden by §5.3"; exit 1
+          fi
+
+  # ── Tier 2: real NIM upstream, nightly only, key from secrets ────────────────────────────────
+  real-upstream:
+    name: real NIM (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: nim-nightly # gate the secret behind an environment with required reviewers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Skip if no key is configured
+        id: gate
+        env:
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+        run: |
+          if [ -z "${NVIDIA_NIM_API_KEY}" ]; then
+            echo "::notice::NVIDIA_NIM_API_KEY not set — skipping the real-upstream job"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install prerequisites
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          npm install -g pm2@latest
+          python3 -m venv /opt/litellm
+          /opt/litellm/bin/pip install --quiet 'litellm[proxy]==1.93.0'
+          echo '/opt/litellm/bin' >> "$GITHUB_PATH"
+      - name: Setup + test against hosted NIM
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+        run: |
+          # Catches wire-format and catalog drift the mock cannot see. Use a DEDICATED throwaway
+          # key, rotated on a schedule — never a personal or shared one.
+          node claude-nim-proxy.mjs setup --yes --no-cli \
+            --model qwen/qwen3-coder-480b-a35b-instruct \
+            --small-model meta/llama-3.1-8b-instruct
+          node claude-nim-proxy.mjs test
+      - name: Scrub
+        if: always() && steps.gate.outputs.run == 'true'
+        run: node claude-nim-proxy.mjs uninstall --purge || true

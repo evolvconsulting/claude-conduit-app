@@ -2,11 +2,14 @@
 
 **Status:** Implementation-ready specification
 **Audience:** Implementing engineer (or engineering agent). Every load-bearing external fact was
-verified against primary sources on 2026-07-16; source URLs in §14. No further research required.
+verified against primary sources on 2026-07-16 and **re-verified 2026-07-28**; source URLs in §14.
+No further research required except the one item flagged in §14.
 **Target platform:** macOS (Darwin) primary; Linux works with the same flow (§10 notes)
-**Date:** 2026-07-17 (supersedes 2026-07-16 draft: process manager is now **pm2**, model choice is
-now **interactive from the live NIM catalog**, and the tool is a **user-run setup wizard** rather
-than a system installer)
+**Date:** 2026-07-28 (rev 3 — re-verification pass: litellm pin moved to **1.93.0**, `fable` tier and
+subagent model added to §9.1, the MCP tool-search key corrected to `ENABLE_TOOL_SEARCH`, and two
+managed-configuration prerequisite checks added to §4/§12.1. Rev 2, 2026-07-17: process manager is
+pm2, model choice is interactive from the live NIM catalog, and the tool is a user-run setup wizard
+rather than a system installer.)
 
 ---
 
@@ -128,6 +131,8 @@ and exits with code 2 (prereqs) or 1. Steps:
 | litellm on PATH | `litellm --version` exit 0 | Install command below |
 | litellm version safe | parse version from output | See below |
 | Port free | attempt `net.createServer().listen(port, '127.0.0.1')` | `--port <other>` or find the holder: `lsof -i :4000` |
+| **Claude Code managed settings** | read `/Library/Application Support/ClaudeCode/managed-settings.json` | See "managed-configuration checks" below |
+| **Desktop MDM profile** | stat `/Library/Managed Preferences/com.anthropic.claudefordesktop.plist` and `/Library/Managed Preferences/<user>/com.anthropic.claudefordesktop.plist` | See below |
 
 litellm install guidance (printed verbatim on failure — pick the first tool present on PATH):
 
@@ -137,12 +142,42 @@ pipx install 'litellm[proxy]==<PINNED>'
 pip install --user 'litellm[proxy]==<PINNED>'
 ```
 
-`<PINNED>` is a constant in the script — the engineer sets it to the latest stable at build time
-(must be ≥ 1.83). **Security requirement, not a nicety:** LiteLLM **1.82.8** on PyPI contained
-credential-stealing malware (`litellm_init.pth`, executed on every Python interpreter start,
-exfiltrating env vars / SSH keys / cloud credentials). If the detected installed version is 1.82.7
-or 1.82.8, print a prominent warning to uninstall immediately and rotate all credentials, and
-refuse to proceed. If the installed version is older than the pin, warn but continue.
+`<PINNED>` is a constant in the script. **Set it to `1.93.0`** — the latest stable as of 2026-07-28
+(released 2026-07-19). The engineer refreshes it to the latest stable at build time; it must never be
+set below 1.93.0.
+
+**Security requirement, not a nicety:** LiteLLM **1.82.8** on PyPI contained credential-stealing
+malware (`litellm_init.pth`, executed on every Python interpreter start, exfiltrating env vars / SSH
+keys / cloud credentials). Both 1.82.7 and 1.82.8 have since been **removed from PyPI**, so this
+check no longer guards a fresh install — it guards a machine that installed or cached a compromised
+build while it was live, which is precisely the machine that most needs the warning. If the detected
+installed version is 1.82.7 or 1.82.8, **refuse to proceed** and print:
+
+```
+✗ litellm <version> is a known-compromised release (credential stealer).
+  1. Uninstall it now:  uv tool uninstall litellm   (or pipx uninstall / pip uninstall)
+  2. Check for the dropper:  find "$(python3 -c 'import site;print(site.getsitepackages()[0])')" \
+       -name 'litellm_init.pth'
+  3. Rotate EVERY credential this machine has touched: cloud keys, SSH keys, API tokens,
+     anything that was in your environment while that version was installed.
+  4. Reinstall the pinned version and re-run setup.
+```
+
+If the installed version is older than the pin but not one of the compromised two, warn and continue.
+
+**Managed-configuration checks** (both are read-only; neither writes anything):
+
+- **Claude Code managed settings.** If `managed-settings.json` exists and contains `forceLoginMethod`
+  or `forceLoginOrgUUID`, gateway credentials cannot be used at all on this machine (Claude Code
+  ≥ 2.1.146 refuses the combination; the symptom is `This machine's managed settings require a
+  first-party login`). Only an administrator can resolve it. Print a prominent warning, **skip the
+  Claude Code configuration step entirely** (Step 6.2), and continue — do *not* exit, because the
+  proxy and the Claude Desktop path still work. Flag it in the final summary and in `manifest.json`
+  as `cli_configured: false, cli_blocked_reason: "managed-settings-force-login"`.
+- **Desktop MDM profile.** If an Anthropic managed-preferences profile is present, MDM wins and any
+  locally-entered form values are ignored — the in-app form is read-only and the §8 instruction block
+  is un-followable. Print the MDM variant of the instructions instead (see §8), listing the key/value
+  pairs an administrator must deploy rather than telling the user to fill a form they cannot edit.
 
 ### Step 2 — NVIDIA API key
 
@@ -243,9 +278,14 @@ gateway credential / non-Anthropic base URL is active (Claude Code ≥ 2.1.196).
 `/v1/models` shows only "recognizably Claude" IDs — our aliases aren't, so `inferenceModels` must
 be set explicitly in the form. Config is read **once at app launch** → user must fully quit and
 reopen. While a gateway is active: desktop sessions run locally only (local Cowork VM works; no
-Anthropic-hosted cloud environments, no SSH picker, no Remote Control). MCP tool search and other
-experimental betas are disabled by default on 3P — correct for this proxy; don't enable
-`toolSearchEnabled`.
+Anthropic-hosted cloud environments, no SSH picker, no Remote Control).
+
+MCP tool search is **disabled by default on 3P** because most proxies don't forward `tool_reference`
+content blocks. The control is the environment variable **`ENABLE_TOOL_SEARCH=true`** (there is no
+`toolSearchEnabled` key — an earlier revision of this spec named one in error). LiteLLM in passthrough
+mode *does* forward those blocks and is named in the docs as such, so this is a **supported opt-in for
+this gateway**, not something to avoid. Leave it off by default — one less variable while proving the
+chain out — and document it in the README as available.
 
 ### 5.3 Why Desktop is instructions, not automation
 
@@ -270,7 +310,11 @@ model_list:
     litellm_params:
       model: nvidia_nim/{{PRIMARY_MODEL_ID}}
       api_key: os.environ/NVIDIA_NIM_API_KEY
-      # api_base: {{NIM_BASE_URL}}   # emitted only when --nim-base-url was given
+      # api_base: {{NIM_BASE_URL}}   # emitted only when --nim-base-url was given.
+      # MEASURED 2026-07-28: api_base must INCLUDE the /v1 suffix — LiteLLM appends
+      # "/chat/completions" to it verbatim (observed: POST /v1/chat/completions upstream).
+      # So http://host:8080/v1 is correct; http://host:8080 is not. Matches the hosted
+      # default https://integrate.api.nvidia.com/v1. This closes the §14 open item.
 
   - model_name: nim-small            # background/haiku-class traffic
     litellm_params:
@@ -297,6 +341,13 @@ general_settings:
 `drop_params: true` is mandatory: Claude clients send Anthropic-specific fields with no NIM
 equivalent. LiteLLM also serves `GET /v1/models` from `model_list` — used by test mode and
 available for Claude Code's optional gateway model discovery.
+
+**`master_key: os.environ/LITELLM_MASTER_KEY` is confirmed working** (measured 2026-07-28, litellm
+1.93.0): the `os.environ/` indirection *is* honoured for `general_settings.master_key`, and behaves
+identically to a literal value. This matters because it is what keeps `config.yaml` free of secrets
+and lets it stay `0644` while `litellm.env` alone is `0600`. If a future litellm release stops
+honouring the indirection here, the fallback is to inline the key **and** tighten `config.yaml` to
+`0600` — do not inline it without also changing the mode.
 
 ### 6.2 `run.sh` (the launcher pm2 runs)
 
@@ -395,7 +446,27 @@ While third-party inference is active:
   still uses Anthropic and cannot be redirected.
 - Anthropic-hosted cloud environments, the SSH environment picker, and Remote Control are
   unavailable. Disable third-party inference in the same Developer form to get them back.
+
+Tip: once the form is filled, **Export** in the same window writes a `.mobileconfig` (macOS) or
+`.reg` (Windows) you can reuse on a second machine instead of retyping the gateway key. Note that
+installing it as a managed profile makes the in-app form read-only from then on.
 ```
+
+**MDM variant.** When the Desktop MDM profile check in §4 Step 1 found a managed profile, the form is
+read-only and the block above cannot be followed. Print this instead — the values an administrator
+must deploy (each object-typed value is a **JSON string**, not a plist `<dict>` or `<array>`):
+
+| Key | Value |
+|---|---|
+| `inferenceProvider` | `gateway` |
+| `inferenceGatewayBaseUrl` | `http://127.0.0.1:{{PORT}}` |
+| `inferenceGatewayApiKey` | `{{MASTER_KEY}}` |
+| `inferenceGatewayAuthScheme` | `bearer` |
+| `inferenceCredentialKind` | `static` |
+| `inferenceModels` | `[{"name":"nim-large","anthropicFamilyTier":"sonnet"},{"name":"nim-small","anthropicFamilyTier":"haiku"}]` |
+
+A localhost gateway URL in a fleet-wide MDM profile only makes sense for a single-machine or lab
+profile — say so in the printed note, so nobody pushes `127.0.0.1:4000` to the whole org.
 
 ---
 
@@ -410,8 +481,12 @@ While third-party inference is active:
 | `ANTHROPIC_MODEL` | `nim-large` | Active model. |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | `nim-large` | `/model` picker class entries resolve to NIM. |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | `nim-large` | |
+| `ANTHROPIC_DEFAULT_FABLE_MODEL` | `nim-large` | **Required.** The tier enum is now `sonnet\|opus\|haiku\|fable\|mythos`; without this, a bare `fable` alias — `/model fable`, subagent frontmatter, the Desktop Code tab — resolves to nothing routable. |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `nim-small` | Current name for background-model override. |
 | `ANTHROPIC_SMALL_FAST_MODEL` | `nim-small` | Deprecated predecessor; set for older CLI versions (harmless). |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | `nim-small` | Pins subagents, agent teams, and workflow agents to the cheap model. Without it they inherit normal resolution and every fan-out hits the primary — material against NIM's ~40 RPM free tier. Set to `inherit` to opt out. |
+| `ANTHROPIC_CUSTOM_MODEL_OPTION` | `nim-large` | Puts the alias in the `/model` picker. Routing works without it (model-name validation is skipped behind a gateway), but the picker would otherwise show only built-in Claude entries and a user could silently switch off the working config. Validation is skipped for this variable's value. |
+| `ANTHROPIC_CUSTOM_MODEL_OPTION_NAME` | `NIM (primary)` | Display name for the picker entry. |
 | `API_TIMEOUT_MS` | `600000` | Large NIM models are slow. |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | Protects NIM's ~40 RPM free tier. Side effects: disables auto-update and gateway model discovery — README notes. |
 | `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` | `1` | Suppresses pre-release request fields non-Anthropic upstreams 400 on. |
@@ -487,7 +562,7 @@ names the broken layer (client config / proxy / LiteLLM translation / NIM upstre
 | # | Check | Method | Pass criteria | Critical |
 |---|---|---|---|---|
 | 1 | Proxy alive | `GET /health/liveliness` | HTTP 200 | ✅ |
-| 2 | Auth enforced | `POST /v1/messages` **without** key | 401/403 (proves master key required) | ✅ |
+| 2 | Auth enforced | `POST /v1/messages` with a **deliberately wrong** key (not a missing one) | **any non-2xx** — assert the response is not a completion. Do **not** assert 401/403: see the note below | ✅ |
 | 3 | NIM reachable & models exist | `GET {nim_base}/models` with NIM key | 200; both configured IDs present (absent → warn, not fail: catalog listings shift) | ✅ (401 ⇒ fail) |
 | 4 | Anthropic-format completion | see request A below | 200; non-empty `content[0].text`; `stop_reason` present | ✅ |
 | 5 | **Tool calling** | request B below | a `content` block `"type":"tool_use"` with parseable `input.city` | ✅ |
@@ -496,6 +571,22 @@ names the broken layer (client config / proxy / LiteLLM translation / NIM upstre
 | 8 | `claude-*` wildcard | request A with `"model":"claude-sonnet-4-6"` | 200 | ✅ |
 | 9 | CLI config coherent | read settings.json | base URL/token match manifest; warn on conflicting shell `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` exports | warn-only |
 | 10 | Live CLI smoke | if `claude` on PATH: `claude -p 'Reply with exactly: OK'` (gateway env exported, 120 s timeout) | non-empty stdout | warn-only |
+
+> **Check 2 — measured behaviour, 2026-07-28 (litellm 1.93.0).** An earlier revision of this spec
+> asserted 401/403 here. **LiteLLM returns neither**, and a check written that way fails against a
+> correctly-secured proxy:
+>
+> | Probe | Observed | Meaning |
+> |---|---|---|
+> | correct key, `Authorization: Bearer` | `200` | happy path |
+> | correct key, `x-api-key` | `200` | LiteLLM accepts either header — so Desktop may use either auth scheme (§8 specifies `bearer`; both work) |
+> | **wrong** key | `400 {"error":{"message":"No connected db.","type":"no_db_connection"}}` | **auth IS enforced.** LiteLLM rejected the key, then tried to resolve it as a *virtual key* and found no database. Confusing wording, correct outcome. |
+> | **no** `Authorization` header at all | `500` | the missing-header path raises rather than returning a clean 401 |
+>
+> Therefore: probe with a **wrong key**, and assert only that the response is **not a 2xx completion**.
+> A missing header can crash an auth path; only a wrong key that returns `200` proves there is no auth.
+> When this check fails, the message must say *"the proxy accepted a bad key — anything on this machine
+> can spend your NVIDIA credits"*, not "expected 401".
 
 Request A (matches the official gateway smoke test shape):
 
@@ -555,6 +646,9 @@ All checks passed. Claude Desktop steps: ~/.config/claude-nim-proxy/DESKTOP-SETU
 | `--model` not in live catalog | Error with up to 5 near-matches (substring); exit 1 |
 | Health check timeout | Dump last 50 pm2 log lines; exit 1 |
 | settings.json unparseable | Abort CLI-config step with path + parse error; rest of setup continues; final summary flags it |
+| Managed settings force first-party login (`forceLoginMethod` / `forceLoginOrgUUID`) | Warn; skip Step 6.2 entirely; continue with proxy + Desktop; record `cli_blocked_reason` in the manifest; do **not** exit |
+| Desktop MDM profile present | Print the §8 MDM variant instead of the form instructions; note the form is read-only |
+| litellm 1.82.7 / 1.82.8 detected | Refuse to proceed; print the uninstall + credential-rotation block from §4 Step 1; exit 2 |
 | Ctrl-C at any prompt | Clean abort, nothing half-written (write config files only after all prompts complete); exit 3 |
 | Re-run after partial failure | All steps idempotent: reuse master key, `pm2 delete` before start, regenerate files wholesale |
 
@@ -580,7 +674,30 @@ All checks passed. Claude Desktop steps: ~/.config/claude-nim-proxy/DESKTOP-SETU
 8. **Desktop restart:** 3P config loads only at app launch; ⌘Q and reopen after the form.
 9. **Reboot persistence:** pm2 apps survive daemon restarts after `pm2 save`, but reboots need
    `pm2 startup` (user runs the printed sudo command themselves).
-10. **Supply chain:** never litellm 1.82.7/1.82.8 (PyPI malware); install the pinned version.
+10. **Supply chain:** never litellm 1.82.7/1.82.8 (PyPI malware); install the pinned version (1.93.0
+    or later).
+11. **`/fast` misreports, twice over.** With `ANTHROPIC_AUTH_TOKEN` set, the fast-mode availability
+    check requires a claude.ai login or Anthropic API key, so Claude Code reports *"Fast mode has been
+    disabled by your organization"* without even sending the check — fix with
+    `CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK=1`. Separately,
+    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (set by default) suppresses the availability check,
+    so `/fast` reports unavailable. Both read to a user as "the proxy broke Claude Code" — say so
+    here before they file it as a bug.
+12. **WebFetch still calls `api.anthropic.com`.** Its domain-safety preflight is *not* covered by
+    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. Harmless on an open network; on restricted egress set
+    `skipWebFetchPreflight: true` — a **top-level settings key**, not an entry inside `env`.
+13. **MCP tool search is available, not forbidden.** Off by default on 3P, opt in with the
+    `ENABLE_TOOL_SEARCH=true` environment variable (Desktop 3P, not Claude Code). Safe here because
+    LiteLLM passthrough forwards `tool_reference` blocks (§5.2).
+14. **`400 No connected db.` means "wrong gateway key", not "database missing".** This is the single
+    most confusing error a user will hit, and it is guaranteed to happen the first time someone
+    mistypes the key into the Desktop form or lets Claude Code's `ANTHROPIC_AUTH_TOKEN` drift out of
+    sync with `litellm.env`. LiteLLM rejects the unknown key, then tries to resolve it as a *virtual
+    key* in a database that does not exist, and surfaces the database failure instead of an auth
+    failure. Measured 2026-07-28. The README must say so verbatim, and `status`/`test` must translate
+    it: *"the gateway rejected your key — re-copy the master key from
+    `~/.config/claude-nim-proxy/litellm.env` (or re-run `claude-nim-proxy setup`)."* Do **not**
+    attempt to fix this by attaching a database; there is nothing wrong.
 
 ---
 
@@ -620,7 +737,35 @@ Manual test matrix (engineer executes before sign-off):
 
 ---
 
-## 14. Sources (fetched 2026-07-16)
+## 14. Sources
+
+**Re-verification pass 2026-07-28** confirmed 22 load-bearing claims unchanged and produced the rev-3
+edits above. Full evidence, including per-claim status and this machine's prerequisite state, is in
+`VERIFICATION-2026-07-28.md`. Current doc URLs (the Desktop 3P pages moved to `claude.com/docs/…` and
+the Claude Code gateway page to `code.claude.com/docs/en/…`):
+
+- Claude Desktop 3P gateway: https://claude.com/docs/third-party/claude-desktop/gateway
+- Claude Desktop 3P configuration reference: https://claude.com/docs/third-party/claude-desktop/configuration
+- Claude Code LLM gateway: https://code.claude.com/docs/en/llm-gateway-connect
+- Claude Code model configuration (tier defaults, custom model option): https://code.claude.com/docs/en/model-config
+
+**The former open research item is CLOSED — measured, not read.** A spike on 2026-07-28
+(`test/step0-spike.sh` + `step0b-auth-diagnostic.sh`, litellm 1.93.0, Node v26.5.0, against a
+mock NIM) confirmed the whole §1 premise empirically rather than from documentation:
+
+| Question | Answer |
+|---|---|
+| Does LiteLLM `/v1/messages` translate `nvidia_nim/*` into Anthropic format? | **Yes** — `content[0].text` + `stop_reason` returned |
+| With tool use? | **Yes** — `type:"tool_use"` block with parseable `input.city` |
+| With streaming? | **Yes** — `message_start` present, 14 SSE lines |
+| Does the `claude-*` wildcard absorb concrete Anthropic ids? | **Yes** — `claude-sonnet-4-6` routed |
+| What URL shape does `api_base` need? | **Include `/v1`.** LiteLLM appends `/chat/completions` verbatim (observed `POST /v1/chat/completions`) |
+| Is `os.environ/` honoured for `general_settings.master_key`? | **Yes** — identical to a literal value |
+| Is the master key actually enforced? | **Yes** — a wrong key is rejected (see the check-2 note in §11) |
+
+No outstanding research items. §6.1's config shape is validated as written.
+
+### Original source list (fetched 2026-07-16)
 
 - Claude Code LLM gateway (env vars, precedence, verification curl, troubleshooting):
   https://code.claude.com/docs/en/llm-gateway-connect.md
