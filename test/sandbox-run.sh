@@ -148,7 +148,11 @@ mkdir -p "$SANDBOX/.claude" "$SANDBOX/.config" "$STATE_DIR"
 printf '%sSandboxed run%s\n' "$c_b" "$c_off"
 printf '  real HOME     %s  %s(read-only from here on)%s\n' "$REAL_HOME" "$c_dim" "$c_off"
 printf '  sandbox HOME  %s\n' "$SANDBOX"
-printf '  command       %s\n' "$*"
+# Redact secret-bearing flags before echoing the command. An earlier version printed "$*" verbatim,
+# which put `--nim-api-key nvapi-…` in the terminal (and therefore in scrollback, screenshots and
+# any piped log) on every run — the harness leaking the secret the tool under test is careful with.
+REDACTED="$(printf '%s\n' "$*" | sed -E 's/(--nim-api-key|--api-key|--token)([= ])[^ ]+/\1\2***REDACTED***/g')"
+printf '  command       %s\n' "$REDACTED"
 
 # Resolve the tools we need to ABSOLUTE paths before HOME changes. PATH entries are already
 # expanded in the environment, so this is belt-and-braces — but if anything lived under

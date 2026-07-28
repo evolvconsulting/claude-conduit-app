@@ -1,0 +1,25 @@
+{
+  "name": "claude-nim-proxy",
+  "version": "0.1.0",
+  "description": "Route Claude Desktop (Cowork) and Claude Code through a local LiteLLM proxy to NVIDIA NIM.",
+  "type": "module",
+  "bin": {
+    "claude-nim-proxy": "./claude-nim-proxy.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "claude-nim-proxy.mjs",
+    "README.md",
+    "DESIGN.md"
+  ],
+  "scripts": {
+    "spike": "bash test/step0-spike.sh",
+    "test:hermetic": "bash test/run-hermetic.sh",
+    "test:sandbox": "bash test/sandbox-run.sh --",
+    "mock": "node test/mock-nim.mjs"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
