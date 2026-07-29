@@ -12,7 +12,7 @@
 import { createServer } from 'node:net'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -429,6 +429,343 @@ async function resolveApiKey(opts, baseUrl) {
   throw new Abort('could not obtain a working API key', EXIT.PREREQ)
 }
 
+// ─── Step 3: model selection (§4) ───────────────────────────────────────────────────────────────
+
+const PAGE = 20
+
+/** Up to 5 substring near-matches, for the "--model isn't in the catalog" error (§12.1). */
+const nearMatches = (needle, models) => {
+  const n = needle.toLowerCase()
+  const parts = n.split(/[/\-_]/).filter((p) => p.length > 2)
+  return models.filter((m) => {
+    const l = m.toLowerCase()
+    return l.includes(n) || parts.some((p) => l.includes(p))
+  }).slice(0, 5)
+}
+
+/**
+ * §4 Step 3. Curated shortlist INTERSECTED with the live catalog — never offer a model the account
+ * cannot call — plus free substring search over the full list with paging.
+ *
+ * The catalog does not advertise function-calling support, so a pick outside the curated list is
+ * accepted with a warning and test-mode check 5 is the authority (§11).
+ */
+async function pickModel({ label, hint, recommended, catalog, preset, presetFlag, yes }) {
+  if (preset) {
+    if (!catalog.includes(preset)) {
+      const near = nearMatches(preset, catalog)
+      throw new Abort(`${presetFlag} "${preset}" is not in the live catalog`, EXIT.FAIL,
+        near.length ? `Did you mean:\n       ${near.join('\n       ')}` : `The account has ${catalog.length} models; none look similar.`)
+    }
+    ok(`${label}: ${preset}`, `via ${presetFlag}`)
+    if (!recommended.includes(preset)) warn('tool-calling support unverified for this model', 'the final test will check it')
+    return preset
+  }
+
+  const shortlist = recommended.filter((m) => catalog.includes(m))
+  const fallback = shortlist[0] ?? catalog[0]
+
+  // Non-interactive: take the default rather than hanging on a prompt nobody can answer.
+  if (yes || !process.stdin.isTTY) {
+    ok(`${label}: ${fallback}`, 'default (non-interactive)')
+    return fallback
+  }
+
+  say('')
+  say(`  ${C.b}Select the ${label}${C.off} ${C.dim}(${hint})${C.off}`)
+  say('')
+  if (shortlist.length) {
+    say(`    ${C.dim}Recommended:${C.off}`)
+    shortlist.forEach((m, i) => say(`      ${i + 1}) ${m}${i === 0 ? `   ${C.dim}[default]${C.off}` : ''}`))
+  } else {
+    warn('none of the recommended models are available on this account', 'search the full catalog below')
+  }
+  say('')
+  say(`    ${C.dim}Or: type part of a name to search all ${catalog.length} models, or 'list' to page through them.${C.off}`)
+  say('')
+
+  for (;;) {
+    const answer = await ask(`  Choice [1]: `)
+    if (answer === '') return confirmPick(fallback, recommended)
+
+    const n = Number(answer)
+    if (Number.isInteger(n) && n >= 1 && n <= shortlist.length) return confirmPick(shortlist[n - 1], recommended)
+
+    const picked = await searchAndPick(catalog, answer)
+    if (picked) return confirmPick(picked, recommended)
+    // null => the user pressed Enter to back out; fall through to the shortlist prompt again
+  }
+}
+
+/**
+ * Search + paging, staying INSIDE the search until the user picks or backs out with Enter.
+ *
+ * An earlier version returned to the caller on any unrecognised input, which meant typing "more"
+ * when there was no next page silently dropped you back to the shortlist prompt — and the number you
+ * typed next was then scored against the SHORTLIST rather than your search results. Wrong model,
+ * no error, entirely the user's fault by appearances. Found by driving the picker under a pty.
+ */
+async function searchAndPick(catalog, firstQuery) {
+  let query = firstQuery.toLowerCase() === 'list' ? '' : firstQuery.toLowerCase()
+  for (;;) {
+    const hits = catalog.filter((m) => m.toLowerCase().includes(query))
+    if (!hits.length) {
+      bad(`no model matches "${query}"`, 'try a shorter fragment, or press Enter to go back')
+      const next = await ask('  Search: ')
+      if (next === '') return null
+      query = next.toLowerCase(); continue
+    }
+
+    let offset = 0
+    for (;;) {
+      const slice = hits.slice(offset, offset + PAGE)
+      const shown = offset + slice.length
+      say('')
+      say(`    ${C.dim}${hits.length} match${hits.length === 1 ? '' : 'es'}${query ? ` for "${query}"` : ''}` +
+          `${hits.length > PAGE ? ` — showing ${offset + 1}-${shown}` : ''}${C.off}`)
+      slice.forEach((m, i) => say(`      ${offset + i + 1}) ${m}`))
+      say('')
+      const hasMore = shown < hits.length
+      const answer = await ask(
+        `  Number to select${hasMore ? `, 'more' for the next ${Math.min(PAGE, hits.length - shown)}` : ''}, ` +
+        `a new search, or Enter to go back: `)
+
+      if (answer === '') return null
+      if (answer.toLowerCase() === 'more') {
+        if (hasMore) { offset += PAGE; continue }
+        // Say so rather than reinterpreting the word as a search for "more".
+        warn(`that is all ${hits.length} match${hits.length === 1 ? '' : 'es'}`, 'pick a number, type a new search, or press Enter to go back')
+        continue
+      }
+      const n = Number(answer)
+      if (Number.isInteger(n) && n >= 1 && n <= hits.length) return hits[n - 1]
+      if (Number.isInteger(n)) { bad(`${n} is out of range (1-${hits.length})`); continue }
+      query = answer.toLowerCase(); break   // treat as a new search, staying in this mode
+    }
+  }
+}
+
+function confirmPick(model, recommended) {
+  if (!recommended.includes(model)) warn(`tool-calling support unverified for ${model}`, 'the final test will check it')
+  else ok(`selected ${model}`)
+  return model
+}
+
+async function selectModels(opts, catalog) {
+  head('Step 3 — model selection')
+  const primary = await pickModel({
+    label: 'PRIMARY model', hint: 'handles coding/agentic traffic — must support tool calling',
+    recommended: RECOMMENDED_PRIMARY, catalog, preset: opts.model, presetFlag: '--model', yes: opts.yes,
+  })
+  const small = await pickModel({
+    label: 'SMALL/FAST model', hint: 'background and haiku-class traffic',
+    recommended: RECOMMENDED_SMALL, catalog, preset: opts.smallModel, presetFlag: '--small-model', yes: opts.yes,
+  })
+  return { primary, small }
+}
+
+// ─── Step 4: generate configuration (§2 table, §6, §7.1) ────────────────────────────────────────
+
+/** Write + chmod in one place so a mode is never forgotten. §13.7 turns these into an assertion. */
+function writeFileMode(path, content, mode) {
+  const tmp = `${path}.tmp.${process.pid}`
+  writeFileSync(tmp, content, { mode })
+  renameSync(tmp, path)
+  chmodSync(path, mode)   // rename preserves the temp file's mode; be explicit anyway
+}
+
+/** §4 Step 4 — reuse an existing master key so idempotent re-runs don't invalidate configured clients. */
+function existingMasterKey() {
+  const envFile = join(CONFIG_DIR, 'litellm.env')
+  if (!existsSync(envFile)) return null
+  const m = /^LITELLM_MASTER_KEY=(.+)$/m.exec(readFileSync(envFile, 'utf8'))
+  return m?.[1]?.trim() || null
+}
+
+const newMasterKey = () => `sk-litellm-${randomBytes(24).toString('hex')}`
+
+function renderConfigYaml({ primary, small, nimBaseUrl }) {
+  // api_base is emitted only for a custom NIM. MEASURED 2026-07-28: it must include the /v1 suffix —
+  // LiteLLM appends "/chat/completions" to it verbatim.
+  const apiBase = nimBaseUrl ? `\n      api_base: ${nimBaseUrl}` : ''
+  const block = (name, model) =>
+    `  - model_name: ${name}\n    litellm_params:\n      model: nvidia_nim/${model}\n      api_key: os.environ/NVIDIA_NIM_API_KEY${apiBase}\n`
+  return `# Generated by claude-nim-proxy. Re-running setup regenerates this file wholesale.
+# Edit by hand only if you also run: claude-nim-proxy restart
+model_list:
+  # Stable aliases: clients reference these, so swapping the underlying NIM model never
+  # requires touching client configuration.
+${block('nim-large', primary)}
+${block('nim-small', small)}
+  # Safety net: Claude clients request concrete Anthropic ids regardless of overrides.
+  # Route them at the primary model so they do not 400.
+${block('"claude-*"', primary)}
+litellm_settings:
+  drop_params: true        # drop Anthropic-only params NIM rejects (cache_control, thinking, metadata…)
+  num_retries: 2
+  request_timeout: 600
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+`
+}
+
+const renderRunSh = ({ litellmPath, port }) => `#!/bin/bash
+# Generated by claude-nim-proxy. pm2 runs this; do not rename it.
+set -euo pipefail
+set -a; source "${CONFIG_DIR}/litellm.env"; set +a
+# exec: pm2 supervises litellm itself, not a lingering bash parent.
+# --host 127.0.0.1 ALWAYS. Never 0.0.0.0 — this fronts a paid API key behind a static
+# master key on a personal machine.
+# Absolute litellm path: pm2's daemon PATH differs from your shell under uv/pipx installs.
+exec "${litellmPath}" \\
+  --config "${CONFIG_DIR}/config.yaml" \\
+  --host 127.0.0.1 \\
+  --port ${port}
+`
+
+const renderEcosystem = () => `// Generated by claude-nim-proxy. Contains NO secrets — those live in litellm.env (0600).
+module.exports = {
+  apps: [{
+    name: '${PM2_APP}',
+    script: '${join(CONFIG_DIR, 'run.sh')}',
+    interpreter: 'bash',
+    autorestart: true,
+    max_restarts: 10,
+    restart_delay: 3000,
+    kill_timeout: 10000,
+    out_file: '${join(CONFIG_DIR, 'logs', 'out.log')}',
+    error_file: '${join(CONFIG_DIR, 'logs', 'err.log')}',
+    time: true,
+  }],
+}
+`
+
+function renderDesktopSetup({ port, masterKey, desktopMdm }) {
+  const models = '[{"name":"nim-large","anthropicFamilyTier":"sonnet"},{"name":"nim-small","anthropicFamilyTier":"haiku"}]'
+  if (desktopMdm) {
+    return `# Connect Claude Desktop to your local NIM proxy — MDM variant
+
+A Claude Desktop managed-preferences profile is installed on this machine. **MDM wins over locally
+entered values**, so the in-app form is read-only and the normal instructions cannot be followed.
+
+Ask whoever administers the profile to deploy these keys. Each object-typed value is a **JSON
+string** — a single \`<string>\` element, not a plist \`<dict>\` or \`<array>\`.
+
+| Key | Value |
+|---|---|
+| \`inferenceProvider\` | \`gateway\` |
+| \`inferenceGatewayBaseUrl\` | \`http://127.0.0.1:${port}\` |
+| \`inferenceGatewayApiKey\` | \`${masterKey}\` |
+| \`inferenceGatewayAuthScheme\` | \`bearer\` |
+| \`inferenceCredentialKind\` | \`static\` |
+| \`inferenceModels\` | \`${models}\` |
+
+> A localhost gateway URL only makes sense in a single-machine or lab profile. Do **not** push
+> \`127.0.0.1:${port}\` to the whole organisation.
+
+After the profile lands, fully quit Claude Desktop (⌘Q) and reopen it — configuration is read only
+at launch.
+`
+  }
+  return `# Connect Claude Desktop (and Cowork) to your local NIM proxy
+
+1. Open Claude Desktop → menu bar → **Help → Troubleshooting → Enable Developer Mode**
+   (the app restarts with a Developer menu).
+2. **Developer → Configure Third-Party Inference…**
+3. In the form, enter exactly:
+
+   | Field | Value |
+   |---|---|
+   | Inference provider | **Gateway** |
+   | Gateway base URL | \`http://127.0.0.1:${port}\` |
+   | Gateway API key | \`${masterKey}\` |
+   | Credential kind | **Static API key** |
+   | Gateway auth scheme | **Bearer** |
+   | Models (inferenceModels) | \`${models}\` |
+
+   The Models list must be set explicitly — auto-discovery only surfaces Claude-named models, and
+   this proxy's aliases are intentionally provider-neutral.
+
+4. **Fully quit Claude Desktop (⌘Q) and reopen it.** The configuration is read only at launch.
+5. Verify: the model picker should now show \`nim-large\` (default) and \`nim-small\`. Start a Cowork
+   session and give it a trivial task.
+
+Tip: once the form is filled, **Export** in the same window writes a \`.mobileconfig\` (macOS) or
+\`.reg\` (Windows) you can reuse on a second machine instead of retyping the gateway key. Note that
+installing it as a managed profile makes the form read-only from then on.
+
+While third-party inference is active:
+
+- Cowork runs in its local VM through your proxy. Cloud-hosted Cowork (claude.ai, mobile) still uses
+  Anthropic and cannot be redirected.
+- Anthropic-hosted cloud environments, the SSH environment picker, and Remote Control are
+  unavailable. Disable third-party inference in the same Developer form to get them back.
+- If the app reports **\`400 No connected db.\`**, that means the **gateway key is wrong**, not that a
+  database is missing. Re-copy the key from \`${join(CONFIG_DIR, 'litellm.env')}\`.
+`
+}
+
+/**
+ * §4 Step 4. Nothing here runs until every prompt has completed — §12.1 requires that Ctrl-C at any
+ * prompt leaves nothing half-written.
+ */
+function generateConfig({ apiKey, primary, small, opts, prereqs }) {
+  head('Step 4 — generate configuration')
+
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 })
+  chmodSync(CONFIG_DIR, 0o700)
+  mkdirSync(join(CONFIG_DIR, 'logs'), { recursive: true, mode: 0o700 })
+
+  const reused = existingMasterKey()
+  const masterKey = reused ?? newMasterKey()
+  ok(reused ? 'reused the existing master key' : 'generated a master key',
+     reused ? 'already-configured clients keep working' : maskKey(masterKey))
+
+  // The ONLY file that holds secrets, and the only one at 0600.
+  writeFileMode(join(CONFIG_DIR, 'litellm.env'),
+    `# Generated by claude-nim-proxy. Mode 0600 — the only place secrets live.\n` +
+    `NVIDIA_NIM_API_KEY=${apiKey}\nLITELLM_MASTER_KEY=${masterKey}\n`, 0o600)
+  ok('litellm.env', '0600')
+
+  writeFileMode(join(CONFIG_DIR, 'config.yaml'),
+    renderConfigYaml({ primary, small, nimBaseUrl: opts.nimBaseUrl }), 0o644)
+  ok('config.yaml', '0644')
+
+  writeFileMode(join(CONFIG_DIR, 'run.sh'),
+    renderRunSh({ litellmPath: prereqs.litellmPath, port: opts.port }), 0o700)
+  ok('run.sh', `0700 · exec ${prereqs.litellmPath}`)
+
+  writeFileMode(join(CONFIG_DIR, 'ecosystem.config.cjs'), renderEcosystem(), 0o644)
+  ok('ecosystem.config.cjs', '0644 · no secrets')
+
+  writeFileMode(join(CONFIG_DIR, 'DESKTOP-SETUP.md'),
+    renderDesktopSetup({ port: opts.port, masterKey, desktopMdm: prereqs.desktopMdm }), 0o644)
+  ok('DESKTOP-SETUP.md', prereqs.desktopMdm ? '0644 · MDM variant' : '0644')
+
+  const manifest = {
+    version: 1,
+    created_at: new Date().toISOString(),
+    port: opts.port,
+    primary_model: primary,
+    small_model: small,
+    nim_base_url: opts.nimBaseUrl ?? null,
+    litellm_path: prereqs.litellmPath,
+    litellm_version: prereqs.version ?? null,
+    pm2_app: PM2_APP,
+    cli_configured: false,
+    cli_blocked_reason: prereqs.cliBlockedReason ?? null,
+    desktop_mdm_profile: prereqs.desktopMdm,
+    settings_file: null,
+    settings_backup: null,
+    env_keys_set: [],
+  }
+  writeFileMode(join(CONFIG_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 0o644)
+  ok('manifest.json', '0644')
+
+  return { masterKey, manifest }
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────────────────────────
 
 async function runSetup(opts) {
@@ -438,23 +775,29 @@ async function runSetup(opts) {
 
   const prereqs = await checkPrereqs(opts)
   const { key, models } = await resolveApiKey(opts, baseUrl)
+  const { primary, small } = await selectModels(opts, models)
 
-  // ── Phase 1 boundary ──
-  // Everything above is read-only: no file has been created, no process started. That is deliberate
-  // (§12.1) — Ctrl-C at any point so far leaves nothing half-written.
+  // ── the write boundary ──
+  // Everything above is read-only: no file created, no process started. §12.1 requires that Ctrl-C
+  // at any prompt leaves nothing half-written, which is enforced structurally by doing all prompting
+  // before this line rather than by trying to clean up afterwards.
+  const { masterKey } = generateConfig({ apiKey: key, primary, small, opts, prereqs })
+
+  // ── Phase 2 boundary ──
   head('Next')
-  info(`Phase 1 complete. Steps 3-7 (model picker, config generation, pm2, client config, test)`)
-  info(`are not implemented yet — see docs/HANDOFF-claude-nim-proxy.md phases 2-4.`)
+  info('Phase 2 complete. Steps 5-7 (pm2 start, client configuration, test mode) are not')
+  info('implemented yet — see docs/HANDOFF-claude-nim-proxy.md phases 3-4.')
   say('')
-  say(`  ${C.dim}resolved so far:${C.off}`)
-  say(`    litellm      ${prereqs.litellmPath}`)
-  say(`    catalog      ${models.length} models  (${models.slice(0, 2).join(', ')}, …)`)
-  say(`    shortlist    ${RECOMMENDED_PRIMARY.filter((m) => models.includes(m)).length}/${RECOMMENDED_PRIMARY.length} recommended primary models available`)
-  say(`    config dir   ${CONFIG_DIR}  ${C.dim}(not created yet)${C.off}`)
+  say(`  ${C.dim}generated in ${CONFIG_DIR}:${C.off}`)
+  say(`    nim-large    ${primary}`)
+  say(`    nim-small    ${small}`)
+  say(`    gateway      http://127.0.0.1:${opts.port}   key ${maskKey(masterKey)}`)
+  say(`    desktop      DESKTOP-SETUP.md${prereqs.desktopMdm ? `  ${C.wa}(MDM variant — the in-app form is read-only)${C.off}` : ''}`)
   if (prereqs.cliBlockedReason) say(`    ${C.wa}cli${C.off}          blocked: ${prereqs.cliBlockedReason}`)
-  if (prereqs.desktopMdm) say(`    ${C.wa}desktop${C.off}      MDM profile present — form is read-only`)
   say('')
-  void key // held for Step 4; never logged
+  say(`  ${C.dim}Start it by hand until Phase 3 lands:${C.off}`)
+  say(`    pm2 start ${join(CONFIG_DIR, 'ecosystem.config.cjs')} && pm2 save`)
+  say('')
   return EXIT.OK
 }
 

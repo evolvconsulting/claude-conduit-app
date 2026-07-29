@@ -94,7 +94,14 @@ if [ -d "$CONFIG_DIR" ]; then
   done
   grep -q 'drop_params: true'   "$CONFIG_DIR/config.yaml" && ok "drop_params: true present  [§6.1]"   || no "drop_params: true present  [§6.1]" "mandatory"
   grep -q 'host 127.0.0.1\|--host 127.0.0.1' "$CONFIG_DIR/run.sh" && ok "run.sh binds 127.0.0.1  [§6.2]" || no "run.sh binds 127.0.0.1  [§6.2]" "must never be 0.0.0.0"
-  grep -q '0\.0\.0\.0' "$CONFIG_DIR/run.sh" && no "run.sh never binds 0.0.0.0  [§6.2]" "found 0.0.0.0" || ok "run.sh never binds 0.0.0.0  [§6.2]"
+  # Strip comments first: run.sh legitimately CONTAINS the string 0.0.0.0 in the comment explaining
+  # why it must never bind to it. A naive grep fails a correct file, and an assertion that cries
+  # wolf on correct code is worse than no assertion.
+  if grep -v '^[[:space:]]*#' "$CONFIG_DIR/run.sh" | grep -q '0\.0\.0\.0'; then
+    no "run.sh never binds 0.0.0.0  [§6.2]" "found 0.0.0.0 outside a comment"
+  else
+    ok "run.sh never binds 0.0.0.0  [§6.2]"
+  fi
   grep -qE '^exec .*/litellm|^exec /' "$CONFIG_DIR/run.sh" && ok "run.sh execs an absolute litellm path  [§6.2]" || no "run.sh execs an absolute litellm path  [§6.2]" "bare name breaks under pm2's PATH"
   MASTER="$(grep -oE 'sk-litellm-[0-9a-f]+' "$CONFIG_DIR/litellm.env" | head -1 || true)"
   [ -n "$MASTER" ] && ok "master key generated  [§4 Step 4]" || no "master key generated  [§4 Step 4]" "not found in litellm.env"
