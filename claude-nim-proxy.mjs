@@ -766,6 +766,281 @@ function generateConfig({ apiKey, primary, small, opts, prereqs }) {
   return { masterKey, manifest }
 }
 
+// ─── Step 5: pm2 lifecycle (§7) ─────────────────────────────────────────────────────────────────
+
+const healthUrl = (port) => `http://127.0.0.1:${port}/health/liveliness`
+
+async function pingHealth(port, timeoutMs = 3000) {
+  try {
+    const r = await fetch(healthUrl(port), { signal: AbortSignal.timeout(timeoutMs) })
+    return r.ok
+  } catch { return false }
+}
+
+const pm2Apps = () => parseJsonTail(run('pm2', ['jlist']).stdout) ?? []
+
+/** §7.2 — idempotent start, health poll, pm2 save, print-only boot guidance. Never runs sudo. */
+async function startProxy(opts) {
+  head('Step 5 — start the proxy under pm2')
+
+  if (pm2Apps().some((a) => a?.name === PM2_APP)) {
+    run('pm2', ['delete', PM2_APP])
+    ok(`removed the previous ${PM2_APP} app`, 're-running setup is idempotent')
+  }
+
+  const eco = join(CONFIG_DIR, 'ecosystem.config.cjs')
+  const started = run('pm2', ['start', eco], { timeout: 60_000 })
+  if (!started.ok) {
+    throw new Abort('pm2 could not start the app', EXIT.FAIL,
+      `${started.stderr || started.stdout}\n     Try: pm2 start ${eco}`)
+  }
+
+  // LiteLLM's cold start is slow (schema build). Poll rather than sleeping a fixed time.
+  process.stdout.write('  waiting for the proxy to answer /health/liveliness ')
+  const deadline = Date.now() + 60_000
+  let live = false
+  while (Date.now() < deadline) {
+    if (await pingHealth(opts.port)) { live = true; break }
+    process.stdout.write('.')
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  process.stdout.write('\n')
+
+  if (!live) {
+    const logs = run('pm2', ['logs', PM2_APP, '--lines', '50', '--nostream'])
+    say('')
+    say(`${C.dim}--- pm2 logs ${PM2_APP} --lines 50 ---${C.off}`)
+    say(logs.stdout || logs.stderr || '(no output)')
+    say('')
+    throw new Abort(`the proxy did not become healthy within 60s`, EXIT.FAIL,
+      `Check the log above. Common causes: a bad model id in config.yaml, or litellm failing to start.`)
+  }
+  ok('proxy is live', healthUrl(opts.port))
+
+  const saved = run('pm2', ['save'])
+  saved.ok ? ok('pm2 save', 'the app list survives a daemon restart')
+           : warn('pm2 save failed', 'the proxy runs now but will not survive a pm2 daemon restart')
+
+  // §7.2 step 5 — PRINT ONLY. The wizard must never run sudo itself.
+  info('to survive a reboot: run `pm2 startup`, then run the sudo command it prints yourself')
+}
+
+// ─── Step 6: Claude Code configuration (§9.1) ───────────────────────────────────────────────────
+
+/** §9.1 + rev-3 deltas B and D. Order is cosmetic; the merge sets exactly these keys. */
+function envKeysFor(port, masterKey) {
+  return {
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
+    ANTHROPIC_AUTH_TOKEN: masterKey,
+    ANTHROPIC_MODEL: 'nim-large',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: 'nim-large',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'nim-large',
+    ANTHROPIC_DEFAULT_FABLE_MODEL: 'nim-large',      // delta B — the tier enum grew
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'nim-small',
+    ANTHROPIC_SMALL_FAST_MODEL: 'nim-small',          // deprecated predecessor; harmless
+    CLAUDE_CODE_SUBAGENT_MODEL: 'nim-small',          // delta B — keep fan-out off the big model
+    ANTHROPIC_CUSTOM_MODEL_OPTION: 'nim-large',       // delta D — put the alias in /model
+    ANTHROPIC_CUSTOM_MODEL_OPTION_NAME: 'NIM (primary)',
+    API_TIMEOUT_MS: '600000',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: '16384',
+  }
+}
+
+const settingsPath = () => join(homedir(), '.claude', 'settings.json')
+
+/**
+ * §9.1, implemented exactly as specified. The dangerous operation in this whole tool: it edits a
+ * file the user did not create and may have spent months tuning.
+ *
+ *   1. unparseable  -> ABORT this step. Never overwrite what you cannot parse.
+ *   2. set only our keys inside `env`; preserve every other key untouched
+ *   3. timestamped backup BEFORE writing; record it in the manifest
+ *   4. atomic write (temp + rename), pretty-printed 2-space JSON
+ *
+ * Note this targets ~/.claude/settings.json, NOT a project-scoped file: a project `env` block only
+ * applies after the first-run wizard, which produces a login prompt despite a working gateway.
+ */
+function configureClaudeCode({ port, masterKey, manifest }) {
+  const path = settingsPath()
+  const keys = envKeysFor(port, masterKey)
+
+  let settings = {}
+  if (existsSync(path)) {
+    const raw = readFileSync(path, 'utf8')
+    try {
+      settings = JSON.parse(raw)
+    } catch (e) {
+      bad(`${path} is not valid JSON — leaving it untouched`, `${e.message}\n     Fix the file, then re-run:  claude-nim-proxy setup --configure-cli`)
+      return { configured: false, reason: 'unparseable-settings' }
+    }
+    if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
+      bad(`${path} is not a JSON object — leaving it untouched`)
+      return { configured: false, reason: 'unparseable-settings' }
+    }
+  }
+
+  // Backup BEFORE the write, and only when there is something to back up.
+  let backup = null
+  if (existsSync(path)) {
+    backup = `${path}.bak.claude-nim-proxy.${new Date().toISOString().replace(/[:.]/g, '-')}`
+    writeFileSync(backup, readFileSync(path))
+    ok('backed up the existing settings', backup)
+  }
+
+  const merged = { ...settings, env: { ...(settings.env ?? {}), ...keys } }
+  mkdirSync(join(homedir(), '.claude'), { recursive: true })
+  const tmp = `${path}.tmp.${process.pid}`
+  writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n')
+  renameSync(tmp, path)
+
+  const preserved = Object.keys(settings).filter((k) => k !== 'env')
+  ok(`set ${Object.keys(keys).length} env keys in ${path}`,
+     preserved.length ? `preserved: ${preserved.join(', ')}` : 'no other keys were present')
+
+  manifest.cli_configured = true
+  manifest.settings_file = path
+  manifest.settings_backup = backup
+  manifest.env_keys_set = Object.keys(keys)
+  writeFileMode(join(CONFIG_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 0o644)
+
+  return { configured: true, backup }
+}
+
+async function step6ClientConfig({ opts, masterKey, manifest, prereqs }) {
+  head('Step 6 — client configuration')
+
+  const desktopDoc = join(CONFIG_DIR, 'DESKTOP-SETUP.md')
+  ok('Claude Desktop instructions written', desktopDoc)
+  info(prereqs.desktopMdm
+    ? 'MDM variant — the in-app form is read-only, so it lists the keys for your administrator'
+    : 'Desktop cannot be configured by a script; open that file and follow it')
+
+  if (prereqs.cliBlockedReason) {
+    warn('skipping Claude Code configuration', `blocked by ${prereqs.cliBlockedReason} — only an administrator can change it`)
+    return
+  }
+
+  let wanted = opts.configureCli
+  if (wanted === null) {
+    wanted = opts.yes ? false : /^y(es)?$/i.test(await ask('  Also configure the Claude Code CLI to use this proxy? [y/N]: '))
+  }
+  if (!wanted) { info('left Claude Code untouched (--no-cli)'); return }
+
+  const r = configureClaudeCode({ port: opts.port, masterKey, manifest })
+  if (r.configured) info('restart any running Claude Code session to pick the new values up')
+}
+
+// ─── status (§9.2) and restart (§7.3) ───────────────────────────────────────────────────────────
+
+function readManifest() {
+  const p = join(CONFIG_DIR, 'manifest.json')
+  if (!existsSync(p)) return null
+  try { return JSON.parse(readFileSync(p, 'utf8')) } catch { return null }
+}
+
+async function runStatus() {
+  say(`${C.b}claude-nim-proxy status${C.off}`)
+  const manifest = readManifest()
+  if (!manifest) {
+    warn('no manifest found', `${CONFIG_DIR} does not look configured — run: claude-nim-proxy setup`)
+    return EXIT.FAIL
+  }
+  const port = manifest.port ?? DEFAULT_PORT
+
+  head('Proxy')
+  const app = pm2Apps().find((a) => a?.name === PM2_APP)
+  app ? ok(`pm2 app ${PM2_APP}`, `${app.pm2_env?.status ?? 'unknown'} · restarts ${app.pm2_env?.restart_time ?? 0}`)
+      : bad(`pm2 app ${PM2_APP} is not registered`, `pm2 start ${join(CONFIG_DIR, 'ecosystem.config.cjs')}`)
+
+  const listening = !(await portFree(port))
+  listening ? ok(`port ${port} is listening`) : bad(`nothing is listening on port ${port}`)
+  const healthy = await pingHealth(port)
+  healthy ? ok('/health/liveliness answers') : bad('/health/liveliness does not answer')
+
+  head('Models')
+  if (healthy) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+        headers: { Authorization: `Bearer ${readMasterKeyOrNull() ?? ''}` },
+        signal: AbortSignal.timeout(5000),
+      })
+      const body = await r.json().catch(() => ({}))
+      const ids = (body?.data ?? []).map((m) => m?.id).filter(Boolean)
+      ids.length ? ok(`aliases served: ${ids.join(', ')}`) : warn('the proxy returned no model list')
+    } catch { warn('could not read /v1/models') }
+  } else {
+    info('skipped — the proxy is not answering')
+  }
+  info(`nim-large → ${manifest.primary_model} · nim-small → ${manifest.small_model}`)
+
+  head('Claude Code')
+  if (manifest.cli_blocked_reason) {
+    warn('blocked by managed settings', manifest.cli_blocked_reason)
+  } else if (!manifest.cli_configured) {
+    info('not configured by this tool')
+  } else {
+    const p = manifest.settings_file ?? settingsPath()
+    let s = null
+    try { s = JSON.parse(readFileSync(p, 'utf8')) } catch { /* handled below */ }
+    if (!s) bad(`could not read ${p}`)
+    else {
+      const env = s.env ?? {}
+      const expected = envKeysFor(manifest.port, env.ANTHROPIC_AUTH_TOKEN ?? '')
+      const present = Object.keys(expected).filter((k) => env[k] !== undefined)
+      const pointsHere = env.ANTHROPIC_BASE_URL === `http://127.0.0.1:${manifest.port}`
+      if (pointsHere && present.length === Object.keys(expected).length) ok('configured and pointing at this proxy')
+      else if (pointsHere) warn(`partially configured`, `${present.length}/${Object.keys(expected).length} keys present`)
+      else bad('ANTHROPIC_BASE_URL does not point at this proxy', `found: ${env.ANTHROPIC_BASE_URL ?? '(unset)'}`)
+    }
+    // Shell exports override nothing (settings win) but a stale one confuses `claude` diagnostics.
+    for (const v of ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL']) {
+      if (process.env[v]) warn(`a shell export of ${v} is active`, 'settings.json still wins, but unset it to avoid confusion')
+    }
+  }
+
+  head('Claude Desktop')
+  // §5.3 — READ ONLY, and report "not detectable" rather than guessing.
+  if (platform() !== 'darwin') {
+    info('not applicable on this platform')
+  } else if (manifest.desktop_mdm_profile) {
+    info('an MDM profile is present — configuration comes from your administrator')
+  } else {
+    const lib = join(homedir(), 'Library', 'Application Support', 'Claude-3p', 'configLibrary')
+    existsSync(lib)
+      ? info('a local third-party configuration exists — whether it points here is not detectable')
+      : info('no local third-party configuration found; follow DESKTOP-SETUP.md')
+  }
+
+  say('')
+  return healthy ? EXIT.OK : EXIT.FAIL
+}
+
+function readMasterKeyOrNull() {
+  const p = join(CONFIG_DIR, 'litellm.env')
+  if (!existsSync(p)) return null
+  return /^LITELLM_MASTER_KEY=(.+)$/m.exec(readFileSync(p, 'utf8'))?.[1]?.trim() ?? null
+}
+
+async function runRestart() {
+  say(`${C.b}claude-nim-proxy restart${C.off}`)
+  const manifest = readManifest()
+  if (!manifest) { bad('not configured', 'run: claude-nim-proxy setup'); return EXIT.FAIL }
+  const r = run('pm2', ['restart', PM2_APP])
+  if (!r.ok) { bad(`pm2 restart ${PM2_APP} failed`, r.stderr || r.stdout); return EXIT.FAIL }
+  ok(`restarted ${PM2_APP}`)
+  process.stdout.write('  waiting for health ')
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    if (await pingHealth(manifest.port)) { process.stdout.write('\n'); ok('proxy is live'); return EXIT.OK }
+    process.stdout.write('.'); await new Promise((r) => setTimeout(r, 2000))
+  }
+  process.stdout.write('\n')
+  bad('did not become healthy within 60s', `pm2 logs ${PM2_APP} --lines 50 --nostream`)
+  return EXIT.FAIL
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────────────────────────
 
 async function runSetup(opts) {
@@ -781,22 +1056,30 @@ async function runSetup(opts) {
   // Everything above is read-only: no file created, no process started. §12.1 requires that Ctrl-C
   // at any prompt leaves nothing half-written, which is enforced structurally by doing all prompting
   // before this line rather than by trying to clean up afterwards.
-  const { masterKey } = generateConfig({ apiKey: key, primary, small, opts, prereqs })
+  const { masterKey, manifest } = generateConfig({ apiKey: key, primary, small, opts, prereqs })
 
-  // ── Phase 2 boundary ──
+  await startProxy(opts)
+  await step6ClientConfig({ opts, masterKey, manifest, prereqs })
+
+  // ── Phase 3 boundary ──
   head('Next')
-  info('Phase 2 complete. Steps 5-7 (pm2 start, client configuration, test mode) are not')
-  info('implemented yet — see docs/HANDOFF-claude-nim-proxy.md phases 3-4.')
+  info('Phase 3 complete. Step 7 (test mode) is not implemented yet — see')
+  info('docs/HANDOFF-claude-nim-proxy.md phase 4. Verify by hand for now:')
   say('')
-  say(`  ${C.dim}generated in ${CONFIG_DIR}:${C.off}`)
+  say(`  ${C.dim}the proxy${C.off}`)
   say(`    nim-large    ${primary}`)
   say(`    nim-small    ${small}`)
-  say(`    gateway      http://127.0.0.1:${opts.port}   key ${maskKey(masterKey)}`)
-  say(`    desktop      DESKTOP-SETUP.md${prereqs.desktopMdm ? `  ${C.wa}(MDM variant — the in-app form is read-only)${C.off}` : ''}`)
-  if (prereqs.cliBlockedReason) say(`    ${C.wa}cli${C.off}          blocked: ${prereqs.cliBlockedReason}`)
+  say(`    gateway      http://127.0.0.1:${opts.port}`)
+  say(`    status       claude-nim-proxy status`)
+  say(`    logs         pm2 logs ${PM2_APP}`)
   say('')
-  say(`  ${C.dim}Start it by hand until Phase 3 lands:${C.off}`)
-  say(`    pm2 start ${join(CONFIG_DIR, 'ecosystem.config.cjs')} && pm2 save`)
+  say(`  ${C.dim}smoke test it${C.off}`)
+  say(`    curl -s http://127.0.0.1:${opts.port}/v1/messages \\`)
+  say(`      -H "Authorization: Bearer $(grep -o 'sk-litellm-[0-9a-f]*' ${join(CONFIG_DIR, 'litellm.env')})" \\`)
+  say(`      -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \\`)
+  say(`      -d '{"model":"nim-large","max_tokens":64,"messages":[{"role":"user","content":"Reply with exactly: OK"}]}'`)
+  say('')
+  say(`  ${C.dim}Claude Desktop${C.off}   open ${join(CONFIG_DIR, 'DESKTOP-SETUP.md')}`)
   say('')
   return EXIT.OK
 }
@@ -817,8 +1100,8 @@ async function main() {
   switch (opts.subcommand) {
     case 'setup':     return await runSetup(opts)
     case 'test':      return notImplemented('test')
-    case 'status':    return notImplemented('status')
-    case 'restart':   return notImplemented('restart')
+    case 'status':    return await runStatus()
+    case 'restart':   return await runRestart()
     case 'uninstall': return notImplemented('uninstall')
     default:          return EXIT.FAIL
   }

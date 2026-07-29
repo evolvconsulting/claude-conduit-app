@@ -116,7 +116,16 @@ if [ -n "${MASTER:-}" ]; then
   grep -rqs "$MASTER" "$HOME/.pm2" 2>/dev/null && no "master key absent from ~/.pm2  [§13.7]" "leaked into pm2 files" || ok "master key absent from ~/.pm2  [§13.7]"
   grep -rqs "nvapi-mock" "$HOME/.pm2" 2>/dev/null && no "NIM key absent from ~/.pm2  [§13.7]" "leaked into pm2 files" || ok "NIM key absent from ~/.pm2  [§13.7]"
   grep -qs "$MASTER" "$CONFIG_DIR/ecosystem.config.cjs" && no "no secret in ecosystem.config.cjs  [§13.7]" "leaked" || ok "no secret in ecosystem.config.cjs  [§13.7]"
-  if ps axww 2>/dev/null | grep -q "$MASTER"; then no "no secret in process argv  [§13.7]" "visible in ps axww"; else ok "no secret in process argv  [§13.7]"; fi
+  # Snapshot ps to a file FIRST, then search the file. Piping `ps axww | grep "$MASTER"` makes the
+  # grep process itself carry the key in its own argv, so ps sees it and the check fails against a
+  # perfectly clean system — the assertion detecting itself.
+  ps axww > /tmp/cnp-ps-snapshot.$$ 2>/dev/null || true
+  if grep -q "$MASTER" /tmp/cnp-ps-snapshot.$$ 2>/dev/null; then
+    no "no secret in process argv  [§13.7]" "visible in ps axww"
+  else
+    ok "no secret in process argv  [§13.7]"
+  fi
+  rm -f /tmp/cnp-ps-snapshot.$$
   wide="$(find "$CONFIG_DIR" -type f -perm /066 2>/dev/null | grep -v -e 'config.yaml' -e 'ecosystem.config.cjs' -e 'manifest.json' -e 'DESKTOP-SETUP.md' || true)"
   [ -z "$wide" ] && ok "no secret-bearing file wider than 0600  [§13.7]" || no "no secret-bearing file wider than 0600  [§13.7]" "$wide"
 else
