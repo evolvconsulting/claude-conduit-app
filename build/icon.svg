@@ -1,0 +1,47 @@
+<!--
+  NIM Proxy Manager app icon — source of truth.
+
+  An amalgamation of the two marks this tool sits between:
+    * the evolv "e" (evolvconsulting.com) — a near-complete ring broken at the
+      west by a left-tapered crossbar — provides the outer glyph, in evolv's
+      terracotta #D15635.
+    * NVIDIA's eye sits in the lower bowl of that "e", in NVIDIA green #76B900,
+      which also carries the ring below the crossbar.
+
+  The ring is split into two solid arcs rather than gradient-blended: terracotta
+  and NVIDIA green are near-complementary, so any direct blend passes through a
+  muddy olive. The hard seam is hidden under the crossbar.
+
+  Everything is clipped to the outer disc so the crossbar merges flush into the
+  ring on the right instead of leaving a nub, matching the evolv wordmark.
+
+  Regenerate the raster assets with: npm run icons
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#1E242B"/>
+      <stop offset="1" stop-color="#0B0E11"/>
+    </linearGradient>
+    <clipPath id="disc">
+      <circle cx="512" cy="500" r="361"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" rx="224" fill="url(#tile)"/>
+
+  <g clip-path="url(#disc)">
+    <g fill="none" stroke-width="62" stroke-linecap="butt">
+      <!-- upper arc: 204deg -> 344deg (evolv terracotta) -->
+      <path d="M 210.5 365.8 A 330 330 0 0 1 829.4 409.8" stroke="#D15635"/>
+      <!-- lower arc: 344deg -> 188deg (NVIDIA green) -->
+      <path d="M 829.4 409.8 A 330 330 0 1 1 185.2 454.1" stroke="#76B900"/>
+    </g>
+    <!-- the "e" crossbar, tapered at the left exactly like the evolv wordmark -->
+    <polygon fill="#D15635" points="163,410 280,379 890,379 890,441 280,441"/>
+  </g>
+
+  <!-- NVIDIA's eye, seated in the lower bowl of the e -->
+  <path d="M 322 625 Q 512 460 702 625 Q 512 790 322 625 Z" fill="#76B900"/>
+  <circle cx="512" cy="625" r="44" fill="#0B0E11"/>
+</svg>
