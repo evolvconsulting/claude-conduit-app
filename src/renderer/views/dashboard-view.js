@@ -8,14 +8,9 @@ let unsubscribeStore = null;
 let unsubscribeLog = null;
 let logTailStarted = false;
 
-const GOTCHAS = [
-  "Not \"free Claude\": responses come from the chosen NIM model — agentic-coding quality differs from Claude models.",
-  'Rate limits: hosted NIM free tier ≈ 40 requests/min + limited credits.',
-  'No prompt caching: long sessions re-pay full input tokens every turn.',
-  'Context windows: many NIM models are ≤128k — big repos can exceed them.',
-  'Reboot persistence: pm2 apps survive daemon restarts after save, but reboots need `pm2 startup`, run by you.',
-  'Supply chain: never litellm 1.82.7/1.82.8 (PyPI malware) — this app blocks those versions.',
-];
+// The "Things to know" list used to live here in a collapsed <details>. It is
+// reference material, not something you operate, so it moved behind the
+// About menu item — see components/about-dialog.js (NCOW-5).
 
 export function mount(container, ctx) {
   root = container;
@@ -60,13 +55,6 @@ function render() {
       <h2>Logs</h2>
       <button id="open-logs-folder-btn">Open logs folder</button>
       <pre class="log-viewer" id="log-viewer" style="margin-top:0.5rem;"></pre>
-    </div>
-
-    <div class="card">
-      <details>
-        <summary>Things to know</summary>
-        <ul>${GOTCHAS.map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul>
-      </details>
     </div>
   `;
 
