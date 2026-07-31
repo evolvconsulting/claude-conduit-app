@@ -86,7 +86,7 @@ test('tray: offers start/stop/restart, enabled according to live status', () => 
   assert.deepEqual(fired, ['stop', 'restart', 'start']);
 });
 
-test('tray: quit is labelled as leaving the proxy running, and only calls quit()', () => {
+test('tray: quit says it stops the proxy, and routes through quit() alone', () => {
   const { calls, deps } = fakeDeps();
   const fired = [];
   const tray = createTray({
@@ -100,9 +100,10 @@ test('tray: quit is labelled as leaving the proxy running, and only calls quit()
   const items = calls.menus.at(-1).filter((i) => i.label);
   const quitItem = items.find((i) => /^Quit/.test(i.label));
 
-  assert.match(quitItem.label, /proxy keeps running/i);
+  assert.match(quitItem.label, /stops the proxy/i);
   quitItem.click();
-  // Critically: quitting must not stop the proxy as a side effect.
+  // The tray must not stop the proxy itself: the proxy comes down in the
+  // before-quit handler, so that every exit route behaves identically.
   assert.deepEqual(fired, ['quit']);
 
   items.find((i) => i.label === 'Open Dashboard').click();

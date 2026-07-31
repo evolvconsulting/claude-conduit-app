@@ -82,9 +82,10 @@ function createTray(opts, deps = {}) {
         { label: 'Open Dashboard', click: () => opts.showDashboard() },
         { label: 'Run Diagnostics', click: () => opts.showDiagnostics() },
         { type: 'separator' },
-        // Quitting only ends this GUI — the pm2-supervised proxy is deliberately
-        // left running, matching pm2's own daemon model.
-        { label: 'Quit NIM Proxy Manager (proxy keeps running)', click: () => opts.quit() },
+        // Quitting takes the proxy with it (NCOW-4), which also means Claude
+        // Desktop and Claude Code stop routing through NIM — worth saying on
+        // the item itself rather than leaving it to be discovered.
+        { label: 'Quit NIM Proxy Manager (stops the proxy)', click: () => opts.quit() },
       ]);
       tray.setContextMenu(menu);
     } catch (err) {

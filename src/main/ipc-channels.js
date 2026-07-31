@@ -19,9 +19,13 @@ const CHANNELS = {
       getPlatform: 'app:get-platform',
       openExternal: 'app:open-external',
       openLogsFolder: 'app:open-logs-folder',
+      getLicenses: 'app:get-licenses',
+      quit: 'app:quit',
     },
     events: {
       navigate: 'app:navigate',
+      showAbout: 'app:show-about',
+      showLicenses: 'app:show-licenses',
     },
   },
   prereqs: {

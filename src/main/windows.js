@@ -86,9 +86,10 @@ function createMainWindow() {
     }
   });
 
-  // The pm2-supervised proxy outlives this Electron app by design (same as
-  // pm2's own daemon model) — closing the window hides it rather than
-  // quitting, so the tray remains the way to actually exit.
+  // Closing hides rather than quits, so the manager can sit out of the way
+  // while the proxy keeps serving Claude Desktop and Claude Code. Actually
+  // quitting is a separate, explicit act (sidebar Quit, tray, File > Exit,
+  // dock) and takes the proxy down with it — see shutdown.js.
   mainWindow.on('close', (event) => {
     if (!quitting) {
       event.preventDefault();

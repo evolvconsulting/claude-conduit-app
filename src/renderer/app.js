@@ -1,6 +1,8 @@
 import { getState, setState, subscribe } from './store.js';
 import { registerRoute, setNavGuard, initRouter, navigate } from './router.js';
 import { renderStatusPill } from './components/status-pill.js';
+import { showAboutDialog } from './components/about-dialog.js';
+import { showLicensesDialog } from './components/licenses-dialog.js';
 
 import * as setupView from './views/setup-view.js';
 import * as dashboardView from './views/dashboard-view.js';
@@ -47,6 +49,8 @@ async function main() {
 
   window.nimProxy.proxy.onStatusChanged((status) => setState({ proxyStatus: status }));
   window.nimProxy.app.onNavigate((route) => navigate(route));
+  window.nimProxy.app.onShowAbout(() => showAboutDialog(window.nimProxy));
+  window.nimProxy.app.onShowLicenses(() => showLicensesDialog(window.nimProxy));
 
   for (const link of document.querySelectorAll('#sidebar a[data-route]')) {
     link.addEventListener('click', (event) => {
@@ -56,6 +60,10 @@ async function main() {
       }
     });
   }
+
+  document
+    .getElementById('quit-app')
+    .addEventListener('click', () => window.nimProxy.app.quit());
 
   initRouter(document.getElementById('content'), { nimProxy: window.nimProxy });
 

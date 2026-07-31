@@ -74,6 +74,22 @@ body {
 .sidebar-footer {
   margin-top: auto;
   padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* Closing the window only hides it, so the sidebar carries the one exit that
+   needs no menu-bar hunting. */
+#quit-app {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+#quit-app:hover {
+  color: var(--fg);
+  border-color: var(--muted);
 }
 
 #content {
@@ -239,4 +255,129 @@ th, td {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.about-dialog {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  max-width: 560px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.about-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.about-dialog form {
+  padding: 1.1rem 1.25rem 1rem;
+}
+.about-dialog h2 {
+  margin: 0 0 0.15rem;
+  font-size: 1.05rem;
+}
+.about-dialog h3 {
+  margin: 1.1rem 0 0.4rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.about-version,
+.about-repo {
+  margin: 0 0 0.15rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.about-repo a {
+  color: var(--accent);
+}
+.about-gotchas {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+.about-gotchas li + li {
+  margin-top: 0.4rem;
+}
+
+.licenses-dialog {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  width: min(760px, 90vw);
+  max-width: none;
+  background: var(--bg);
+  color: var(--fg);
+}
+.licenses-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.licenses-dialog form {
+  padding: 1.1rem 1.25rem 1rem;
+}
+.licenses-dialog h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+.licenses-dialog h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+/* ~80 packages of full license text: the list scrolls, the dialog doesn't grow. */
+.licenses-scroll {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 0.4rem;
+  margin-bottom: 1rem;
+}
+.license-entry {
+  border-top: 1px solid var(--border);
+  padding: 0.4rem 0;
+}
+.license-entry summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+.license-name {
+  font-weight: 500;
+}
+.license-id {
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.license-text {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-alt);
+  border-radius: 6px;
+  max-height: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.license-note,
+.license-missing {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0.3rem 0;
+}
+.license-runtime {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.license-runtime li + li {
+  margin-top: 0.5rem;
 }

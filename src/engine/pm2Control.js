@@ -12,8 +12,9 @@ const APP_NAME = 'litellm-nim';
  * that directory regardless of which copy of the pm2 package connects to
  * it, so a separately-installed global pm2 CLI and this bundled copy see
  * the same running app list — `pm2 save`/daemon-restart-resurrect behavior
- * is unchanged, and the litellm process keeps running after this Electron
- * app quits.
+ * is unchanged. Because that daemon is shared, this module must never kill
+ * it: quitting the app stops the litellm-nim *app* only (see main/shutdown.js),
+ * leaving anything else the user supervises with pm2 untouched.
  *
  * @param {import('pm2')} pm2 — injected so this module stays plain-Node
  *   and mockable in tests without touching a real pm2 daemon.
