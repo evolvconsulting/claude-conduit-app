@@ -1,0 +1,11 @@
+{
+  "inferenceProvider": "gateway",
+  "inferenceGatewayBaseUrl": "http://127.0.0.1:4000",
+  "inferenceGatewayApiKey": "sk-litellm-<generated-master-key>",
+  "inferenceGatewayAuthScheme": "bearer",
+  "inferenceCredentialKind": "static",
+  "inferenceModels": [
+    { "name": "nim-large", "anthropicFamilyTier": "sonnet" },
+    { "name": "nim-small", "anthropicFamilyTier": "haiku" }
+  ]
+}
