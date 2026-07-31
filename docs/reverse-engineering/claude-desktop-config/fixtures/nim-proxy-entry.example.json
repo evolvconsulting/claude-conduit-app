@@ -5,7 +5,7 @@
   "inferenceGatewayAuthScheme": "bearer",
   "inferenceCredentialKind": "static",
   "inferenceModels": [
-    { "name": "nim-large", "anthropicFamilyTier": "sonnet" },
-    { "name": "nim-small", "anthropicFamilyTier": "haiku" }
+    { "name": "claude-sonnet-4-5", "anthropicFamilyTier": "sonnet" },
+    { "name": "claude-haiku-4-5", "anthropicFamilyTier": "haiku" }
   ]
 }

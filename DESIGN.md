@@ -270,17 +270,24 @@ values for the in-app form. `status` MAY read (never write) `configLibrary/` and
 
 ### 6.1 `config.yaml`
 
+> **NCOW-8:** `model_name` values below were renamed from their original provider-neutral
+> aliases to `claude-sonnet-4-5`/`claude-haiku-4-5`, because clients validate/expect
+> Anthropic-shaped model IDs and rejected the original aliases as invalid model
+> identifiers. The underlying upstream model is unaffected — only the client-facing
+> `model_name` changed.
+
 ```yaml
 model_list:
-  # Stable aliases: clients reference these, so re-running setup to swap the
-  # underlying NIM model never requires touching client config.
-  - model_name: nim-large            # primary — what Desktop's default + ANTHROPIC_MODEL point at
+  # Stable, client-facing IDs shaped like real Anthropic model names — clients
+  # validate/expect this format. Re-running setup to swap the underlying NIM
+  # model never requires touching client config.
+  - model_name: claude-sonnet-4-5    # primary — what Desktop's default + ANTHROPIC_MODEL point at
     litellm_params:
       model: nvidia_nim/{{PRIMARY_MODEL_ID}}
       api_key: os.environ/NVIDIA_NIM_API_KEY
       # api_base: {{NIM_BASE_URL}}   # emitted only when --nim-base-url was given
 
-  - model_name: nim-small            # background/haiku-class traffic
+  - model_name: claude-haiku-4-5     # background/haiku-class traffic
     litellm_params:
       model: nvidia_nim/{{SMALL_MODEL_ID}}
       api_key: os.environ/NVIDIA_NIM_API_KEY
@@ -406,13 +413,13 @@ Template — `{{MASTER_KEY}}`, `{{PORT}}` substituted; keep wording, it encodes 
    │ Gateway API key              │ {{MASTER_KEY}}                              │
    │ Credential kind              │ Static API key                              │
    │ Gateway auth scheme          │ Bearer                                      │
-   │ Models (inferenceModels)     │ [{"name":"nim-large","anthropicFamilyTier":"sonnet"},
-   │                              │  {"name":"nim-small","anthropicFamilyTier":"haiku"}]
+   │ Models (inferenceModels)     │ [{"name":"claude-sonnet-4-5","anthropicFamilyTier":"sonnet"},
+   │                              │  {"name":"claude-haiku-4-5","anthropicFamilyTier":"haiku"}]
    └──────────────────────────────┴─────────────────────────────────────────────┘
    The Models list must be set explicitly — auto-discovery only surfaces Claude-named
-   models, and this proxy's aliases are intentionally provider-neutral.
+   models.
 4. **Fully quit Claude Desktop (⌘Q) and reopen it.** The configuration is read only at launch.
-5. Verify: the model picker should now show `nim-large` (default) and `nim-small`.
+5. Verify: the model picker should now show `claude-sonnet-4-5` (default) and `claude-haiku-4-5`.
    Start a Cowork session and give it a trivial task.
 
 While third-party inference is active:
@@ -432,11 +439,11 @@ While third-party inference is active:
 |---|---|---|
 | `ANTHROPIC_BASE_URL` | `http://127.0.0.1:{{PORT}}` | Gateway address. |
 | `ANTHROPIC_AUTH_TOKEN` | `{{MASTER_KEY}}` | Bearer credential. |
-| `ANTHROPIC_MODEL` | `nim-large` | Active model. |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | `nim-large` | `/model` picker class entries resolve to NIM. |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` | `nim-large` | |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `nim-small` | Current name for background-model override. |
-| `ANTHROPIC_SMALL_FAST_MODEL` | `nim-small` | Deprecated predecessor; set for older CLI versions (harmless). |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-5` | Active model. |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | `claude-sonnet-4-5` | `/model` picker class entries resolve to NIM. |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | `claude-sonnet-4-5` | |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claude-haiku-4-5` | Current name for background-model override. |
+| `ANTHROPIC_SMALL_FAST_MODEL` | `claude-haiku-4-5` | Deprecated predecessor; set for older CLI versions (harmless). |
 | `API_TIMEOUT_MS` | `600000` | Large NIM models are slow. |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | Protects NIM's ~40 RPM free tier. Side effects: disables auto-update and gateway model discovery — README notes. |
 | `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` | `1` | Suppresses pre-release request fields non-Anthropic upstreams 400 on. |
@@ -517,7 +524,7 @@ names the broken layer (client config / proxy / LiteLLM translation / NIM upstre
 | 4 | Anthropic-format completion | see request A below | 200; non-empty `content[0].text`; `stop_reason` present | ✅ |
 | 5 | **Tool calling** | request B below | a `content` block `"type":"tool_use"` with parseable `input.city` | ✅ |
 | 6 | Streaming | request A + `"stream": true` | SSE body contains `message_start` | ✅ |
-| 7 | Small model works | request A with `"model":"nim-small"` | 200 | ✅ |
+| 7 | Small model works | request A with `"model":"claude-haiku-4-5"` | 200 | ✅ |
 | 8 | `claude-*` wildcard | request A with `"model":"claude-sonnet-4-6"` | 200 | ✅ |
 | 9 | CLI config coherent | read settings.json | base URL/token match manifest; warn on conflicting shell `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` exports | warn-only |
 | 10 | Live CLI smoke | if `claude` on PATH: `claude -p 'Reply with exactly: OK'` (gateway env exported, 120 s timeout) | non-empty stdout | warn-only |
@@ -530,7 +537,7 @@ Authorization: Bearer {{MASTER_KEY}}
 anthropic-version: 2023-06-01
 content-type: application/json
 
-{"model":"nim-large","max_tokens":64,
+{"model":"claude-sonnet-4-5","max_tokens":64,
  "messages":[{"role":"user","content":"Reply with exactly: OK"}]}
 ```
 
@@ -554,11 +561,11 @@ Sample output:
 claude-nim-proxy test — 2026-07-17 09:12
   1. Proxy alive ................. ✅
   2. Auth enforced ............... ✅
-  3. NIM upstream ................ ✅  (127 models; nim-large=qwen/qwen3-coder-480b-a35b-instruct)
-  4. Completion (nim-large) ...... ✅  1.9s
+  3. NIM upstream ................ ✅  (127 models; claude-sonnet-4-5=qwen/qwen3-coder-480b-a35b-instruct)
+  4. Completion (claude-sonnet-4-5) ...... ✅  1.9s
   5. Tool calling ................ ✅
   6. Streaming ................... ✅
-  7. Completion (nim-small) ...... ✅  0.8s
+  7. Completion (claude-haiku-4-5) ...... ✅  0.8s
   8. claude-* wildcard ........... ✅
   9. Claude Code config .......... ✅
  10. Live claude CLI ............. ✅  "OK"
@@ -588,7 +595,7 @@ All checks passed. Claude Desktop steps: ~/.config/claude-nim-proxy/DESKTOP-SETU
 1. **Not "free Claude":** responses come from the chosen NIM model (Qwen/Kimi/DeepSeek/Llama…);
    agentic-coding quality differs from Claude models.
 2. **Rate limits:** hosted NIM free tier ≈ 40 requests/min + limited credits.
-   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and the cheap `nim-small` model protect the
+   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and the cheap `claude-haiku-4-5` model protect the
    budget; NIM 429s surface through LiteLLM (`num_retries: 2` absorbs blips).
 3. **No prompt caching:** `cache_control` is dropped; long sessions re-pay full input tokens
    every turn.
@@ -639,7 +646,7 @@ Manual test matrix (engineer executes before sign-off):
 | T4 | Port 4000 occupied | Exit 2 naming the holder; `--port 4001` succeeds |
 | T5 | settings.json with hooks/permissions/deny lists | Untouched except env keys; backup created |
 | T6 | Invalid JSON settings.json | CLI step aborted + flagged; proxy still installed |
-| T7 | Desktop end-to-end (manual) | Form filled per instructions → restart → picker shows nim-large/nim-small → Cowork completes a trivial task |
+| T7 | Desktop end-to-end (manual) | Form filled per instructions → restart → picker shows claude-sonnet-4-5/claude-haiku-4-5 → Cowork completes a trivial task |
 | T8 | `claude` CLI end-to-end | `claude -p` returns text through the proxy (pm2 logs show the request) |
 | T9 | Uninstall → reinstall | Same master key only if config dir kept (no `--purge`); new key after `--purge` |
 

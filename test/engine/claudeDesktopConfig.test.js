@@ -79,8 +79,8 @@ test('applyGatewayConfig: creates a dedicated entry, never touches the users oth
   assert.equal(ourConfig.inferenceGatewayAuthScheme, 'bearer');
   assert.equal(ourConfig.inferenceCredentialKind, 'static');
   assert.deepEqual(ourConfig.inferenceModels, [
-    { name: 'nim-large', anthropicFamilyTier: 'sonnet' },
-    { name: 'nim-small', anthropicFamilyTier: 'haiku' },
+    { name: 'claude-sonnet-4-5', anthropicFamilyTier: 'sonnet' },
+    { name: 'claude-haiku-4-5', anthropicFamilyTier: 'haiku' },
   ]);
 });
 
@@ -236,6 +236,6 @@ test('desktopSetupMarkdown: substitutes port and master key into the guided inst
   const md = desktopSetupMarkdown({ port: 4321, masterKey: 'sk-litellm-xyz' });
   assert.match(md, /127\.0\.0\.1:4321/);
   assert.match(md, /sk-litellm-xyz/);
-  assert.match(md, /nim-large/);
-  assert.match(md, /nim-small/);
+  assert.match(md, /claude-sonnet-4-5/);
+  assert.match(md, /claude-haiku-4-5/);
 });

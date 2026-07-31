@@ -10,14 +10,14 @@ const TOOL_CALLING_TOOL = {
 };
 
 /** DESIGN.md section 11, Request A. */
-function buildRequestA({ model = 'nim-large', stream } = {}) {
+function buildRequestA({ model = 'claude-sonnet-4-5', stream } = {}) {
   const body = { model, max_tokens: 64, messages: [{ role: 'user', content: 'Reply with exactly: OK' }] };
   if (stream) body.stream = true;
   return body;
 }
 
 /** DESIGN.md section 11, Request B (adds tool-calling to Request A). */
-function buildRequestB({ model = 'nim-large' } = {}) {
+function buildRequestB({ model = 'claude-sonnet-4-5' } = {}) {
   return {
     model,
     max_tokens: 64,
@@ -122,12 +122,12 @@ async function checkNimReachable({ apiKey, nimBaseUrl, primaryModelId, smallMode
     ms: Date.now() - started,
     detail: missing.length
       ? `${models.length} models; warning: not currently listed: ${missing.join(', ')} (catalog listings can shift — not a hard failure)`
-      : `${models.length} models; nim-large=${primaryModelId}`,
+      : `${models.length} models; claude-sonnet-4-5=${primaryModelId}`,
   });
 }
 
 /** Check 4: Anthropic-format completion. */
-async function checkCompletion({ port, masterKey, model = 'nim-large' }) {
+async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5' }) {
   const started = Date.now();
   try {
     const response = await postMessages({ port, masterKey, body: buildRequestA({ model }) });
@@ -144,7 +144,7 @@ async function checkCompletion({ port, masterKey, model = 'nim-large' }) {
 }
 
 /** Check 5: tool calling — "the single most valuable check" (DESIGN.md section 11). */
-async function checkToolCalling({ port, masterKey, model = 'nim-large' }) {
+async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5' }) {
   const started = Date.now();
   try {
     const response = await postMessages({ port, masterKey, body: buildRequestB({ model }) });
@@ -194,8 +194,8 @@ async function checkStreaming({ port, masterKey }) {
 
 /** Check 7: small model works. */
 async function checkSmallModel({ port, masterKey }) {
-  const c = await checkCompletion({ port, masterKey, model: 'nim-small' });
-  return { ...c, id: 7, label: 'Completion (nim-small)' };
+  const c = await checkCompletion({ port, masterKey, model: 'claude-haiku-4-5' });
+  return { ...c, id: 7, label: 'Completion (claude-haiku-4-5)' };
 }
 
 /** Check 8: claude-* wildcard. */
@@ -301,8 +301,8 @@ async function runDiagnostics(opts) {
     await checkProxyAlive(opts),
     await checkAuthEnforced(opts),
     await checkNimReachable(opts),
-    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'nim-large' }),
-    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'nim-large' }),
+    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
+    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
     await checkStreaming(opts),
     await checkSmallModel(opts),
     await checkClaudeWildcard(opts),
@@ -323,8 +323,8 @@ async function runDiagnostics(opts) {
 async function runQuickValidation(opts) {
   const results = [
     await checkNimReachable(opts),
-    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'nim-large' }),
-    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'nim-large' }),
+    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
+    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
   ];
   const allCriticalPassed = results.every((r) => !r.critical || r.status === 'pass');
   return { results, allCriticalPassed };

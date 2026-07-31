@@ -9,8 +9,8 @@ const { buildRequestA, buildRequestB, checkCliConfigCoherent, buildLiveCliSmokeE
 const { ENV_KEYS } = require('../../src/engine/claudeCodeConfig');
 
 test('buildRequestA: matches DESIGN.md section 11 Request A shape exactly', () => {
-  const req = buildRequestA({ model: 'nim-large' });
-  assert.deepEqual(req, { model: 'nim-large', max_tokens: 64, messages: [{ role: 'user', content: 'Reply with exactly: OK' }] });
+  const req = buildRequestA({ model: 'claude-sonnet-4-5' });
+  assert.deepEqual(req, { model: 'claude-sonnet-4-5', max_tokens: 64, messages: [{ role: 'user', content: 'Reply with exactly: OK' }] });
 });
 
 test('buildRequestA: stream:true is added only when requested', () => {
@@ -19,7 +19,7 @@ test('buildRequestA: stream:true is added only when requested', () => {
 });
 
 test('buildRequestB: adds the get_weather tool per DESIGN.md section 11 Request B', () => {
-  const req = buildRequestB({ model: 'nim-large' });
+  const req = buildRequestB({ model: 'claude-sonnet-4-5' });
   assert.equal(req.tools[0].name, 'get_weather');
   assert.deepEqual(req.tools[0].input_schema.required, ['city']);
   assert.match(req.messages[0].content, /weather in Paris/);

@@ -159,8 +159,8 @@ function applyGatewayConfig(opts) {
     inferenceGatewayAuthScheme: 'bearer',
     inferenceCredentialKind: 'static',
     inferenceModels: [
-      { name: 'nim-large', anthropicFamilyTier: 'sonnet' },
-      { name: 'nim-small', anthropicFamilyTier: 'haiku' },
+      { name: 'claude-sonnet-4-5', anthropicFamilyTier: 'sonnet' },
+      { name: 'claude-haiku-4-5', anthropicFamilyTier: 'haiku' },
     ],
   };
   writeEntryConfig(opts.configLibraryDir, entryId, merged);
@@ -272,12 +272,12 @@ function desktopSetupMarkdown(opts) {
    | Gateway API key | ${opts.masterKey} |
    | Credential kind | Static API key |
    | Gateway auth scheme | Bearer |
-   | Models (inferenceModels) | [{"name":"nim-large","anthropicFamilyTier":"sonnet"},{"name":"nim-small","anthropicFamilyTier":"haiku"}] |
+   | Models (inferenceModels) | [{"name":"claude-sonnet-4-5","anthropicFamilyTier":"sonnet"},{"name":"claude-haiku-4-5","anthropicFamilyTier":"haiku"}] |
 
    The Models list must be set explicitly — auto-discovery only surfaces Claude-named
-   models, and this proxy's aliases are intentionally provider-neutral.
+   models.
 4. **Fully quit Claude Desktop (⌘Q) and reopen it.** The configuration is read only at launch.
-5. Verify: the model picker should now show \`nim-large\` (default) and \`nim-small\`.
+5. Verify: the model picker should now show \`claude-sonnet-4-5\` (default) and \`claude-haiku-4-5\`.
    Start a Cowork session and give it a trivial task.
 
 While third-party inference is active:

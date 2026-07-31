@@ -15,9 +15,9 @@ const {
 
 test('renderConfigYaml: matches DESIGN.md section 6.1 — drop_params, wildcard, no api_base by default', () => {
   const yaml = renderConfigYaml({ primaryModelId: 'qwen/qwen3-coder-480b-a35b-instruct', smallModelId: 'meta/llama-3.1-8b-instruct' });
-  assert.match(yaml, /model_name: nim-large/);
+  assert.match(yaml, /model_name: claude-sonnet-4-5/);
   assert.match(yaml, /model: nvidia_nim\/qwen\/qwen3-coder-480b-a35b-instruct/);
-  assert.match(yaml, /model_name: nim-small/);
+  assert.match(yaml, /model_name: claude-haiku-4-5/);
   assert.match(yaml, /model: nvidia_nim\/meta\/llama-3\.1-8b-instruct/);
   assert.match(yaml, /model_name: "claude-\*"/);
   assert.match(yaml, /drop_params: true/);

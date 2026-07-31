@@ -16,14 +16,15 @@ function renderConfigYaml(opts) {
   const apiBaseLine = opts.nimBaseUrl ? `\n      api_base: ${opts.nimBaseUrl}` : '';
 
   return `model_list:
-  # Stable aliases: clients reference these, so re-running setup to swap the
-  # underlying NIM model never requires touching client config.
-  - model_name: nim-large            # primary — what Desktop's default + ANTHROPIC_MODEL point at
+  # Stable, client-facing IDs shaped like real Anthropic model names (clients
+  # validate/expect this format) — re-running setup to swap the underlying
+  # NIM model never requires touching client config.
+  - model_name: claude-sonnet-4-5    # primary — what Desktop's default + ANTHROPIC_MODEL point at
     litellm_params:
       model: nvidia_nim/${opts.primaryModelId}
       api_key: os.environ/NVIDIA_NIM_API_KEY${apiBaseLine}
 
-  - model_name: nim-small            # background/haiku-class traffic
+  - model_name: claude-haiku-4-5     # background/haiku-class traffic
     litellm_params:
       model: nvidia_nim/${opts.smallModelId}
       api_key: os.environ/NVIDIA_NIM_API_KEY
