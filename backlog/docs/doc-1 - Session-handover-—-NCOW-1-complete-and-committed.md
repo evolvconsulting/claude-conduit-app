@@ -1,9 +1,9 @@
 ---
 id: doc-1
-title: 'Session handover — NCOW-1 complete, pending git commit'
+title: Session handover — NCOW-1 complete and committed
 type: guide
 created_date: '2026-07-31 20:02'
-updated_date: '2026-07-31 20:03'
+updated_date: '2026-07-31 20:09'
 ---
 Read this before doing anything else. It covers where the project stands, the one
 outstanding decision, and the traps that cost the most time to find.
@@ -17,25 +17,37 @@ home. NCOW-1.8 (renderer/tray/wizard) and NCOW-1.10 (packaging) were finished in
 recent session; read their Implementation Notes for full detail — this document does not
 repeat them.
 
-## THE ONE THING THAT NEEDS A DECISION: nothing is committed to git
+## Git state: committed on a branch, not yet on `dev`
 
-The entire project is **untracked**. There is exactly one commit in the repo
-(`0528c91 Initial commit: add DESIGN.md`); every source file, test, config, doc and icon
-written across this whole effort exists only in the working tree.
+The work is committed as seven logical commits on **`feat/nim-proxy-manager`**, on top of
+the repo's original `0528c91 Initial commit: add DESIGN.md`:
 
-**Do not commit without asking the user.** They were asked at the end of the last session
-and did not answer, so the decision is still open. Two sub-questions were put to them and
-are also still open:
+```
+b917f28 build: package for macOS, Windows and Linux, and document distribution
+b3a5e24 feat(icon): replace the default Electron icon with a custom app mark
+09494dc feat(renderer): add the views, Setup wizard and shared components
+a99e9e7 feat(main): add the Electron main process and IPC security boundary
+cdfd63e feat(engine): add the plain-Node engine layer
+cd89cf6 docs: record Claude Desktop third-party config reverse-engineering findings
+525fc43 chore: scaffold project tooling, agent config and Backlog tracking
+```
 
-1. One commit, or split by area (engine/renderer fixes, icon, packaging)?
-2. `build/icons/` holds nine regenerable intermediate PNGs. The recommendation was to
-   commit only the three final assets (`build/icon.png`, `.icns`, `.ico`) and gitignore
-   `build/icons/`. Not actioned.
+The working tree is clean and `npm test` is 101/101 at HEAD.
 
-Safety already verified: `.env` (which holds a real working NVIDIA API key) is gitignored,
-has never been staged, and `git log --all --diff-filter=A` confirms it was never committed.
-`dist/` is gitignored too. Nothing sensitive is at risk of being committed accidentally,
-but the work is unbacked-up until someone commits it.
+**Still to do:** the branch has not been merged into `dev` (the default branch), and
+nothing has been pushed. A remote *is* configured
+(`origin git@github.com:evolvconsulting/nvidia-cowork.git`) but no push was requested, so
+the work exists only on this machine. To put it on `dev`:
+
+```sh
+git switch dev && git merge --ff-only feat/nim-proxy-manager
+```
+
+Secret hygiene was verified after committing, not assumed: `.env` holds a real working
+NVIDIA API key, is gitignored, appears in no commit, and the key string itself does not
+appear anywhere in `git rev-list --all`. `dist/` and `build/icons/` are ignored too — the
+latter holds regenerable icon intermediates, rebuildable with `npm run icons`; only
+`build/icon.svg` and the three packaging inputs it produces are tracked.
 
 ## Where to look
 
@@ -89,7 +101,8 @@ output, not code reading. Hold that line.
 Nothing is blocked and no follow-up tasks have been created (per the task-creation guide,
 that needs user approval). Candidates to raise with the user:
 
-- Resolve the git decision above and commit.
+- Merge `feat/nim-proxy-manager` into `dev` (command above) and push to `origin`. Until
+  then the work exists only on this machine — ask before pushing.
 - Launch-test the Windows and Linux artifacts. They were built successfully but never run —
   no such machine was available. This is stated explicitly in NCOW-1.10's notes rather than
   papered over.
