@@ -1,0 +1,7 @@
+{
+  "disableClaudeAiConnectors": true,
+  "enabledPlugins": {
+    "context7@claude-plugins-official": false,
+    "vercel@claude-plugins-official": false
+  }
+}
