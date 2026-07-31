@@ -1,0 +1,87 @@
+# Packaging config for unsigned, personal-distribution builds. Lives here
+# rather than in package.json's "build" key so the reasoning below can be
+# recorded — electron-builder's schema rejects unknown "//" comment keys.
+#
+# Icons come from build/icon.{icns,ico,png}, all generated from build/icon.svg
+# by `npm run icons`.
+
+appId: com.evolvconsulting.nimproxymanager
+productName: NIM Proxy Manager
+
+directories:
+  output: dist
+  buildResources: build
+
+# An allowlist, not a denylist. package.json and production node_modules are
+# always included, so naming src/ explicitly is what keeps test/, backlog/,
+# docs/, scripts/, DESIGN.md — and critically the gitignored .env holding a
+# real NVIDIA API key — out of every artifact. The .env negations are belt and
+# braces on top of that.
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/.env"
+  - "!**/.env.*"
+
+asar: true
+
+# pm2 starts its daemon by spawning a real script path (God/Daemon.js). Paths
+# inside app.asar are readable via fs but cannot be executed as a child
+# process, so without this the proxy could never start from a packaged build.
+asarUnpack:
+  - "**/node_modules/pm2/**"
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  # Ad-hoc signature. No paid Apple Developer ID is assumed, but a completely
+  # unsigned binary will not launch *at all* on Apple Silicon. Ad-hoc satisfies
+  # that while still tripping Gatekeeper on first open — hence the README's
+  # right-click-Open / xattr workaround.
+  identity: "-"
+  hardenedRuntime: true
+  # Without disable-library-validation an ad-hoc-signed hardened-runtime app
+  # refuses to load Electron's own dylibs and will not launch. See the file.
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+
+dmg:
+  title: NIM Proxy Manager ${version}
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  # A per-user install needs no admin elevation, which matters a lot for an
+  # unsigned app that already has to talk the user past SmartScreen.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  icon: build/icon.png
+  category: Development
+  # Without a desktopName, Linux desktop environments can't associate the
+  # running window with this .desktop entry (it becomes the app_id/WM_CLASS).
+  # That matters here because closing the window only hides it — the user needs
+  # the taskbar/dock entry to map back to the app to restore it.
+  desktopName: nim-proxy-manager.desktop
+  syncDesktopName: true
+  maintainer: evolv consulting <info@evolvconsulting.com>
+  synopsis: GUI manager for a local LiteLLM proxy routing Claude Desktop and the Claude Code CLI through NVIDIA NIM models
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]

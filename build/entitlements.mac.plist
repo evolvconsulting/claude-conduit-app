@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the ad-hoc-signed macOS build.
+
+  disable-library-validation is the load-bearing one: with the hardened runtime
+  on, an ad-hoc signature makes macOS refuse to load libraries signed by a
+  different team (which is every Electron framework dylib), and the app fails
+  to launch at all. The JIT / unsigned-executable-memory pair is what V8 needs
+  under the hardened runtime.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>
