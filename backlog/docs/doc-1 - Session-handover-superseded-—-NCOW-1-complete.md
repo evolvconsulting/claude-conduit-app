@@ -1,9 +1,9 @@
 ---
 id: doc-1
-title: Session handover — NCOW-1 complete and committed
+title: Session handover (superseded) — NCOW-1 complete
 type: guide
 created_date: '2026-07-31 20:02'
-updated_date: '2026-07-31 20:09'
+updated_date: '2026-07-31 21:57'
 ---
 Read this before doing anything else. It covers where the project stands, the one
 outstanding decision, and the traps that cost the most time to find.
