@@ -13,6 +13,21 @@ suite against the running proxy.
 > you choose. Agentic-coding quality differs from Claude models, sometimes a lot. See
 > [Things to know](#things-to-know) before you rely on it.
 
+### Where this is heading
+
+Three changes are agreed and in the backlog, and they will affect anyone building on this
+now:
+
+- **The product is being renamed to Claude Conduit**, and this repository to
+  `claude-conduit`.
+- **NVIDIA NIM is becoming one provider among several**, alongside OpenRouter and any
+  OpenAI-compatible custom/local endpoint — so the NIM-specific framing throughout this
+  README is temporary.
+- **Configuration becomes a library of named connections** you switch between, rather than
+  a single proxy you set up once.
+
+Builds are currently unsigned; code signing is planned before the first tagged release.
+
 ---
 
 ## Prerequisites
@@ -106,7 +121,7 @@ until it completes:
 After setup:
 
 - **Dashboard** — status pill, Start/Stop/Restart, a live log viewer (seeded with recent
-  history, then streamed), a Test Connection button, and the *Things to know* panel.
+  history, then streamed), and a Test Connection button.
 - **Claude Desktop** — the automated apply/revert action **and** the manual instructions,
   always shown together, both filled in with your real port and master key.
 - **Claude Code CLI** — one configure/remove toggle, plus a read-only list of exactly
@@ -116,12 +131,23 @@ After setup:
 - **Uninstall** — keep-or-purge, with an opt-in, separately-confirmed Claude Desktop
   revert.
 
+The *Things to know* caveats live in **About** — the app menu on macOS, **Help → About**
+on Windows and Linux — along with the version and a link to the repo.
+
 ### Closing vs. quitting
 
-Closing the window **hides** it; the proxy keeps running. That's deliberate — the proxy is
-pm2-supervised and outlives the app, the same way pm2's own daemon does. Quit properly
-from the tray (or ⌘Q on macOS); even then, the proxy is left running on purpose. Use
-**Stop** on the Dashboard, or **Uninstall**, to actually shut it down.
+Closing the window **hides** it, and the proxy keeps running — that's deliberate, so the
+manager can sit out of the way while Claude Desktop and Claude Code keep routing through
+NIM.
+
+**Quitting stops the proxy.** Quit from the sidebar's **Quit** button, the tray, **File →
+Exit** (⌘Q on macOS), or the dock — every route behaves the same. Once it's stopped,
+Claude Desktop and the Claude Code CLI have nothing to route to until you start the
+manager again, so leave it running if you want the proxy up.
+
+Only the `litellm-nim` app is stopped. The pm2 daemon itself is left alone, because it's
+the shared one at `~/.pm2` and killing it would take down anything else you supervise
+with pm2.
 
 ### Where things live
 
@@ -209,3 +235,29 @@ The override is ignored unless `--dev` is present, so it can never engage in a p
 Use the app's **Uninstall** page. It stops and removes the pm2 app, removes the Claude Code
 CLI env keys it added, and lets you either keep or purge the config directory. Reverting
 Claude Desktop is a separate, individually confirmed opt-in — it's never a side effect.
+
+---
+
+## Licensing
+
+**NIM Proxy Manager is licensed under the [GNU AGPL-3.0-or-later](LICENSE).**
+
+That is not an arbitrary choice. The app bundles [pm2](https://github.com/Unitech/pm2),
+which is **AGPL-3.0**, and drives it through its programmatic API rather than as a
+subprocess — so the combined work is AGPL. If you fork this, the same applies to you.
+
+Every third-party notice ships with the app: **Help → Licenses** lists all bundled
+packages with their license identifiers and full texts. That list is generated from the
+real dependency tree, not hand-maintained:
+
+```sh
+npm run licenses   # regenerates src/assets/licenses.json — re-run after any dependency change
+```
+
+Two things the Licenses view is careful to state accurately:
+
+- **LiteLLM is not bundled.** The app installs it into *your* Python environment during
+  setup, so the exact set of Python packages and their licenses lives on your machine.
+- **`litellm-enterprise` is not open source.** It ships alongside `litellm` under a
+  proprietary license. This app doesn't use its enterprise features, but pip installs it
+  regardless.

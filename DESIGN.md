@@ -1,5 +1,13 @@
 # Spec: `claude-nim-proxy` — Route Claude Desktop (Cowork) & Claude Code through LiteLLM → NVIDIA NIM
 
+> **⚠️ This is the v1 spec, not the current source of truth.** It described the app as
+> originally built and shipped. Decisions made since then live in Backlog tasks (NCOW-2
+> onward) and **override this document where they conflict**; sections corrected that way
+> are marked with the task ID (see §7.4). Two agreed changes will invalidate large parts of
+> this spec when they land: **NCOW-12** renames the product to Claude Conduit, and
+> **NCOW-14** removes the assumption that NVIDIA NIM is the only possible upstream.
+> Check the backlog before treating anything below as current.
+
 **Status:** Implementation-ready specification
 **Audience:** Implementing engineer (or engineering agent). Every load-bearing external fact was
 verified against primary sources on 2026-07-16; source URLs in §14. No further research required.
@@ -361,6 +369,23 @@ module.exports = {
 
 `pm2 status litellm-nim` · `pm2 logs litellm-nim` · `pm2 restart litellm-nim` (after any manual
 edit of `config.yaml`) · `pm2 stop litellm-nim`. The `restart` subcommand is a thin wrapper.
+
+#### 7.4 Proxy lifetime relative to the GUI (NCOW-4)
+
+Closing the manager's window **hides** it and leaves the proxy running, so Claude Desktop
+and Claude Code keep working while the manager is out of the way.
+
+**Quitting stops the proxy.** Every exit route — the sidebar Quit button, the tray entry,
+File → Exit / ⌘Q, the macOS dock's Quit, and a logout — funnels through the single
+`before-quit` handler, which stops `litellm-nim` before the process exits. This is
+unconditional; there is no preference to opt out of it. The consequence is intended and
+must stay documented in the UI: once the manager is quit, Claude Desktop and the Claude
+Code CLI have no proxy to route to until it is started again.
+
+The pm2 **daemon** is never killed. It runs against the shared default `PM2_HOME`
+(`~/.pm2`), so killing it would stop unrelated apps the user supervises with pm2. Only the
+`litellm-nim` app is stopped, and the stop is bounded by a timeout so a wedged pm2 cannot
+make the app unquittable.
 
 ---
 
