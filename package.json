@@ -11,8 +11,11 @@
     "node": ">=18"
   },
   "scripts": {
+    "prestart": "node scripts/patch-dev-bundle-name.js",
     "start": "electron .",
+    "predev": "node scripts/patch-dev-bundle-name.js",
     "dev": "electron . --dev",
+    "patch:dev-name": "node scripts/patch-dev-bundle-name.js",
     "test": "node --test test/**/*.test.js",
     "icons": "node scripts/generate-icons.js",
     "dist:mac": "electron-builder --mac",

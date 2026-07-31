@@ -72,12 +72,18 @@ nsis:
 linux:
   icon: build/icon.png
   category: Development
-  # Without a desktopName, Linux desktop environments can't associate the
-  # running window with this .desktop entry (it becomes the app_id/WM_CLASS).
-  # That matters here because closing the window only hides it — the user needs
-  # the taskbar/dock entry to map back to the app to restore it.
-  desktopName: nim-proxy-manager.desktop
+  # Linux desktop environments can only associate the running window with this
+  # .desktop entry when the entry's StartupWMClass matches the window's
+  # app_id/WM_CLASS. That matters here because closing the window only hides it
+  # — the user needs the taskbar/dock entry to map back to the app to restore
+  # it. electron-builder 26 removed the top-level `desktopName` key (its
+  # LinuxConfiguration schema is additionalProperties:false, so leaving it in
+  # place fails validation and no artifact builds at all); the desktop file is
+  # named from the executable, and entry overrides go here instead.
   syncDesktopName: true
+  desktop:
+    entry:
+      StartupWMClass: nim-proxy-manager
   maintainer: evolv consulting <info@evolvconsulting.com>
   synopsis: GUI manager for a local LiteLLM proxy routing Claude Desktop and the Claude Code CLI through NVIDIA NIM models
   target:
