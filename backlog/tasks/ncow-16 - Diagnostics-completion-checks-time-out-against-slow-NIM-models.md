@@ -4,7 +4,7 @@ title: Diagnostics completion checks time out against slow NIM models
 status: In Progress
 assignee: []
 created_date: '2026-07-31 22:29'
-updated_date: '2026-08-01 01:05'
+updated_date: '2026-08-01 01:40'
 labels: []
 dependencies: []
 priority: high
@@ -102,4 +102,62 @@ AC status: #1 done (configurable timeout, no longer a single hardcoded 30s).
 #2 done under the re-scoped interpretation above. #3 done (checkStreaming's
 50-chunk cap replaced with the same elapsed-time budget). #4 done (npm test
 passes modulo the pre-existing, unrelated licenses failure noted above).
+
+INDEPENDENT REVIEW (model: opus, effort: xhigh) -- VERDICT: APPROVE.
+
+Confirmed AC indices: #1, #2, #3, #4, all independently re-verified live (not
+taken on the worker's word). AC#2 confirmed under the re-scoped interpretation
+(accurate "too slow" diagnosis on timeout; no false failure within budget; fast
+model unaffected), not the original literal "must show a green pass" wording,
+which live evidence shows is not reliably achievable on this account.
+
+Reviewer's own live verification (isolated fake home, real key, real proxy on
+port 4399): fast model (8b) -- all four checks PASS in under 1s. Slow model
+(70b) at the real 60s budget -- PASS at 46,909ms (would have aborted under the
+old hardcoded 30s). Same slow model with timeoutMs=30_000 (old value) -- fails
+at 30,008ms with the new accurate message. Dead-port control -- correctly
+surfaces "fetch failed", NOT mislabeled as a slow-model timeout. A 46.9s pass
+and a 60s timeout on the SAME model minutes apart is direct proof no fixed
+ceiling alone fixes this -- corroborates the redesign decision.
+
+npm test (reviewer's own run): 150 tests, 149 pass, same pre-existing unrelated
+licenses failure.
+
+Scope: clean, exactly the two expected files, no drive-bys. Commit convention
+matches repo history.
+
+Non-blocking findings (none block merge; candidates for follow-up work, to be
+proposed to the user separately):
+1. checkStreaming's elapsed-time budget is only checked BETWEEN reader.read()
+   calls, not enforced while parked inside one -- proven with a mocked
+   never-closing body hanging past its budget. Not a regression (old loop had
+   the same gap) and not currently reachable in practice because litellm does
+   not flush SSE headers before the first upstream chunk, so postMessages' own
+   AbortController still covers it -- but the code comment overclaims the
+   elapsed-time bound as authoritative once headers arrive. A gateway that
+   flushes headers early would hang check 6 indefinitely, holding the
+   diagnostics IPC mutex.
+2. The timeout message hardcodes the alias name (e.g. "claude-sonnet-4-5")
+   rather than the actual model the user picked in Setup (e.g.
+   meta/llama-3.3-70b-instruct) -- the advice ("try a different model") reads
+   confusingly next to an identifier the user never chose. All new unit tests
+   assert the alias string, not the real model id, so this isn't caught by
+   the test suite as currently written.
+3. Worst-case total diagnostics wall time roughly doubled with this change
+   (~5x60s + check 10's 120s ~= 7 minutes), and neither ipc.js nor
+   diagnostics-view.js has any UI-level timeout/cancel -- the handler sits
+   behind the per-domain IPC mutex for the whole run.
+4-6. Nitpicks: an unbounded buffer with an O(n^2) rescan in the streaming
+   read loop; runDiagnostics passes an explicit model to checks 4/5 but raw
+   opts to checkStreaming (inconsistent, not incorrect); the non-timeout-error
+   branch for checks 5/6 isn't covered by a mocked unit test (reviewer verified
+   it live instead).
+
+Reviewer's product take: 60s + accurate messaging is sound and better than the
+alternatives tried; the redesign is a defensible reading of the live evidence,
+not a convenient dodge. DESIGN.md section 11 was not updated to reflect this
+change -- per CLAUDE.md, the task wins and DESIGN.md should be corrected, which
+this task didn't do.
+
+Overall: "Solid, well-evidenced work... Ready to merge."
 <!-- SECTION:NOTES:END -->
