@@ -65,6 +65,13 @@ app installs `litellm` for you (via your Python) during setup.
 > loudly on first launch, and you have to click through it once. Real signing is planned
 > before 1.0, at which point these sections get much shorter.
 
+The filenames below are written with **dashes**, matching the names recorded in the
+`latest*.yml` update metadata (i.e. what an auto-updater will fetch). `npm run dist` writes
+them to disk with a **space** instead — `Claude Conduit-<version>-universal.dmg` — and
+GitHub's web uploader would turn that space into a period. Same artifact either way; if
+what you downloaded has a space or a period where this README shows a dash, it's not a typo
+and not a different build.
+
 ### macOS — `Claude-Conduit-<version>-universal.dmg`
 
 Universal build; runs natively on both Apple Silicon and Intel.
@@ -286,8 +293,9 @@ npm run dist          # all three
 ```
 
 Artifacts land in `dist/`, alongside the `latest*.yml` update metadata electron-builder
-emits from `package.json`'s `repository` field (a future auto-updater reads those, so
-don't rename artifacts when uploading a release — see
+emits once it can resolve a publish target — which `package.json`'s `repository` field now
+pins down without depending on the checkout's `.git` layout (a future auto-updater reads
+those, so don't rename artifacts when uploading a release — see
 [docs/distribution.md](docs/distribution.md) for the full release checklist).
 
 macOS builds are **ad-hoc signed** (`identity: "-"`): a fully

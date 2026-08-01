@@ -26,8 +26,9 @@ Why:
   `latest.yml` / `latest-mac.yml` / `latest-linux.yml` next to the artifacts, and
   `electron-updater`'s GitHub provider reads exactly that layout from a Release. Choosing
   anything else as the primary path would mean maintaining a second location for NCOW-10
-  to poll. (Those files only appear once electron-builder can resolve a publish target —
-  see "Two packaging facts discovered while deciding this" below.)
+  to poll. (Those files appear whenever electron-builder can resolve a publish target,
+  which it already could here; `package.json`'s `repository` field now guarantees it from
+  any checkout layout — see "Packaging hardening this task added" below.)
 - **Package-manager channels are blocked on signing, not on effort.** A Homebrew cask
   wants a stable download URL and a checksum (fine) but its users reasonably expect an app
   that opens without a Gatekeeper fight; `winget` requires a manifest and increasingly
@@ -94,7 +95,7 @@ Checked directly against `electron-builder.yml` and a real `npm run dist:mac` bu
 
 | Platform | State today | Evidence |
 |---|---|---|
-| macOS | **Ad-hoc signed, not notarized.** `identity: "-"`, `hardenedRuntime: true`, `build/entitlements.mac.plist` with `disable-library-validation`. | Build log: `signing … identityName=- identityHash=none`, then `skipped macOS notarization  reason=notarize options were unable to be generated`. `codesign -dv` on the built app: `flags=0x10002(adhoc,runtime)`, `Signature=adhoc`, `TeamIdentifier=not set`. `spctl -a -t exec` on a quarantined copy: **rejected**. |
+| macOS | **Ad-hoc signed, not notarized.** `identity: "-"`, `hardenedRuntime: true`, `build/entitlements.mac.plist` with `disable-library-validation`. | Build log: `signing … identityName=- identityHash=none`, then `skipped macOS notarization  reason=notarize options were unable to be generated`. `codesign -dv` on the built app: `flags=0x10002(adhoc,runtime)`, `Signature=adhoc`, `TeamIdentifier=not set`. `spctl -a -t exec`: **rejected** — it is neither Developer-ID-signed nor notarized, so the assessment fails regardless of whether the copy carries a quarantine flag (quarantine only controls whether *Gatekeeper* consults `spctl` on launch). |
 | Windows | **Unsigned.** No `win.certificateFile`/`signtool` configuration of any kind. | `electron-builder.yml` `win:` block sets only icon and targets. Note the build log's `signing with signtool.exe` lines are misleading — it prints them with no certificate available and attaches nothing: the PE certificate table in both emitted `.exe` files is offset 0, size 0, i.e. no Authenticode signature. |
 | Linux | Unsigned (no signature concept for AppImage/deb here). | — |
 
@@ -106,22 +107,46 @@ today**, so the README documents the warnings honestly rather than pretending th
 
 ---
 
-## Two packaging facts discovered while deciding this
+## Packaging hardening this task added — and why it is *not* a bugfix
 
-Both were found by actually running `npm run dist` on 2026-08-01, and both are fixed by
-the two `package.json` fields this task added (`homepage`, `repository`):
+This task added `homepage` and `repository` to `package.json`. That is worth keeping, but
+it must not be mistaken for repairing a broken build: **the canonical clone of this repo
+was never broken.**
 
-1. **`npm run dist` was failing outright at the deb target.** fpm-based targets require
-   project metadata, and electron-builder aborted the whole Linux build with
-   `⨯ Please specify project homepage`. The AppImage was produced, the `.deb` never was —
-   so the deb install path documented in the README could not actually have been
-   delivered. Adding `homepage` fixes it; a full `npm run dist` now exits 0 with all six
-   artifacts.
-2. **No `latest*.yml` update metadata was being emitted.** electron-builder only writes it
-   when it can resolve a publish target, which it infers from `repository`. Without that
-   field the build silently produced no update feed at all. With it, `npm run dist` now
-   emits `latest.yml`, `latest-mac.yml` and `latest-linux.yml` — which is precisely what
-   NCOW-10 (auto-update) will need.
+The two failures that prompted the change were artifacts of the *development environment*,
+not defects in the repo. Both were observed while building inside a **git worktree**, where
+`.git` is a *file* pointing at `…/.git/worktrees/<name>` rather than a real directory.
+electron-builder's `app-builder-lib/out/util/repositoryInfo.js` reads
+`<projectDir>/.git/config` directly, so in a worktree it resolves nothing:
+
+```
+getRepositoryInfo(<worktree>, {name: 'x'}, null)      -> null
+getRepositoryInfo(/…/repos/claude-conduit, …)         -> {type: 'github',
+                                                          user: 'evolvconsulting',
+                                                          project: 'claude-conduit'}
+```
+
+With that resolution failing, two downstream inferences fail with it:
+
+1. **The deb target aborted with `⨯ Please specify project homepage`.** fpm-based targets
+   need a homepage, and `appInfo.js`'s `computePackageUrl()` normally falls back to the
+   resolved `repositoryInfo` when `homepage` is absent. In the main clone that fallback
+   succeeds, so **this error would never have fired there** — the `.deb` was always
+   buildable and the README's Linux install path was always deliverable. It failed only
+   inside the worktree, where there was no `repositoryInfo` to fall back to.
+2. **No `latest*.yml` update metadata was emitted.** `PublishManager.js` infers the publish
+   config from `repositoryInfo` too. In the main clone that inference also succeeds, so
+   `latest.yml` / `latest-mac.yml` / `latest-linux.yml` **were already being emitted** —
+   NCOW-9's earlier implementation note saying those files already existed was **correct**,
+   and NCOW-10 (auto-update) can rely on it. Again, only the worktree build produced no
+   update feed.
+
+**So what do the new fields buy?** They remove the build's dependence on `.git` layout
+entirely. `homepage` and `repository` are read straight from `package.json`, before any git
+probing, so `npm run dist` behaves identically from a worktree, a CI runner with a shallow
+or detached checkout, or an unpacked source tarball with no `.git` at all — instead of
+succeeding in one environment and failing in another. That is hardening, and it is why the
+fields stay; it is not a fix for anything the canonical repo ever got wrong.
 
 ## Release checklist (what a published Release must contain)
 
@@ -154,8 +179,11 @@ Done:
 - The macOS `.dmg` mounts, contains `Claude Conduit.app` and the `/Applications` symlink,
   and the app inside is `flags=0x10002(adhoc,runtime)`, universal `x86_64 arm64`,
   `TeamIdentifier=not set`.
-- A copy of that app carrying a real `com.apple.quarantine` attribute is **rejected** by
-  `spctl -a -t exec` — the Gatekeeper block the README's steps talk the user through.
+- `spctl -a -t exec` **rejects** the built app (checked on a copy carrying a real
+  `com.apple.quarantine` attribute, the state a downloaded release arrives in) — the
+  Gatekeeper block the README's steps talk the user through. The rejection is a property of
+  the signature, not of the flag: quarantine is only what makes macOS consult `spctl` in
+  the first place.
 - `xattr -dr com.apple.quarantine` clears it, and the app then launches: the packaged
   binary was run against an isolated `NIM_PROXY_TEST_HOME`, and its renderer came up on
   `…/app.asar/src/renderer/index.html#setup` with window title "Claude Conduit".
