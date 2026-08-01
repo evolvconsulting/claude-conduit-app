@@ -4,7 +4,7 @@ title: Rebrand to Claude Conduit and rename the repo to claude-conduit
 status: In Progress
 assignee: []
 created_date: '2026-07-31 21:50'
-updated_date: '2026-08-01 17:27'
+updated_date: '2026-08-01 17:54'
 labels: []
 dependencies: []
 priority: high
@@ -35,3 +35,23 @@ It also touches things with USER DATA behind them, which need a migration decisi
 - [ ] #7 README documents what existing users must do, if anything
 - [ ] #8 `npm test` passes and a packaged build launches under the new identity
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+AC#1/#3 (identity): package.json name/productName -> claude-conduit/Claude Conduit; electron-builder appId -> com.evolvconsulting.claudeconduit, productName, dmg title, Linux StartupWMClass -> claude-conduit; menu/tray/About/window-title/sidebar updated; licenses.json regenerated (embeds productName).
+
+AC#2 (repo slug/URLs): REPO_URL in menu.js/about-dialog.js -> https://github.com/evolvconsulting/claude-conduit (same org, per locked decision; actual gh repo rename left undone, out of scope).
+
+AC#4/#5 (persisted-state decisions, each implemented + verified via fixtures only, never real machine state):
+- Config dir (~/.config/claude-nim-proxy -> claude-conduit): migrate, unprompted. New configDirMigration.js renames on startup and rewrites absolute paths baked into run.js/ecosystem.config.cjs.
+- pm2 app name (litellm-nim): leave -- internal identifier, not user-visible; NCOW-14 is the more natural rename point.
+- Electron userData / encrypted key: migrate via best-effort non-destructive copy. macOS safeStorage keys its Keychain entry to app_name + " Safe Storage", so the copied blob is expected to fail to decrypt on macOS post-rename (Windows DPAPI should keep working). Safe because secretStore.load() already treats decrypt failure as "no key stored," never a crash. Documented honestly in README.
+- Claude Desktop entry: migrate display name only, riding the existing consent-gated applyGatewayConfig() write (no new consent surface); entries were already reused by id regardless of name.
+
+AC#6: swept the worktree; remaining old-name/slug occurrences outside backlog/archive are deliberate migration-context references (LEGACY_* constants, upgrade-doc prose, DESIGN.md historical banner).
+
+AC#7: README gets an "Upgrading from NIM Proxy Manager" section, one row per persisted-state item.
+
+AC#8: npm run pack succeeded; static Info.plist check (CFBundleName/CFBundleDisplayName = Claude Conduit, CFBundleIdentifier = com.evolvconsulting.claudeconduit); live packaged-build launch under NIM_PROXY_TEST_HOME confirmed document.title == "Claude Conduit" over CDP, then killed. Self-caught gap: Electron's own internal --user-data-dir (Chromium cache) isn't covered by NIM_PROXY_TEST_HOME -- fixed the one path with real sensitivity (the app's own nim-key.enc write, via resolveUserDataPaths()) and documented the remaining Electron-internal-cache limitation in CLAUDE.md as accepted.
+<!-- SECTION:PLAN:END -->
