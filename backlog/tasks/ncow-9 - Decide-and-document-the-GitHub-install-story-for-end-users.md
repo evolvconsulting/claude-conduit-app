@@ -4,7 +4,7 @@ title: Decide and document the GitHub install story for end users
 status: In Progress
 assignee: []
 created_date: '2026-07-31 20:38'
-updated_date: '2026-08-01 22:26'
+updated_date: '2026-08-01 22:28'
 labels: []
 dependencies:
   - NCOW-12
@@ -267,4 +267,45 @@ settled judgment calls (package.json scope, 170/176 anomaly, NCOW-19 merge
 safety).
 
 Sending back through review (pass 2 of the 2-retry cap).
+
+Reviewer verdict, pass 2 (opus): APPROVE. AC indices independently
+confirmed: #1, #2, #3, #4, #6 fully; #5 partial/qualified (unchanged from
+pass 1 -- the literal AC requires a published Release + a clean machine,
+neither achievable by any agent; what IS achievable was independently
+re-verified: codesign/spctl rejection, Windows PE cert-table absence, and a
+fresh launch of the packaged app under NIM_PROXY_TEST_HOME with a clean CDP
+confirmation).
+
+MEDIUM fix independently verified correct on every checkable claim against
+the installed electron-builder source itself (appInfo.js's
+computePackageUrl fallback, PublishManager.js's repositoryInfo-based publish
+inference, the _getInfo short-circuit on an already-resolved repo). Grep
+confirmed zero leftover references to the old wrong framing anywhere in
+README/docs/electron-builder.yml/package.json. All three LOW items
+independently confirmed fixed. Diff scope confirmed clean: 288157b touches
+only README.md, docs/distribution.md, electron-builder.yml (package.json
+untouched by this commit, as expected -- it was already committed in
+200b87d).
+
+Reviewer's own npm test: 176/176 pass, 3 more consecutive clean runs (7
+total across both review passes). 170/176 anomaly judgment reconfirmed:
+accept as noise, environment-only (licenses.test.js's npm-ls-driven flake
+class), impossible for this branch's diff to cause. package.json scope
+judgment reconfirmed: justified, keep, correctly reframed as hardening.
+NCOW-19 interaction reconfirmed: none -- metadata fields add no npm-ls
+nodes.
+
+Real machine state re-verified untouched after pass 2 (same file mtimes
+checked again, all still pre-dispatch, no new launches this pass).
+
+Non-blocking notes for the user's awareness (not defects, no further action
+needed): the README's unsigned-install section grew rather than shrank,
+which is the opposite of a prior recorded user steer but is defensible given
+signing doesn't exist yet and both docs carry explicit "delete when signing
+lands" triggers; commit 200b87d's message body still carries the original
+wrong root-cause framing (immutable history, superseded by 288157b's body,
+tidied automatically by the eventual squash-merge commit message).
+
+CLEARED TO MERGE. Proceeding to the merge queue: NCOW-19 first (confirmed
+queue order), then NCOW-9.
 <!-- SECTION:NOTES:END -->
