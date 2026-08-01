@@ -4,7 +4,7 @@ title: Rebrand to Claude Conduit and rename the repo to claude-conduit
 status: In Progress
 assignee: []
 created_date: '2026-07-31 21:50'
-updated_date: '2026-08-01 18:07'
+updated_date: '2026-08-01 18:12'
 labels: []
 dependencies: []
 priority: high
@@ -110,4 +110,10 @@ npm test: 176/176 pass (175 + 1 new), run twice (before and after both commits).
 Commits: f775fb8 (engine fix + test), 0e19d45 (docs). Pushed to origin/feat/NCOW-12-rebrand-claude-conduit @ 0e19d45. Orchestrator independently confirmed the push and a clean worktree.
 
 Dispatching review pass 2 (opus) into the same worktree -- second and final review pass under the campaign's 2-retry cap.
+
+Opus review, pass 2 (final): APPROVE. Confirmed AC indices: 1, 2, 3, 4, 6, 7, 8 -- re-ran npm test independently (176/176), and specifically mutation-tested Defect 1's fix by reverting claudeDesktopConfig.js to the pre-fix version and re-running the new test, which failed as expected (proves the test is non-vacuous and pins the exact regression). Ran an independent 5-scenario repro script beyond the worker's own test: (a) valid id reuses by id, (b) no id + legacy entry present alongside an unrelated entry reuses/renames only the legacy one without touching the unrelated entry's config, (b2) repeated Apply with still-no-id converges rather than duplicating, (c) no id + no legacy + no new-named entry creates exactly one fresh entry, (d) revertToDefault's 3-arg call leaves legacyName undefined so the fallback cannot hijack the Anthropic-default path. All 4 original defects (2 LOW, 2 TRIVIAL) independently confirmed fixed. Diff for the fix pass touches exactly 4 files (.gitignore, README.md, claudeDesktopConfig.js, its test) -- no drive-bys. AC#5 remains PARTIAL as before (correct, not an escalation).
+
+One new TRIVIAL defect, self-introduced by the fix pass: the new test bumped the suite from 175 to 176, but CLAUDE.md:50 and README.md:221 still document "175 tests." Reviewer's explicit recommendation: apply this one-line-each fix at merge time, does NOT warrant a third review pass.
+
+Final recommendation: ready to merge once the 175->176 doc bump is applied.
 <!-- SECTION:NOTES:END -->
