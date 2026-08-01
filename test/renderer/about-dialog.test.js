@@ -22,7 +22,7 @@ test('about: the dialog owns the content and shows name plus version', () => {
   const about = read('components', 'about-dialog.js');
   assert.match(about, /const GOTCHAS = \[/);
   assert.match(about, /Things to know/);
-  assert.match(about, /NIM Proxy Manager/);
+  assert.match(about, /Claude Conduit/);
   assert.match(about, /nimProxy\.app\.getVersion\(\)/);
 });
 

@@ -59,7 +59,7 @@ function createTray(opts, deps = {}) {
     return createNullTray(err.message);
   }
 
-  tray.setToolTip('NIM Proxy Manager');
+  tray.setToolTip('Claude Conduit');
 
   function setStatus(status) {
     try {
@@ -70,7 +70,7 @@ function createTray(opts, deps = {}) {
           : status.status === 'not-installed'
             ? 'Not configured'
             : status.status[0].toUpperCase() + status.status.slice(1);
-      tray.setToolTip(`NIM Proxy Manager — ${label}`);
+      tray.setToolTip(`Claude Conduit — ${label}`);
 
       const menu = Menu.buildFromTemplate([
         { label, enabled: false },
@@ -85,7 +85,7 @@ function createTray(opts, deps = {}) {
         // Quitting takes the proxy with it (NCOW-4), which also means Claude
         // Desktop and Claude Code stop routing through NIM — worth saying on
         // the item itself rather than leaving it to be discovered.
-        { label: 'Quit NIM Proxy Manager (stops the proxy)', click: () => opts.quit() },
+        { label: 'Quit Claude Conduit (stops the proxy)', click: () => opts.quit() },
       ]);
       tray.setContextMenu(menu);
     } catch (err) {

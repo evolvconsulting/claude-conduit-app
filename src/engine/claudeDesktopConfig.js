@@ -30,7 +30,16 @@ const { execCli, safeTimestampForFilename } = require('./platform');
  * pre-existing "Claude API" default or any other custom profile.
  */
 
-const OUR_ENTRY_NAME = 'NIM Proxy Manager';
+const OUR_ENTRY_NAME = 'Claude Conduit';
+// NCOW-12: the entry this app created before the rename. applyGatewayConfig
+// prefers reusing a prior entry by id (recorded in manifest.json). But
+// manifest.json can be gone with no id recorded anywhere — e.g. a
+// purge-uninstall (which deletes manifest.json) while the user declined the
+// separate Claude Desktop opt-in, leaving the old-named entry in Desktop's
+// own config untouched. For that case, findOrCreateEntryByName also falls
+// back to this legacy name so the existing entry is found and
+// reused/renamed instead of duplicated.
+const LEGACY_ENTRY_NAME = 'NIM Proxy Manager';
 const DEFAULT_ANTHROPIC_ENTRY_NAMES = ['Claude API', 'Anthropic API'];
 const ID_PATTERN = /^[a-f0-9-]{36}$/;
 
@@ -91,7 +100,7 @@ function writeEntryConfig(configLibraryDir, id, content) {
  */
 function backupConfigLibrary(configLibraryDir) {
   if (!fs.existsSync(configLibraryDir)) return null;
-  const backupDir = `${configLibraryDir}.bak.claude-nim-proxy.${safeTimestampForFilename()}`;
+  const backupDir = `${configLibraryDir}.bak.claude-conduit.${safeTimestampForFilename()}`;
   fs.cpSync(configLibraryDir, backupDir, { recursive: true });
   return backupDir;
 }
@@ -106,14 +115,22 @@ function restoreConfigLibraryFromBackup(backupDir, configLibraryDir) {
 }
 
 /**
- * Finds an existing entry by exact name (first match), or creates a new one:
- * generates a UUID, writes an empty `{}` config file, appends `{id, name}`
- * to meta.entries (matching Claude Desktop's own `rPt` — no provider/note
- * persisted). Returns the resulting {id, created}.
+ * Finds an existing entry by exact name (first match); if not found and a
+ * `legacyName` is given, falls back to a lookup under that older name so a
+ * pre-rename entry gets reused (and later renamed by the caller) instead of
+ * duplicated. Otherwise creates a new one: generates a UUID, writes an empty
+ * `{}` config file, appends `{id, name}` to meta.entries (matching Claude
+ * Desktop's own `rPt` — no provider/note persisted). Returns the resulting
+ * {id, created}.
  */
-function findOrCreateEntryByName(configLibraryDir, meta, name) {
+function findOrCreateEntryByName(configLibraryDir, meta, name, legacyName) {
   const existing = meta.entries.find((e) => e.name === name);
   if (existing) return { id: existing.id, created: false };
+
+  if (legacyName) {
+    const legacyEntry = meta.entries.find((e) => e.name === legacyName);
+    if (legacyEntry) return { id: legacyEntry.id, created: false };
+  }
 
   const id = crypto.randomUUID();
   writeEntryConfig(configLibraryDir, id, {});
@@ -146,9 +163,25 @@ function applyGatewayConfig(opts) {
   const previousId = opts.manifest?.desktop_config_entry_id;
   const reusable = previousId && ID_PATTERN.test(previousId) && meta.entries.some((e) => e.id === previousId);
 
+  // No usable id (fresh install, or manifest.json lost — e.g. a
+  // purge-uninstall while the user declined the Claude Desktop opt-in)?
+  // Fall back to a legacy-name lookup before creating anything, so an
+  // old-named entry from before the rename is found and reused rather than
+  // duplicated.
   const { id: entryId } = reusable
     ? { id: previousId }
-    : findOrCreateEntryByName(opts.configLibraryDir, meta, OUR_ENTRY_NAME);
+    : findOrCreateEntryByName(opts.configLibraryDir, meta, OUR_ENTRY_NAME, LEGACY_ENTRY_NAME);
+
+  // NCOW-12: an entry reused above (by id or by legacy-name fallback) may
+  // still be labelled LEGACY_ENTRY_NAME in Desktop's own UI. Fix the display
+  // name up as part of this already-consented write, rather than leaving a
+  // stale label — this is the one migration step for the Claude Desktop
+  // entry, and it deliberately rides on the SAME consent gate as every other
+  // write here rather than introducing a new one.
+  const reusedEntry = meta.entries.find((e) => e.id === entryId);
+  if (reusedEntry && reusedEntry.name === LEGACY_ENTRY_NAME) {
+    reusedEntry.name = OUR_ENTRY_NAME;
+  }
 
   const existingConfig = readEntryConfig(opts.configLibraryDir, entryId);
   const merged = {
@@ -290,6 +323,7 @@ While third-party inference is active:
 
 module.exports = {
   OUR_ENTRY_NAME,
+  LEGACY_ENTRY_NAME,
   DEFAULT_ANTHROPIC_ENTRY_NAMES,
   ConsentRequiredError,
   NoExistingConfigLibraryError,

@@ -1,6 +1,6 @@
 {
-  "name": "nim-proxy-manager",
-  "productName": "NIM Proxy Manager",
+  "name": "claude-conduit",
+  "productName": "Claude Conduit",
   "version": "0.1.0",
   "description": "GUI manager for a local LiteLLM proxy routing Claude Desktop and the Claude Code CLI through NVIDIA NIM models.",
   "author": "evolv consulting <info@evolvconsulting.com>",

@@ -12,8 +12,9 @@ confirms them.
 - `default-entry.example.json` — the corresponding `configLibrary/<Default's id>.json`, which
   `LZ()` writes as `{}` initially.
 - `meta.after-apply.json` — `_meta.json` after this app's planned NCOW-1.7 writer creates and
-  applies its own dedicated "NIM Proxy Manager" entry, per the revised approach in FINDINGS.md
-  (never touching the pre-existing "Default" entry).
+  applies its own dedicated entry (named "Claude Conduit" since NCOW-12; "NIM Proxy Manager"
+  before it), per the revised approach in FINDINGS.md (never touching the pre-existing
+  "Default" entry).
 - `nim-proxy-entry.example.json` — the corresponding gateway config content for that entry.
 - `meta.after-revert.json` — `_meta.json` after reverting, mirroring Claude Desktop's own `vPt()`:
   since no existing entry already had `inferenceProvider: "anthropic"` in this scenario, a new

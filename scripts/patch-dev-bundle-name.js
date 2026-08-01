@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Make a *dev* run identify itself as "NIM Proxy Manager" instead of "Electron".
+ * Make a *dev* run identify itself as "Claude Conduit" instead of "Electron".
  *
  * On macOS the bold application-menu title and the dock mouseover tooltip are
  * read from the running bundle's Info.plist (CFBundleName / CFBundleDisplay-

@@ -65,11 +65,11 @@ test('menu: the edit menu survives on every platform (paste into the API-key fie
 
 test('menu: About is reachable on every platform, in the platform-appropriate menu', () => {
   const mac = buildMenuTemplate(noActions, 'darwin');
-  assert.equal(findByLabel(mac, 'About NIM Proxy Manager')?.menu, mac[0]);
+  assert.equal(findByLabel(mac, 'About Claude Conduit')?.menu, mac[0]);
 
   for (const platform of ['win32', 'linux']) {
     const template = buildMenuTemplate(noActions, platform);
-    const about = findByLabel(template, 'About NIM Proxy Manager');
+    const about = findByLabel(template, 'About Claude Conduit');
     assert.ok(about, `${platform} has no About item`);
     assert.equal(about.menu.role, 'help', `${platform} should carry About under Help`);
   }
@@ -86,7 +86,7 @@ test('menu: About and View Logs Folder invoke the injected actions', () => {
       platform,
     );
 
-    findByLabel(template, 'About NIM Proxy Manager').item.click();
+    findByLabel(template, 'About Claude Conduit').item.click();
     findByLabel(template, 'View Logs Folder').item.click();
     assert.deepEqual(fired, ['about', 'logs'], `${platform} menu actions are not wired`);
   }

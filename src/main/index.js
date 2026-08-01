@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('node:path');
 const { app, safeStorage } = require('electron');
 const { createMainWindow, getMainWindow, showMainWindow, prepareToQuit } = require('./windows');
 const { installApplicationMenu } = require('./menu');
@@ -9,6 +10,28 @@ const { startStatusPoller } = require('./status-poller');
 const { createTray } = require('./tray');
 const { getAppIcon } = require('./app-icon');
 const { createProxyShutdown } = require('./shutdown');
+const paths = require('../engine/paths');
+
+/**
+ * NCOW-12 safety net: Electron's userData directory (which holds the
+ * encrypted NVIDIA key — see secretStore.js/userDataMigration.js) is derived
+ * from app.name/productName, NOT from anything NIM_PROXY_TEST_HOME already
+ * redirects (engine-context.js's resolveHomedir only covers configDir,
+ * ~/.claude, and Claude Desktop's configLibrary). Without this, a --dev run
+ * with NIM_PROXY_TEST_HOME set would still read/write this machine's REAL
+ * Electron userData directory — exactly the live, real-API-key state this
+ * project's safe-testing story exists to keep dev runs away from. Mirrors
+ * Electron's own appData/userData convention (paths.resolveElectronAppDataDir),
+ * just rooted under the fake home instead of the real one.
+ */
+function resolveUserDataPaths() {
+  const isDev = process.argv.includes('--dev');
+  if (isDev && process.env.NIM_PROXY_TEST_HOME) {
+    const appDataDir = paths.resolveElectronAppDataDir({ homedir: process.env.NIM_PROXY_TEST_HOME });
+    return { appDataDir, userDataDir: path.join(appDataDir, app.name) };
+  }
+  return { appDataDir: app.getPath('appData'), userDataDir: app.getPath('userData') };
+}
 
 // Set once the engine exists. Until then there is nothing to shut down, and
 // before-quit must not stall an early exit waiting for it.
@@ -16,7 +39,7 @@ let stopProxyForShutdown = null;
 let stopStatusPoller = null;
 let shuttingDown = false;
 
-// Two instances writing ~/.config/claude-nim-proxy/ or ~/.claude/settings.json
+// Two instances writing ~/.config/claude-conduit/ or ~/.claude/settings.json
 // concurrently is unsafe — refuse a second launch and focus the existing window.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -36,9 +59,11 @@ if (!gotSingleInstanceLock) {
 
     // safeStorage must only be called after app.whenReady() — Linux backend
     // detection happens then.
+    const { userDataDir, appDataDir } = resolveUserDataPaths();
     const { handlers, pm2Control } = createEngineContext({
       safeStorage,
-      userDataDir: app.getPath('userData'),
+      userDataDir,
+      appDataDir,
       broadcast: (channel, payload) => getMainWindow()?.webContents.send(channel, payload),
     });
 

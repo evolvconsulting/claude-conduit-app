@@ -71,7 +71,7 @@ function readParsedSettingsOrNull(settingsPath) {
 
 function backupIfExists(settingsPath) {
   if (!fs.existsSync(settingsPath)) return null;
-  const backupPath = `${settingsPath}.bak.claude-nim-proxy.${safeTimestampForFilename()}`;
+  const backupPath = `${settingsPath}.bak.claude-conduit.${safeTimestampForFilename()}`;
   fs.copyFileSync(settingsPath, backupPath);
   return backupPath;
 }

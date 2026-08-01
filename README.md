@@ -1,4 +1,4 @@
-# NIM Proxy Manager
+# Claude Conduit
 
 A cross-platform desktop app that sets up and supervises a local [LiteLLM](https://docs.litellm.ai/)
 proxy, so **Claude Desktop** and the **Claude Code CLI** talk to
@@ -13,16 +13,20 @@ suite against the running proxy.
 > you choose. Agentic-coding quality differs from Claude models, sometimes a lot. See
 > [Things to know](#things-to-know) before you rely on it.
 
+> **Upgrading from NIM Proxy Manager?** This app was previously named NIM Proxy Manager.
+> See [Upgrading from NIM Proxy Manager](#upgrading-from-nim-proxy-manager) for what
+> carries over automatically and what you'll need to redo.
+
 ### Where this is heading
 
-Three changes are agreed and in the backlog, and they will affect anyone building on this
-now:
+Two changes are still agreed and in the backlog, and they will affect anyone building on
+this now:
 
-- **The product is being renamed to Claude Conduit**, and this repository to
-  `claude-conduit`.
 - **NVIDIA NIM is becoming one provider among several**, alongside OpenRouter and any
   OpenAI-compatible custom/local endpoint — so the NIM-specific framing throughout this
-  README is temporary.
+  README is temporary. (This is also why the pm2 app name `litellm-nim` and the current
+  NVIDIA/evolv icon mark were deliberately left alone by the Claude Conduit rename —
+  changing them once, when NIM stops being the only provider, beats changing them twice.)
 - **Configuration becomes a library of named connections** you switch between, rather than
   a single proxy you set up once.
 
@@ -51,7 +55,7 @@ Builds are **unsigned** — there's no paid Apple Developer ID or Windows code-s
 certificate behind them. Both operating systems will therefore warn you on first launch.
 The one-time workarounds are below.
 
-### macOS — `NIM Proxy Manager-<version>-universal.dmg`
+### macOS — `Claude Conduit-<version>-universal.dmg`
 
 Universal build; runs natively on both Apple Silicon and Intel.
 
@@ -64,24 +68,24 @@ If macOS still refuses ("damaged and can't be opened" — which really means "qu
 and unsigned"), clear the quarantine flag:
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/NIM Proxy Manager.app"
+xattr -dr com.apple.quarantine "/Applications/Claude Conduit.app"
 ```
 
 After that it opens normally forever. The first launch can take **20–40 seconds** while
 macOS verifies the (large) bundle; subsequent launches are fast.
 
-### Windows — `NIM Proxy Manager Setup <version>.exe`
+### Windows — `Claude Conduit Setup <version>.exe`
 
 Installs per-user, so it needs no administrator rights. There's also a
-`NIM Proxy Manager <version>.exe` portable build that runs without installing.
+`Claude Conduit <version>.exe` portable build that runs without installing.
 
 SmartScreen will show *"Windows protected your PC"*. Click **More info** →
 **Run anyway**.
 
 ### Linux
 
-- **AppImage** — `chmod +x 'NIM Proxy Manager-<version>.AppImage'` then run it.
-- **deb** — `sudo dpkg -i nim-proxy-manager_<version>_amd64.deb`
+- **AppImage** — `chmod +x 'Claude Conduit-<version>.AppImage'` then run it.
+- **deb** — `sudo dpkg -i claude-conduit_<version>_amd64.deb`
 
 The system tray is optional: if your desktop has no AppIndicator/StatusNotifier host
 (support is inconsistent across Linux desktops), the app logs a warning and runs
@@ -153,9 +157,9 @@ with pm2.
 
 | Path | What |
 |---|---|
-| `~/.config/claude-nim-proxy/` (macOS/Linux), `%APPDATA%\claude-nim-proxy\` (Windows) | config.yaml, litellm.env, ecosystem.config.cjs, manifest.json, logs/ |
+| `~/.config/claude-conduit/` (macOS/Linux), `%APPDATA%\claude-conduit\` (Windows) | config.yaml, litellm.env, ecosystem.config.cjs, manifest.json, logs/ |
 | `~/.claude/settings.json` | Claude Code CLI env keys (only the documented ones) |
-| Claude Desktop's `Claude-3p/configLibrary/` | A dedicated "NIM Proxy Manager" entry, created only with your explicit consent, and only after a full backup |
+| Claude Desktop's `Claude-3p/configLibrary/` | A dedicated "Claude Conduit" entry, created only with your explicit consent, and only after a full backup |
 
 The generated proxy master key lives in `litellm.env`, never in `manifest.json`.
 
@@ -179,7 +183,7 @@ These are surfaced in the app too, and they matter:
 
 Anthropic documents Claude Desktop's local third-party gateway config as written only by
 Desktop's own UI. The automated apply is therefore **unsupported and best-effort**: it
-takes a full backup first, only ever creates or edits a dedicated "NIM Proxy Manager"
+takes a full backup first, only ever creates or edits a dedicated "Claude Conduit"
 entry, and never touches your other configurations. The manual instructions are always
 shown right next to it, so you never depend on the automation. You must fully quit
 (⌘Q) and reopen Claude Desktop for a change to take effect.
@@ -190,11 +194,31 @@ directory itself.
 
 ---
 
+## Upgrading from NIM Proxy Manager
+
+This app was previously named **NIM Proxy Manager** (repository `nvidia-cowork`). NCOW-12
+renamed it to **Claude Conduit**. Everything visible — window title, menu bar, tray, About,
+installer, desktop entry — updates automatically the moment you run the new build. Here is
+what happens to everything else, and what (if anything) you need to do:
+
+| Persisted state | Decision | What you'll see |
+|---|---|---|
+| Config directory (`~/.config/claude-nim-proxy` → `claude-conduit`) | **Migrates automatically**, no action needed | The first launch after upgrading moves the whole directory — config.yaml, litellm.env (your proxy master key), manifest.json, logs — to its new name, and repairs the absolute paths baked into the generated launcher files. Your proxy configuration and port survive untouched. |
+| pm2 app name (`litellm-nim`) | **Left as-is**, no action needed | Still `litellm-nim` in `pm2 status`/`pm2 logs`. It's an internal identifier tied to the underlying litellm+NIM proxy, not the product name, and NCOW-14 (multi-provider support) is a more natural point to revisit it — changing it once there beats changing it twice. Your running proxy process is unaffected either way. |
+| Encrypted NVIDIA API key (Electron's userData directory) | **Best-effort copy**, may need one re-entry | Electron stores this file under a directory named after the app, so the rename moves it too. The app copies the encrypted blob forward automatically. On **Windows** this reliably still decrypts (the OS keys it to your user account, not the app). On **macOS** it is expected to **not** decrypt — the OS Keychain entry backing it is scoped to the app's name, which just changed — so **the Setup wizard will most likely ask you to re-enter your NVIDIA key once** after upgrading. This is safe and expected, never a crash: a failed decrypt is always treated as "no key stored yet." |
+| Claude Desktop's third-party inference entry | **Renamed in place, next time you click Apply** | The entry this app created is normally tracked by its own internal id (recorded in `manifest.json`), so upgrading reuses it rather than creating a duplicate. If that id record is missing — e.g. `manifest.json` was lost to a purge-uninstall — Apply falls back to looking the entry up by its old name instead of creating a second one. Its *label* inside Claude Desktop's picker still reads "NIM Proxy Manager" until you next use this app's **Apply Gateway Config** button (Claude Desktop page) — at that point, as part of that same already-consented write, it's relabelled to "Claude Conduit". Purely cosmetic either way; the gateway keeps working regardless. |
+
+You do need to **download and install the new build** — there is no auto-update yet
+(that's NCOW-10, sequenced after this rename on purpose). Uninstalling the old build first
+is not required; installing the new one over it is fine.
+
+---
+
 ## Building from source
 
 ```sh
 npm install
-npm test              # 101 tests, no network or real config touched
+npm test              # 176 tests, no network or real config touched
 npm run dev           # run from source
 npm run icons         # regenerate icons from build/icon.svg
 ```
@@ -218,15 +242,19 @@ targets from macOS works; electron-builder downloads the toolchains it needs.
 ### Safe manual testing
 
 Passing `NIM_PROXY_TEST_HOME` **together with `--dev`** redirects every path the app
-touches — its config directory, `~/.claude`, and Claude Desktop's `configLibrary` — under a
-throwaway home, so you can click every destructive button without touching your real
-configuration:
+touches — its config directory, `~/.claude`, Claude Desktop's `configLibrary`, and the
+encrypted-key file — under a throwaway home, so you can click every destructive button
+without touching your real configuration or your real NVIDIA key:
 
 ```sh
 NIM_PROXY_TEST_HOME=/tmp/fake-home ./node_modules/.bin/electron . --dev
 ```
 
-The override is ignored unless `--dev` is present, so it can never engage in a packaged build.
+The override is ignored unless `--dev` is present, so it can never engage in a real
+end-user launch of a packaged build. It does *not* redirect Electron's own internal
+userData (Chromium's session/cache) — that's disposable housekeeping Electron itself
+creates under the real per-OS app-data location on every launch, never anything this app
+writes.
 
 ---
 
@@ -240,7 +268,7 @@ Claude Desktop is a separate, individually confirmed opt-in — it's never a sid
 
 ## Licensing
 
-**NIM Proxy Manager is licensed under the [GNU AGPL-3.0-or-later](LICENSE).**
+**Claude Conduit is licensed under the [GNU AGPL-3.0-or-later](LICENSE).**
 
 That is not an arbitrary choice. The app bundles [pm2](https://github.com/Unitech/pm2),
 which is **AGPL-3.0**, and drives it through its programmatic API rather than as a

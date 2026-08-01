@@ -38,7 +38,7 @@ function render() {
 async function runUninstall() {
   const purge = root.querySelector('input[name="mode"]:checked').value === 'purge';
   const confirmed = await confirmDialog({
-    title: 'Uninstall NIM Proxy Manager?',
+    title: 'Uninstall Claude Conduit?',
     message: purge
       ? 'This stops and removes the proxy and permanently deletes the configuration directory, including the generated master key. This cannot be undone.'
       : 'This stops and removes the proxy. Your configuration directory is kept, so you can reconfigure later.',
@@ -56,7 +56,7 @@ async function runUninstall() {
     desktopRevertConfirmed = await confirmDialog({
       title: 'Also revert Claude Desktop?',
       message:
-        'This separately restores Claude Desktop\'s configuration to its default, removing the NIM Proxy Manager gateway entry. ' +
+        'This separately restores Claude Desktop\'s configuration to its default, removing the Claude Conduit gateway entry. ' +
         'You will need to fully quit and reopen Claude Desktop afterwards.',
       confirmLabel: 'Revert Claude Desktop too',
       danger: true,

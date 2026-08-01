@@ -53,16 +53,16 @@ test('renderRunLauncherJs: is syntactically valid JS (roundtrips through the Fun
 
 test('renderEcosystemConfigCjs: no secret ever appears, and paths with spaces/backslashes survive via JSON.stringify escaping', () => {
   const cjs = renderEcosystemConfigCjs({
-    runLauncherPath: 'C:\\Users\\Jeremy Newhouse\\claude-nim-proxy\\run.js',
-    outLog: 'C:\\Users\\Jeremy Newhouse\\claude-nim-proxy\\logs\\out.log',
-    errLog: 'C:\\Users\\Jeremy Newhouse\\claude-nim-proxy\\logs\\err.log',
+    runLauncherPath: 'C:\\Users\\Jeremy Newhouse\\claude-conduit\\run.js',
+    outLog: 'C:\\Users\\Jeremy Newhouse\\claude-conduit\\logs\\out.log',
+    errLog: 'C:\\Users\\Jeremy Newhouse\\claude-conduit\\logs\\err.log',
   });
   assert.doesNotMatch(cjs, /nvapi-/);
   assert.doesNotMatch(cjs, /sk-litellm-/);
   assert.doesNotThrow(() => {
     const mod = { exports: {} };
     new Function('module', 'exports', cjs)(mod, mod.exports);
-    assert.equal(mod.exports.apps[0].script, 'C:\\Users\\Jeremy Newhouse\\claude-nim-proxy\\run.js');
+    assert.equal(mod.exports.apps[0].script, 'C:\\Users\\Jeremy Newhouse\\claude-conduit\\run.js');
   });
 });
 

@@ -8,7 +8,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const pkg = require(path.join(ROOT, 'package.json'));
 
-const PRODUCT_NAME = 'NIM Proxy Manager';
+const PRODUCT_NAME = 'Claude Conduit';
 
 // The app must never introduce itself as "Electron" (NCOW-2). Each surface
 // below takes its name from a different place, so each needs its own guard.
