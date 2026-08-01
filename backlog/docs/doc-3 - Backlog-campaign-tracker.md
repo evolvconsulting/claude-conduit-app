@@ -3,7 +3,7 @@ id: doc-3
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 14:33'
+updated_date: '2026-08-01 17:27'
 ---
 # Backlog campaign tracker
 
@@ -48,24 +48,34 @@ cannot share a wave with either regardless of ordering — it was always going t
 User chose (AskUserQuestion): run NCOW-17 + NCOW-18 as wave 2 first (lower risk, ready now, no
 live-verification requirement), defer NCOW-12 to its own wave next. Do not re-ask this ordering.
 
+## Confirmed at restore #3 (2026-08-01) — wave 3 scope vs NCOW-19
+
+Re-ran the file-citation conflict check fresh rather than trusting the previous handover's
+assumption: NCOW-19 only touches `test/main/licenses.test.js` (making the tree-coverage
+assertion platform-aware), while NCOW-12 touches the generated `licenses.json` itself (its
+`app.name` field derives from `package.json`'s `productName`, which NCOW-12 changes) but not
+the test file. **They do not share a file** — unlike NCOW-17/18, this pairing was not actually
+forced apart by the conflict graph. Presented this finding to the user (AskUserQuestion) with
+three options (NCOW-12 solo / NCOW-19-then-NCOW-12 / both in parallel); user chose **NCOW-12
+solo this wave**, given its size and sensitivity (persisted-state migration decisions requiring
+a decide-vs-defer judgment call, live app verification, edits near a real Claude Desktop entry)
+outweigh the small efficiency gain from pairing. NCOW-19 is next up after NCOW-12 settles — a
+fast, low-risk wave. Do not re-ask this ordering.
+
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 2 settlement (2026-08-01): NCOW-17 and NCOW-18 are Done, merged into dev (PRs #3, #4).
-A new follow-up, NCOW-19 (platform-sensitive licenses test, discovered by the wave-2 integration
-review, user-approved), is ready now with no deps. NCOW-12 remains ready (no deps) — still the
-one large, sensitive task in the queue, needing a solo wave (persisted-state migration decisions,
-live app verification). NCOW-9 remains blocked on NCOW-12. NCOW-12 vs NCOW-19's relative priority
-has not been confirmed — check with the user at the next restore before building wave 3, same as
-was done for NCOW-17/18 vs NCOW-12 at restore #2.
+As of wave 3 dispatch (2026-08-01): NCOW-12 is Dispatched, wave 3, solo (Shared Machine State —
+needs live app/proxy verification under `NIM_PROXY_TEST_HOME`). NCOW-19 remains ready (no deps,
+no conflict with NCOW-12) and is next after NCOW-12 settles. NCOW-9 remains blocked on NCOW-12.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-12 | rebrand | (none) | To Do | | next candidate; solo wave regardless — large, touches persisted user state + needs live verification; repo rename stays manual |
-| 2 | NCOW-19 | hygiene | (none) | To Do | | ready now; created at wave 2 integration review; NOT yet given a confirmed queue position relative to NCOW-12 -- needs a quick user check at a future restore, same pattern as NCOW-17/18 |
+| 1 | NCOW-12 | rebrand | (none) | Dispatched | 3 | solo wave — large, touches persisted user state + needs live verification; repo rename stays manual |
+| 2 | NCOW-19 | hygiene | (none) | To Do | | ready now; runs next after NCOW-12 settles per restore #3 confirmation |
 | 3 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
 
 ## Resolved
@@ -123,3 +133,6 @@ was done for NCOW-17/18 vs NCOW-12 at restore #2.
   mirror image of the bug NCOW-18 fixed; no CI exists so nothing broken today). User approved
   (AskUserQuestion) creating a follow-up task rather than leaving it untracked: NCOW-19. Settled:
   both tasks marked Done with all confirmed ACs checked.
+
+- 2026-08-01 — wave 3 dispatched (task: NCOW-12): solo, per restore #3 confirmation above. In
+  flight — see next wave log entry at settlement.
