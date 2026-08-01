@@ -13,6 +13,9 @@ const {
   checkCompletion,
   checkToolCalling,
   checkStreaming,
+  checkSmallModel,
+  checkClaudeWildcard,
+  runDiagnostics,
   DEFAULT_TIMEOUT_MS,
   MODEL_COMPLETION_TIMEOUT_MS,
   timeoutDetail,
@@ -58,6 +61,22 @@ function neverEndingPingStreamResponse(delayMs) {
     async pull(controller) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       controller.enqueue(encoder.encode('event: ping\ndata: {}\n\n'));
+    },
+  });
+  return new Response(stream, { status: 200 });
+}
+
+// AC#1 (NCOW-17): a stream whose underlying source never enqueues anything
+// and never closes — `pull()` returns a promise that itself never settles.
+// This means a single `reader.read()` call never resolves on its own, the
+// same shape as an upstream that stops sending absolutely anything (not
+// even an SSE keep-alive) without ever dropping the connection. Used to
+// prove checkStreaming's read loop can't be parked inside one read() call
+// past its own timeoutMs budget.
+function neverEnqueuingStreamResponse() {
+  const stream = new ReadableStream({
+    pull() {
+      return new Promise(() => {});
     },
   });
   return new Response(stream, { status: 200 });
@@ -288,6 +307,206 @@ test('checkStreaming: the read loop\'s own elapsed-time budget expiring (stream 
       assert.match(r.detail, /meta\/llama-3\.3-70b-instruct/);
       assert.match(r.detail, /too slowly for interactive use/);
       assert.doesNotMatch(r.detail, /No message_start/);
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// NCOW-17: follow-ups from the NCOW-16 diagnostics review.
+// ---------------------------------------------------------------------------
+
+// AC#1: before this fix, the elapsed-time check only ran BETWEEN calls to
+// reader.read() — a single read() call that never settles on its own (a
+// mocked body that never enqueues and never closes, exactly like a real
+// upstream that stops sending anything at all, not even a keep-alive) hung
+// this check indefinitely, well past its own timeoutMs. This is the
+// regression test the AC calls for: it would time out (well past the 5s
+// assertion below, in fact never complete) against the pre-fix code, and
+// passes now that each read is raced against the remaining budget.
+test('checkStreaming: AC#1 — elapsed-time budget is enforced even while parked inside a single reader.read() call', async () => {
+  await withMockedFetch(
+    async () => neverEnqueuingStreamResponse(),
+    async () => {
+      const started = Date.now();
+      const r = await checkStreaming({ port: 4000, masterKey: 'k', model: 'meta/llama-3.3-70b-instruct', timeoutMs: 150 });
+      const elapsed = Date.now() - started;
+      assert.equal(r.status, 'fail');
+      assert.ok(elapsed < 5000, `expected the read-loop's own budget to bound elapsed time near 150ms even though reader.read() itself never settles on its own, took ${elapsed}ms`);
+      assert.match(r.detail, /meta\/llama-3\.3-70b-instruct/);
+      assert.match(r.detail, /too slowly for interactive use/);
+    }
+  );
+});
+
+// AC#2: timeoutDetail() used to always name the hardcoded routing alias
+// ("claude-sonnet-4-5" etc.) — a name the user never chose in Setup, and
+// meaningless to them. `displayModel` (defaulting to `model` for backward
+// compatibility) carries the real model id instead.
+test('checkCompletion: AC#2 — timeout message names the real model the user chose (displayModel), not the routing alias', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkCompletion({
+      port: 4000,
+      masterKey: 'k',
+      model: 'claude-sonnet-4-5',
+      displayModel: 'qwen/qwen3-coder-480b-a35b-instruct',
+      timeoutMs: 100,
+    });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /qwen\/qwen3-coder-480b-a35b-instruct/);
+    assert.doesNotMatch(r.detail, /claude-sonnet-4-5 is responding/);
+    // The check's own label still uses the routing alias, matching
+    // DESIGN.md section 11's sample output ("Completion (claude-sonnet-4-5)").
+    assert.equal(r.label, 'Completion (claude-sonnet-4-5)');
+  });
+});
+
+test('checkToolCalling: AC#2 — timeout message and non-support message both name the real model, not the routing alias', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkToolCalling({
+      port: 4000,
+      masterKey: 'k',
+      model: 'claude-sonnet-4-5',
+      displayModel: 'moonshotai/kimi-k2-instruct',
+      timeoutMs: 100,
+    });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /moonshotai\/kimi-k2-instruct/);
+    assert.doesNotMatch(r.detail, /claude-sonnet-4-5 is responding/);
+  });
+});
+
+test('checkStreaming: AC#2 — timeout message names the real model, not the routing alias', async () => {
+  await withMockedFetch(
+    async () => neverEndingPingStreamResponse(20),
+    async () => {
+      const r = await checkStreaming({
+        port: 4000,
+        masterKey: 'k',
+        model: 'claude-sonnet-4-5',
+        displayModel: 'deepseek-ai/deepseek-v3.1',
+        timeoutMs: 250,
+      });
+      assert.equal(r.status, 'fail');
+      assert.match(r.detail, /deepseek-ai\/deepseek-v3\.1/);
+      assert.doesNotMatch(r.detail, /claude-sonnet-4-5 is responding/);
+    }
+  );
+});
+
+test('checkSmallModel: AC#2 — timeout message names the real small model id (smallModelId), not the "claude-haiku-4-5" alias', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkSmallModel({ port: 4000, masterKey: 'k', smallModelId: 'meta/llama-3.1-8b-instruct', timeoutMs: 100 });
+    assert.equal(r.id, 7);
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /meta\/llama-3\.1-8b-instruct/);
+    assert.doesNotMatch(r.detail, /claude-haiku-4-5 is responding/);
+  });
+});
+
+test('checkClaudeWildcard: AC#2 — timeout message names the real primary model id (primaryModelId), not the "claude-sonnet-4-6" alias', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkClaudeWildcard({ port: 4000, masterKey: 'k', primaryModelId: 'qwen/qwen3-coder-480b-a35b-instruct', timeoutMs: 100 });
+    assert.equal(r.id, 8);
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /qwen\/qwen3-coder-480b-a35b-instruct/);
+    assert.doesNotMatch(r.detail, /claude-sonnet-4-6 is responding/);
+  });
+});
+
+// AC#3: runDiagnostics' worst-case wall time is ~7 minutes (5x60s + check
+// 10's 120s) — long enough that a user needs a way to cancel. opts.signal is
+// the cancellation token threaded through every interruptible check.
+test('runDiagnostics: AC#3 — a signal already aborted before the run starts skips every check', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const data = await runDiagnostics({
+    port: 4000,
+    masterKey: 'k',
+    apiKey: 'k',
+    primaryModelId: 'p',
+    smallModelId: 's',
+    manifest: { cli_configured: false },
+    settingsPath: '/dev/null',
+    signal: controller.signal,
+  });
+  assert.equal(data.cancelled, true);
+  assert.deepEqual(data.results, []);
+  assert.equal(data.allCriticalPassed, false);
+});
+
+test('runDiagnostics: AC#3 — cancelling mid-run stops before the next not-yet-started check, keeping completed results', async () => {
+  const controller = new AbortController();
+  let fetchCallCount = 0;
+  await withMockedFetch(
+    async () => {
+      fetchCallCount += 1;
+      // Check 1 (proxy alive) "succeeds", and the user cancels right as it
+      // finishes — before check 2 (auth enforced) ever gets a chance to fire
+      // its own fetch. A second fetch call means the loop kept going after
+      // the signal was already aborted.
+      if (fetchCallCount === 1) {
+        controller.abort();
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`unexpected fetch call #${fetchCallCount} after cancellation`);
+    },
+    async () => {
+      const data = await runDiagnostics({
+        port: 4000,
+        masterKey: 'k',
+        apiKey: 'k',
+        primaryModelId: 'p',
+        smallModelId: 's',
+        manifest: { cli_configured: false },
+        settingsPath: '/dev/null',
+        signal: controller.signal,
+      });
+      assert.equal(data.cancelled, true);
+      assert.equal(data.results.length, 1, 'only check 1 should have run before cancellation was observed');
+      assert.equal(data.results[0].id, 1);
+      assert.equal(data.results[0].status, 'pass');
+      assert.equal(fetchCallCount, 1);
+    }
+  );
+});
+
+test('checkCompletion: AC#3 — cancelling mid-flight reports "Cancelled." rather than the slow-model timeout message', async () => {
+  const controller = new AbortController();
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const promise = checkCompletion({ port: 4000, masterKey: 'k', model: 'claude-sonnet-4-5', timeoutMs: 5000, signal: controller.signal });
+    controller.abort();
+    const r = await promise;
+    assert.equal(r.status, 'fail');
+    assert.equal(r.detail, 'Cancelled.');
+    assert.doesNotMatch(r.detail, /too slowly for interactive use/);
+  });
+});
+
+test('checkStreaming: AC#3 — cancelling mid-flight (before the underlying request resolves) reports "Cancelled."', async () => {
+  const controller = new AbortController();
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const promise = checkStreaming({ port: 4000, masterKey: 'k', timeoutMs: 5000, signal: controller.signal });
+    controller.abort();
+    const r = await promise;
+    assert.equal(r.status, 'fail');
+    assert.equal(r.detail, 'Cancelled.');
+    assert.doesNotMatch(r.detail, /too slowly for interactive use/);
+  });
+});
+
+// AC#5: buffer trimming must never cause a match split across the trim
+// boundary to be missed. STREAM_SCAN_TAIL_CHARS (1024) is comfortably larger
+// than 'message_start' (13 chars), so this forces at least one trim (via
+// >1024 chars of filler) and then splits the token itself across a chunk
+// boundary right where the trim would land.
+test('checkStreaming: AC#5 — bounded buffer trimming does not lose a message_start split across a chunk/trim boundary', async () => {
+  const filler = 'x'.repeat(2000); // > STREAM_SCAN_TAIL_CHARS, forces a trim
+  const chunks = [filler, 'event: message_st', 'art\ndata: {"type":"message_start"}\n\n'];
+  await withMockedFetch(
+    async () => streamResponse(chunks),
+    async () => {
+      const r = await checkStreaming({ port: 4000, masterKey: 'k', timeoutMs: 5000 });
+      assert.equal(r.status, 'pass');
     }
   );
 });

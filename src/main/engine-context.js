@@ -49,6 +49,12 @@ function createEngineContext(deps) {
   const pm2Control = createPm2Control(require('pm2'));
 
   let logTailUnsubscribe = null;
+  // NCOW-17 AC#3: tracks the AbortController for whichever diagnostics run
+  // is currently in flight, so diagnostics.cancel (below) has something to
+  // abort. null when no run is in progress — cancel() is then a harmless
+  // no-op rather than an error, since the renderer can't always know for
+  // certain a run is still active when the user clicks Cancel.
+  let diagnosticsAbortController = null;
 
   function getManifest() {
     return manifestStore.readManifest(files.manifestJson);
@@ -302,17 +308,35 @@ function createEngineContext(deps) {
         const manifest = getManifest();
         const apiKey = secretStore.load();
         if (!manifest || !apiKey) return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Run setup first.' } };
-        const result = await diagnostics.runDiagnostics({
-          port: manifest.port,
-          masterKey: getMasterKey(),
-          apiKey,
-          nimBaseUrl: manifest.nim_base_url ?? undefined,
-          primaryModelId: manifest.primary_model,
-          smallModelId: manifest.small_model,
-          manifest,
-          settingsPath: claudeCodeSettingsPath,
-        });
-        return { ok: true, data: result };
+        // NCOW-17 AC#3: a fresh AbortController per run — diagnostics:run
+        // isn't mutex-guarded (see ipc.js: only proxy/config/claudeDesktop/
+        // claudeCode have a domain mutex), so overlapping runs aren't
+        // actually prevented at this layer; the renderer's own button
+        // disable-while-running is what stops that in practice. Clearing
+        // the controller in `finally` (rather than leaving a stale one
+        // around) means a cancel() call after the run has already finished
+        // is a no-op instead of accidentally aborting a *later* run.
+        diagnosticsAbortController = new AbortController();
+        try {
+          const result = await diagnostics.runDiagnostics({
+            port: manifest.port,
+            masterKey: getMasterKey(),
+            apiKey,
+            nimBaseUrl: manifest.nim_base_url ?? undefined,
+            primaryModelId: manifest.primary_model,
+            smallModelId: manifest.small_model,
+            manifest,
+            settingsPath: claudeCodeSettingsPath,
+            signal: diagnosticsAbortController.signal,
+          });
+          return { ok: true, data: result };
+        } finally {
+          diagnosticsAbortController = null;
+        }
+      },
+      cancel: async () => {
+        diagnosticsAbortController?.abort();
+        return { ok: true };
       },
     },
 
