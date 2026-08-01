@@ -4,7 +4,7 @@ title: Decide and document the GitHub install story for end users
 status: In Progress
 assignee: []
 created_date: '2026-07-31 20:38'
-updated_date: '2026-08-01 22:23'
+updated_date: '2026-08-01 22:26'
 labels: []
 dependencies:
   - NCOW-12
@@ -233,4 +233,38 @@ orchestrator will do a manual rm -rf /tmp/ncow9-* after settlement.
 
 Dispatching a fix pass into the same worktree now with these findings
 verbatim (retry 1 of 2 under the campaign's capped fix-cycle policy).
+
+Fix pass 1 (sonnet) evidence: commit 288157b on
+feat/NCOW-9-github-install-story, pushed. 3 files changed (+60/-24):
+docs/distribution.md, README.md, electron-builder.yml (one comment line).
+
+MEDIUM fix: replaced the "Two packaging facts discovered while deciding
+this" section with "Packaging hardening this task added -- and why it is
+not a bugfix," stating the true root cause (worktree-style .git file breaks
+electron-builder's repositoryInfo resolution; the canonical main clone was
+never broken -- the deb target and latest*.yml emission both worked there
+all along) and explicitly restoring NCOW-9's prior task note claiming
+latest*.yml already existed as correct, calling out the NCOW-10 dependency.
+Also fixed one forward-reference elsewhere in the doc (Decision 1's
+latest*.yml bullet) that carried the same wrong implication. package.json's
+homepage/repository fields are kept, reframed as hardening against
+.git-layout dependence (worktrees, CI, tarball checkouts), not as a
+canonical-repo bugfix.
+
+All three LOW items addressed: README now explains the dashed
+latest*.yml-matching filenames vs on-disk space/GitHub-web-UI-period
+variants explicitly (not a typo); electron-builder.yml's stale
+right-click-Open comment updated to the Sequoia System
+Settings->Privacy&Security->Open Anyway flow; spctl wording corrected in two
+places to describe rejection as a signature property, not a
+quarantine-only condition.
+
+npm test: 176/176 pass (branch's own pre-wave-4 baseline; NCOW-19's extra
+tests aren't in this worktree's history). Scope confirmed clean: only
+README.md, docs/distribution.md, and one electron-builder.yml comment line
+touched; no backlog commands, no npm run dist rebuild, no re-litigating of
+settled judgment calls (package.json scope, 170/176 anomaly, NCOW-19 merge
+safety).
+
+Sending back through review (pass 2 of the 2-retry cap).
 <!-- SECTION:NOTES:END -->
