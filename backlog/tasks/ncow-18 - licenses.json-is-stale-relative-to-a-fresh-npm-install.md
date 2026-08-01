@@ -4,7 +4,7 @@ title: licenses.json is stale relative to a fresh npm install
 status: In Progress
 assignee: []
 created_date: '2026-08-01 02:43'
-updated_date: '2026-08-01 10:18'
+updated_date: '2026-08-01 10:23'
 labels: []
 dependencies: []
 ordinal: 28000
@@ -46,4 +46,10 @@ Implemented and pushed (branch fix/NCOW-18-licenses-json-stale, commit 359da07).
 Verification: rm -rf node_modules && npm install && npm run licenses && node --test test/main/licenses.test.js reproduced the identical single-entry diff and passed (11/11), satisfying AC#2's clean-install requirement directly in this dedicated worktree. Full npm test: 150/150 pass (confirmed across 4 consecutive runs after the clean reinstall).
 
 Worker flagged two things for awareness, not scope: (1) npm install also touched package-lock.json (npm 10.9.8 normalizing a `license` field an older npm version didn't write) -- worker reverted this before committing since it's out of scope; if other campaign branches show the same lockfile drift independently, may be worth a single centralized fix rather than N workers each reverting it. (2) One run of npm test right after the from-scratch install showed 2 transient failures (require('electron') throwing at module-load time in menu.js tests) that self-resolved on every subsequent run and did not recur -- looks like a one-time postinstall/FS-settling race, not related to this task's change; not chased further since AC#3 only requires npm test to pass, which it now does reliably.
+
+REVIEW (opus, independent) -- VERDICT: approve. All 3 ACs independently confirmed with fresh evidence (not the worker's claims): AC#1 -- fresh `npm run licenses` regen is byte-identical (same SHA-256) to the committed file, no residual diff. Reviewer also reproduced the original failure by checking pre-fix licenses.json against a fresh node_modules: 78 !== 79, matching the task description exactly, confirming this is a genuine fix and not a no-op. AC#2 -- rm -rf node_modules && npm install && npm run licenses && node --test test/main/licenses.test.js: 11/11 pass. AC#3 -- 3 consecutive full npm test runs, 150/150 pass each; the worker's reported transient electron-require flake did not reproduce even on the first post-install run. fsevents confirmed a real production transitive dep via npm ls (pm2 -> chokidar -> fsevents); license text byte-matches node_modules' own LICENSE file, not truncated/placeholder. Scope confirmed clean: only src/assets/licenses.json changed, package-lock.json not committed, zero overlap with sibling NCOW-17. Commit message matches repo conventions.
+
+Non-blocking findings (not gating merge): (1) the fix flips which platform the test fails on (darwin-only optional dep fsevents) rather than making the test truly platform-portable -- fine given this repo has no CI and is macOS-developed, but a latent trap if that ever changes; (2) the test's count-based diagnostic (78 !== 79) is weak versus a name-set diff -- worth a follow-up task; (3) minor over-disclosure of an MIT notice in non-mac packaged builds -- harmless.
+
+Reviewer also flagged for the wave log: the package-lock.json `license` field normalization (npm 10.9.8 vs whatever generated the current lockfile) reproduces on every fresh install and should get a single centralized fix rather than every future worker reverting it independently; and confirmed the NCOW-12 wave-conflict reasoning was correct -- generate-licenses.js derives its app name from productName, so the Claude Conduit rebrand will necessarily need its own `npm run licenses` re-run after this merges.
 <!-- SECTION:NOTES:END -->
