@@ -26,7 +26,54 @@ function buildRequestB({ model = 'claude-sonnet-4-5' } = {}) {
   };
 }
 
-async function postMessages({ port, masterKey, body, timeoutMs = 30_000 }) {
+/**
+ * Default timeout for requests that don't exercise a real model completion
+ * (e.g. check 2's deliberately-unauthenticated request, which should be
+ * rejected by the proxy itself before ever reaching a model).
+ */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Timeout for checks that exercise a real completion against the
+ * primary/default model — the point at which a check stops waiting and
+ * declares the model too slow for interactive use, not an attempt to wait
+ * however long it takes for the upstream to eventually succeed.
+ *
+ * Confirmed live (NCOW-16): meta/llama-3.3-70b-instruct genuinely takes
+ * ~54s-186s+ for a trivial 64-token completion via NVIDIA's shared/free
+ * trial endpoint (integrate.api.nvidia.com, aka build.nvidia.com) under
+ * load — a raw curl straight to NVIDIA, bypassing this app and litellm
+ * entirely, took 186.6s end-to-end, and the response body's own
+ * nvext.scheduler_snapshot reported real queueing on that shared endpoint
+ * (num_running_reqs: 16, num_waiting_reqs: 11). Repeatedly raising this
+ * value to chase a passing result — 90s, then 180s, then 300s — was tried
+ * live during this fix and still weren't reliably enough; a shared
+ * multi-tenant upstream's queue depth has no bound this app can promise.
+ *
+ * More importantly, for what this app is actually for — configuring an
+ * interactive coding-assistant proxy — a model that takes minutes to answer
+ * isn't "slow but fine", it's not practically usable, and a diagnostics
+ * check that keeps waiting just to force a green result would be lying by
+ * omission about that. So this stays at an interactive-reasonable bound
+ * instead, and a check that hits it reports an accurate "too slow for
+ * interactive use" diagnosis via timeoutDetail() below, rather than the
+ * old hardcoded-30s check's opaque "This operation was aborted" — a message
+ * indistinguishable from an actually-broken proxy.
+ */
+const MODEL_COMPLETION_TIMEOUT_MS = 60_000;
+
+/**
+ * Accurate, actionable detail for a model-completion check (4/5/6/8) that
+ * hit MODEL_COMPLETION_TIMEOUT_MS — distinguishes "this model is too slow
+ * for interactive use right now" from a generic aborted-request failure
+ * that reads exactly like a broken proxy. See MODEL_COMPLETION_TIMEOUT_MS
+ * above for the live evidence behind this framing.
+ */
+function timeoutDetail(model, timeoutMs) {
+  return `Timed out after ${Math.round(timeoutMs / 1000)}s — ${model} is responding too slowly for interactive use right now (this can happen on NVIDIA's shared/free endpoint under load). Try again later or pick a different model.`;
+}
+
+async function postMessages({ port, masterKey, body, timeoutMs = DEFAULT_TIMEOUT_MS }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -127,10 +174,10 @@ async function checkNimReachable({ apiKey, nimBaseUrl, primaryModelId, smallMode
 }
 
 /** Check 4: Anthropic-format completion. */
-async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5' }) {
+async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', timeoutMs = MODEL_COMPLETION_TIMEOUT_MS }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey, body: buildRequestA({ model }) });
+    const response = await postMessages({ port, masterKey, body: buildRequestA({ model }), timeoutMs });
     if (!response.ok) {
       return result({ id: 4, label: `Completion (${model})`, critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
@@ -139,15 +186,16 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5' })
     const pass = Boolean(text) && Boolean(body.stop_reason);
     return result({ id: 4, label: `Completion (${model})`, critical: true, pass, ms: Date.now() - started, detail: pass ? undefined : 'Missing content[0].text or stop_reason' });
   } catch (err) {
-    return result({ id: 4, label: `Completion (${model})`, critical: true, pass: false, ms: Date.now() - started, detail: err.message });
+    const detail = err.name === 'AbortError' ? timeoutDetail(model, timeoutMs) : err.message;
+    return result({ id: 4, label: `Completion (${model})`, critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
 /** Check 5: tool calling — "the single most valuable check" (DESIGN.md section 11). */
-async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5' }) {
+async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', timeoutMs = MODEL_COMPLETION_TIMEOUT_MS }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey, body: buildRequestB({ model }) });
+    const response = await postMessages({ port, masterKey, body: buildRequestB({ model }), timeoutMs });
     if (!response.ok) {
       return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
@@ -163,15 +211,27 @@ async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5' }
       detail: pass ? undefined : `Model ${model} does not reliably support tool calling — go to Setup and pick a model from the recommended list.`,
     });
   } catch (err) {
-    return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail: err.message });
+    const detail = err.name === 'AbortError' ? timeoutDetail(model, timeoutMs) : err.message;
+    return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
-/** Check 6: streaming. */
-async function checkStreaming({ port, masterKey }) {
+/**
+ * Check 6: streaming. Confirmed live (NCOW-16): the read loop used to cap
+ * itself at a fixed 50 reads regardless of how long each read took — a
+ * second, independent slow-model assumption layered on top of postMessages'
+ * old hardcoded 30s. A slow upstream (or a proxy emitting SSE keep-alive/
+ * ping chunks while it waits on the model) can legitimately need more than
+ * 50 reads before message_start ever shows up, well within the request's
+ * own timeout budget. Bounding the loop by elapsed time against the same
+ * timeoutMs given to postMessages (rather than an arbitrary chunk count)
+ * ties both bounds to one number instead of two, and means a slow model
+ * gets exactly as much time here as it does for the underlying request.
+ */
+async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', timeoutMs = MODEL_COMPLETION_TIMEOUT_MS }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey, body: buildRequestA({ stream: true }) });
+    const response = await postMessages({ port, masterKey, body: buildRequestA({ model, stream: true }), timeoutMs });
     if (!response.ok || !response.body) {
       return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
@@ -179,16 +239,28 @@ async function checkStreaming({ port, masterKey }) {
     const decoder = new TextDecoder();
     let buffer = '';
     let sawMessageStart = false;
-    for (let i = 0; i < 50 && !sawMessageStart; i++) {
+    let streamEnded = false;
+    while (!sawMessageStart && Date.now() - started < timeoutMs) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done) {
+        streamEnded = true;
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
       if (buffer.includes('message_start')) sawMessageStart = true;
     }
     reader.cancel().catch(() => {});
-    return result({ id: 6, label: 'Streaming', critical: true, pass: sawMessageStart, ms: Date.now() - started, detail: sawMessageStart ? undefined : 'No message_start event seen in SSE stream' });
+    // Two distinct "no message_start" failure shapes: the stream ended on
+    // its own without ever sending it (a real protocol/proxy problem — keep
+    // the specific message), vs. the loop's own elapsed-time budget ran out
+    // while still waiting (the same slow-model situation every other
+    // model-completion check reports — give it the same accurate message).
+    const timedOut = !sawMessageStart && !streamEnded;
+    const detail = sawMessageStart ? undefined : timedOut ? timeoutDetail(model, timeoutMs) : 'No message_start event seen in SSE stream';
+    return result({ id: 6, label: 'Streaming', critical: true, pass: sawMessageStart, ms: Date.now() - started, detail });
   } catch (err) {
-    return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail: err.message });
+    const detail = err.name === 'AbortError' ? timeoutDetail(model, timeoutMs) : err.message;
+    return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
@@ -331,6 +403,9 @@ async function runQuickValidation(opts) {
 }
 
 module.exports = {
+  DEFAULT_TIMEOUT_MS,
+  MODEL_COMPLETION_TIMEOUT_MS,
+  timeoutDetail,
   buildRequestA,
   buildRequestB,
   checkProxyAlive,
