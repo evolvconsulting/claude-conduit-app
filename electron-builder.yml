@@ -38,7 +38,7 @@ mac:
   # Ad-hoc signature. No paid Apple Developer ID is assumed, but a completely
   # unsigned binary will not launch *at all* on Apple Silicon. Ad-hoc satisfies
   # that while still tripping Gatekeeper on first open — hence the README's
-  # right-click-Open / xattr workaround.
+  # System Settings -> Privacy & Security -> Open Anyway / xattr workaround.
   identity: "-"
   hardenedRuntime: true
   # Without disable-library-validation an ad-hoc-signed hardened-runtime app
