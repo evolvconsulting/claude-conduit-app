@@ -3,7 +3,7 @@ id: doc-3
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 00:06'
+updated_date: '2026-08-01 00:14'
 ---
 # Backlog campaign tracker
 
@@ -27,19 +27,32 @@ Driven by the `backlog-handover` skill (`.claude/skills/backlog-handover/SKILL.m
   autonomously. Every code-level rename (package.json, appId, REPO_URL, docs, icons, etc.) is
   in scope for the wave; the actual repo rename is not.
 
+## Resolved at restore #1 (2026-08-01) — base-branch fix
+
+`origin/dev` and `origin/main` were both stuck at the bare initial commit (DESIGN.md only) —
+the entire codebase, tests, and Backlog task store (including this tracker) existed only on
+the local, never-pushed `feat/nim-proxy-manager` branch. User chose (AskUserQuestion) to
+`git push origin feat/nim-proxy-manager:dev` (clean fast-forward, no force needed), then the
+orchestrator fast-forwarded its own local `dev` checkout to match and switched onto it. `dev`
+is confirmed as GitHub's registered default branch. All future wave worktrees fork from `dev`
+per the skill's normal convention — no more deviation needed.
+
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of init (2026-07-31): 2 ready now (NCOW-16, NCOW-12), 1 blocked-but-tracked (NCOW-9), 6 not
-queued.
+As of restore #1, wave 1 (2026-08-01): NCOW-16 and NCOW-12 are both ready (no deps), but both
+require live-verifying the running proxy/app against the real NVIDIA account or a real
+pre-rename install (Shared Machine State — at most one live-verification task per wave).
+Wave 1 = NCOW-16 alone, per confirmed queue order; NCOW-12 follows in wave 2. NCOW-9 remains
+blocked on NCOW-12.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-16 | diagnostics | (none) | To Do | | ready now |
-| 2 | NCOW-12 | rebrand | (none) | To Do | | ready now; repo rename stays manual (see above) |
+| 1 | NCOW-16 | diagnostics | (none) | Dispatched | 1 | needs live proxy verification (AC#2) — only live-verification task this wave |
+| 2 | NCOW-12 | rebrand | (none) | To Do | | ready now; deferred to wave 2 (shared-machine-state conflict with NCOW-16 this wave); repo rename stays manual |
 | 3 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
 
 ## Resolved
@@ -68,6 +81,6 @@ queued.
 
 ## Wave log
 
-- <date> — wave N (tasks: <task-ids>): <what happened per task, any
-  request_changes/escalate verdicts (reviewer's stated reasoning) and how they
-  resolved, merged SHAs, any wave-level integration-review finding>
+- 2026-08-01 — wave 1 dispatch (task: NCOW-16): worktree/branch setup in progress; worker +
+  reviewer dispatch to follow. (This entry will be replaced by the full wave-1 settlement entry
+  at R4i.)
