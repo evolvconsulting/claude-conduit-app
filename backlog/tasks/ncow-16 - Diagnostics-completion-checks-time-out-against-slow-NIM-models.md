@@ -1,9 +1,10 @@
 ---
 id: NCOW-16
 title: Diagnostics completion checks time out against slow NIM models
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-31 22:29'
+updated_date: '2026-08-01 00:14'
 labels: []
 dependencies: []
 priority: high
