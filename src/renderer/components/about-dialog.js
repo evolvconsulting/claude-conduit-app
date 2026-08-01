@@ -13,7 +13,7 @@ import { escapeHtml } from './dom.js';
  * gives a focus trap, Esc-to-close and a backdrop for free.
  */
 
-const REPO_URL = 'https://github.com/evolvconsulting/nvidia-cowork';
+const REPO_URL = 'https://github.com/evolvconsulting/claude-conduit';
 
 const GOTCHAS = [
   "Not \"free Claude\": responses come from the chosen NIM model — agentic-coding quality differs from Claude models.",
@@ -57,7 +57,7 @@ export async function showAboutDialog(nimProxy) {
   dialog.className = 'about-dialog';
   dialog.innerHTML = `
     <form method="dialog">
-      <h2>NIM Proxy Manager</h2>
+      <h2>Claude Conduit</h2>
       <p class="about-version">Version ${escapeHtml(version)}</p>
       <p class="about-repo"><a href="#" data-role="repo">${escapeHtml(REPO_URL)}</a></p>
 

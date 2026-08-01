@@ -5,8 +5,8 @@
 # Icons come from build/icon.{icns,ico,png}, all generated from build/icon.svg
 # by `npm run icons`.
 
-appId: com.evolvconsulting.nimproxymanager
-productName: NIM Proxy Manager
+appId: com.evolvconsulting.claudeconduit
+productName: Claude Conduit
 
 directories:
   output: dist
@@ -52,7 +52,7 @@ mac:
       arch: [universal]
 
 dmg:
-  title: NIM Proxy Manager ${version}
+  title: Claude Conduit ${version}
 
 win:
   icon: build/icon.ico
@@ -83,7 +83,7 @@ linux:
   syncDesktopName: true
   desktop:
     entry:
-      StartupWMClass: nim-proxy-manager
+      StartupWMClass: claude-conduit
   maintainer: evolv consulting <info@evolvconsulting.com>
   synopsis: GUI manager for a local LiteLLM proxy routing Claude Desktop and the Claude Code CLI through NVIDIA NIM models
   target:

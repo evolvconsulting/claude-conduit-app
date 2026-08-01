@@ -4,7 +4,12 @@ const { Menu, shell } = require('electron');
 
 // The origin remote. Kept as a named constant because ipc.js's external-URL
 // allowlist and the About dialog both have to agree with it.
-const REPO_URL = 'https://github.com/evolvconsulting/nvidia-cowork';
+//
+// NCOW-12: the GitHub repo rename itself (evolvconsulting/nvidia-cowork ->
+// evolvconsulting/claude-conduit) is a manual, out-of-band step a human runs
+// later — this constant just points at where the repo will live once that
+// happens, same org, new slug.
+const REPO_URL = 'https://github.com/evolvconsulting/claude-conduit';
 
 /**
  * Without a native Menu containing the standard "editMenu" role, Cmd+C/V/X
@@ -21,7 +26,7 @@ const REPO_URL = 'https://github.com/evolvconsulting/nvidia-cowork';
  */
 function buildMenuTemplate(actions = {}, platform = process.platform) {
   const isMac = platform === 'darwin';
-  const aboutItem = { label: 'About NIM Proxy Manager', click: () => actions.showAbout?.() };
+  const aboutItem = { label: 'About Claude Conduit', click: () => actions.showAbout?.() };
 
   return [
     // macOS's appMenu role would give us a free app menu, but its About item
@@ -34,7 +39,7 @@ function buildMenuTemplate(actions = {}, platform = process.platform) {
     ...(isMac
       ? [
           {
-            label: 'NIM Proxy Manager',
+            label: 'Claude Conduit',
             submenu: [
               aboutItem,
               { type: 'separator' },

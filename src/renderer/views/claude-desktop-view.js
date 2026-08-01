@@ -28,7 +28,7 @@ function render() {
     <div class="warning-callout">
       <strong>Automated apply/revert (best-effort, unsupported by Anthropic)</strong>
       <p>This writes directly to files Anthropic documents as written only by Claude Desktop's own UI.
-         A full backup is taken first, and it only ever creates/edits a dedicated "NIM Proxy Manager"
+         A full backup is taken first, and it only ever creates/edits a dedicated "Claude Conduit"
          profile entry — your other Claude Desktop configurations are never touched. You must fully
          quit (⌘Q) and reopen Claude Desktop afterward for the change to take effect.</p>
       <div style="display:flex; gap:0.5rem;">
@@ -83,7 +83,7 @@ async function applyGateway() {
     title: 'Write to Claude Desktop\'s config?',
     message:
       'This writes to Claude Desktop\'s local config directory in a way Anthropic does not officially support. ' +
-      'A full backup will be taken first, and only a dedicated "NIM Proxy Manager" entry will be created or edited.',
+      'A full backup will be taken first, and only a dedicated "Claude Conduit" entry will be created or edited.',
     confirmLabel: 'Apply gateway config',
     danger: true,
   });
