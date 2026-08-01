@@ -4,7 +4,7 @@ title: Decide and document the GitHub install story for end users
 status: In Progress
 assignee: []
 created_date: '2026-07-31 20:38'
-updated_date: '2026-08-01 22:13'
+updated_date: '2026-08-01 22:23'
 labels: []
 dependencies:
   - NCOW-12
@@ -151,4 +151,86 @@ explicit instruction to scrutinize the package.json scope-boundary question
 (homepage/repository additions, arguably outside "README.md only" but
 justified as fixing two real blocking packaging bugs) and to investigate the
 170/176 anomaly.
+
+Reviewer verdict (opus): REQUEST_CHANGES (one doc paragraph; no rebuild, no
+code change needed). AC indices independently confirmed: #1, #2, #3, #4, #6
+fully; #5 partial/qualified.
+
+AC#1/#2: both decisions and their rationale independently confirmed sound
+against the actual electron-builder.yml config and the README/docs content.
+AC#3: re-measured every documented artifact size against real on-disk bytes
+-- all accurate.
+AC#4: Gatekeeper/SmartScreen steps cross-checked against this project's real
+signing config (identity: "-", hardenedRuntime: true,
+disable-library-validation); Sequoia Control-click-removal claim judged a
+real, plausible Apple change, not fabricated specificity.
+AC#6: confirmed no Backlog tasks were created (backlog/tasks/ tops out at
+ncow-19, git diff dev...HEAD -- backlog/ empty).
+AC#5 (partial): reviewer independently re-verified codesign/spctl (adhoc,
+rejected) and Windows PE cert-table (offset=0/size=0, genuinely unsigned)
+themselves, and additionally re-launched the FINAL packaged artifact
+(the worker's original launch predated the last dist rewrite by ~3 minutes,
+so the reviewer's own launch closes a real gap) -- confirmed clean startup
+under NIM_PROXY_TEST_HOME. Real Release download / actual Gatekeeper dialog
+/ Windows+Linux real-machine installs remain genuinely unverifiable by any
+agent today -- reviewer suggests marking AC#5 qualified rather than full.
+
+MEDIUM finding (the one blocking issue): docs/distribution.md's "Two
+packaging facts discovered while deciding this" section misattributes root
+cause. Both claimed bugs are actually artifacts of building inside a git
+worktree, where .git is a file, not a directory -- app-builder-lib's
+repositoryInfo.js reads <projectDir>/.git/config directly, which fails in a
+worktree. Reviewer proved this by running getRepositoryInfo() against the
+worktree (returns null) vs. the main clone (returns the real repo info). In
+the canonical main-clone repo, computePackageUrl() already falls back to
+repositoryInfo when homepage is absent, so the deb's "Please specify project
+homepage" error would never have fired there, and latest*.yml were already
+being emitted -- meaning NCOW-9's own prior task note #4 (which the worker's
+doc explicitly contradicted) was CORRECT, not stale. NCOW-10 is a direct
+downstream consumer of this claim. The package.json change itself
+(homepage + repository fields) is still judged justified to keep -- just
+reframed as hardening against .git-layout dependence (worktrees, CI, tarball
+checkouts) rather than as a bugfix for the canonical repo.
+
+LOW findings (non-blocking, worth folding in if convenient): README
+documents dashed on-disk-mismatched filenames matching latest*.yml's naming
+(deliberate, but README should note this explicitly until a real release
+workflow lands); electron-builder.yml:41's comment is stale, still
+references the old right-click-Open workaround; the worker expanded the
+"unsigned" README section rather than shrinking it as the user's prior
+recorded steer suggested -- defensible (documents present verified reality
+with explicit "delete when signing lands" triggers) but flagged as the
+opposite of the recorded direction; TRIVIAL wording nit (spctl rejects the
+app regardless of quarantine state, not only a quarantined copy).
+
+Judgment calls: package.json scope -- justified to keep in this PR (pure
+metadata, no dependency/lockfile change, splitting would leave the README
+describing a flow the reviewer's own worktree build couldn't reproduce).
+170/176 anomaly -- accept as noise, do not block: reviewer's own 4 runs were
+176/176 clean; mechanism identified as licenses.test.js's execFileSync(npm
+ls) throwing under electron-builder's concurrent native-dep rebuild/cache
+contention, which node's test runner reports as cancelled subtests
+presenting as spurious failures -- environment-only, unreproducible,
+impossible for a metadata+Markdown diff to cause. NCOW-19 overlap: confirmed
+no risk in either merge order -- homepage/repository fields add zero
+dependency nodes and don't touch the lockfile; reviewer independently
+verified the npm-ls arithmetic NCOW-19 hardens still holds (79 = 78+1) with
+these fields present.
+
+Real machine state: independently re-verified untouched by the reviewer,
+before and after its own launch -- checked mtimes on
+~/.config/claude-conduit/*, the real encrypted key file, real Claude
+Desktop config, and ~/.claude/settings.json, all predating wave 4 dispatch
+and unchanged; pm2's litellm-nim confirmed present but stopped, no proxy
+started, no pm2 kill. Only real-path write was the Chromium
+DevToolsActivePort/cache housekeeping CLAUDE.md documents as unavoidable and
+disposable.
+
+Housekeeping flagged: worktree dist/ is 2.0GB (gitignored, fine to leave for
+worktree release); /tmp/ncow9-install (502MB) and /tmp/ncow9-fakehome,
+/tmp/ncow9-review-home are genuinely sandbox-stuck for any agent to clean --
+orchestrator will do a manual rm -rf /tmp/ncow9-* after settlement.
+
+Dispatching a fix pass into the same worktree now with these findings
+verbatim (retry 1 of 2 under the campaign's capped fix-cycle policy).
 <!-- SECTION:NOTES:END -->
