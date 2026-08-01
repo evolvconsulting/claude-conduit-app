@@ -1,9 +1,10 @@
 ---
 id: NCOW-19
 title: licenses.test.js is platform-sensitive to optional dependency resolution
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-01 14:32'
+updated_date: '2026-08-01 21:59'
 labels: []
 dependencies: []
 ordinal: 29000
