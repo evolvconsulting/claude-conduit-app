@@ -4,7 +4,7 @@ title: Rebrand to Claude Conduit and rename the repo to claude-conduit
 status: In Progress
 assignee: []
 created_date: '2026-07-31 21:50'
-updated_date: '2026-08-01 18:12'
+updated_date: '2026-08-01 21:13'
 labels: []
 dependencies: []
 priority: high
@@ -116,4 +116,21 @@ Opus review, pass 2 (final): APPROVE. Confirmed AC indices: 1, 2, 3, 4, 6, 7, 8 
 One new TRIVIAL defect, self-introduced by the fix pass: the new test bumped the suite from 175 to 176, but CLAUDE.md:50 and README.md:221 still document "175 tests." Reviewer's explicit recommendation: apply this one-line-each fix at merge time, does NOT warrant a third review pass.
 
 Final recommendation: ready to merge once the 175->176 doc bump is applied.
+
+Real-machine AC#5 verification, run by the orchestrator with the user's explicit live supervision (per the decide-vs-defer judgment both reviewer passes made: this specific step needs a human-consented pass, not an autonomous one). Full sequence, all independently observed:
+
+1. Backed up real ~/.config/claude-nim-proxy, real nim-key.enc, and the real Claude-3p/configLibrary to ~/claude-conduit-ncow12-verification-backup-20260801-145438 before touching anything.
+2. Confirmed real pre-rename state first (read-only): manifest.json had desktop_config_entry_id set (bcb599fa-...), so this exercises the id-based reuse path, not the legacy-name fallback (that path was already covered by the reviewer's own mutation test in pass 2).
+3. Built a fresh packaged app from merged dev (npm run pack); confirmed Info.plist identity (Claude Conduit / com.evolvconsulting.claudeconduit).
+4. Launched the packaged binary directly against real state (no NIM_PROXY_TEST_HOME, no --dev), driven via CDP over --remote-debugging-port per CLAUDE.md's documented pattern.
+5. Config dir migration fired automatically and correctly on launch: ~/.config/claude-nim-proxy is gone, ~/.config/claude-conduit exists with all files, and run.js/ecosystem.config.cjs were rewritten to the new absolute paths (confirmed by reading their content directly).
+6. As documented and predicted by both reviewer passes: the copied encrypted key failed to decrypt on macOS (Keychain scoping to the app name) — app correctly fell back to "Not configured" / API key setup step, did not crash. Re-entered the same NVIDIA key from .env (per this project's normal test convention); validated successfully (102 models available) -- confirms the key itself was fine, decrypt failure was purely the expected app-rename/Keychain-scoping effect.
+7. Completed setup; litellm-nim (pm2 app name correctly left unchanged per the "leave" decision) came online.
+8. Navigated to the Claude Desktop page, clicked Apply Gateway Config, confirmed the custom <dialog>-based consent prompt (never window.confirm, per CLAUDE.md), clicked through it.
+9. Verified the real Claude-3p/configLibrary/_meta.json directly: entries count stayed at 2 (no duplicate), the existing entry (bcb599fa-...) was renamed in place from "NIM Proxy Manager" to "Claude Conduit", and a fresh automatic backup was created (configLibrary.bak.claude-conduit.2026-08-01T20-02-54-101Z) before the write, exactly matching the documented backup-first/consent-gated/dedicated-entry-only behavior.
+10. Killed the app via SIGTERM; confirmed litellm-nim cleanly stopped in pm2 (no orphaned process) -- consistent with NCOW-4's "quitting stops the proxy" behavior.
+
+User was asked (AskUserQuestion) whether to leave this machine in the migrated state or restore from backup; chose to leave it migrated, since this is the intended end-state of the rename. Backups remain available at the path above and at the app's own pre-write backup if ever needed.
+
+This closes AC#5 with real evidence, not just fixture verification. All 8 ACs are now independently confirmed.
 <!-- SECTION:NOTES:END -->
