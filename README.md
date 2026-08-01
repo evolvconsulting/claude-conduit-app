@@ -196,7 +196,7 @@ directory itself.
 
 ## Upgrading from NIM Proxy Manager
 
-This app was previously named **NIM Proxy Manager** (repository `nvidia-nim-proxy`). NCOW-12
+This app was previously named **NIM Proxy Manager** (repository `nvidia-cowork`). NCOW-12
 renamed it to **Claude Conduit**. Everything visible — window title, menu bar, tray, About,
 installer, desktop entry — updates automatically the moment you run the new build. Here is
 what happens to everything else, and what (if anything) you need to do:
@@ -206,7 +206,7 @@ what happens to everything else, and what (if anything) you need to do:
 | Config directory (`~/.config/claude-nim-proxy` → `claude-conduit`) | **Migrates automatically**, no action needed | The first launch after upgrading moves the whole directory — config.yaml, litellm.env (your proxy master key), manifest.json, logs — to its new name, and repairs the absolute paths baked into the generated launcher files. Your proxy configuration and port survive untouched. |
 | pm2 app name (`litellm-nim`) | **Left as-is**, no action needed | Still `litellm-nim` in `pm2 status`/`pm2 logs`. It's an internal identifier tied to the underlying litellm+NIM proxy, not the product name, and NCOW-14 (multi-provider support) is a more natural point to revisit it — changing it once there beats changing it twice. Your running proxy process is unaffected either way. |
 | Encrypted NVIDIA API key (Electron's userData directory) | **Best-effort copy**, may need one re-entry | Electron stores this file under a directory named after the app, so the rename moves it too. The app copies the encrypted blob forward automatically. On **Windows** this reliably still decrypts (the OS keys it to your user account, not the app). On **macOS** it is expected to **not** decrypt — the OS Keychain entry backing it is scoped to the app's name, which just changed — so **the Setup wizard will most likely ask you to re-enter your NVIDIA key once** after upgrading. This is safe and expected, never a crash: a failed decrypt is always treated as "no key stored yet." |
-| Claude Desktop's third-party inference entry | **Renamed in place, next time you click Apply** | The entry this app created is tracked by its own internal id, so upgrading never creates a duplicate. Its *label* inside Claude Desktop's picker still reads "NIM Proxy Manager" until you next use this app's **Apply Gateway Config** button (Claude Desktop page) — at that point, as part of that same already-consented write, it's relabelled to "Claude Conduit". Purely cosmetic either way; the gateway keeps working regardless. |
+| Claude Desktop's third-party inference entry | **Renamed in place, next time you click Apply** | The entry this app created is normally tracked by its own internal id (recorded in `manifest.json`), so upgrading reuses it rather than creating a duplicate. If that id record is missing — e.g. `manifest.json` was lost to a purge-uninstall — Apply falls back to looking the entry up by its old name instead of creating a second one. Its *label* inside Claude Desktop's picker still reads "NIM Proxy Manager" until you next use this app's **Apply Gateway Config** button (Claude Desktop page) — at that point, as part of that same already-consented write, it's relabelled to "Claude Conduit". Purely cosmetic either way; the gateway keeps working regardless. |
 
 You do need to **download and install the new build** — there is no auto-update yet
 (that's NCOW-10, sequenced after this rename on purpose). Uninstalling the old build first

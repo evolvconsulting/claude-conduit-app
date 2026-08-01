@@ -4,7 +4,7 @@ dist/
 .DS_Store
 .env
 
-# Local, machine-specific claude-nim-proxy state must never be committed.
+# Local, machine-specific claude-conduit state must never be committed.
 .config-dev/
 
 # Intermediate icon rasters. Regenerate with `npm run icons`; only the packaging
