@@ -1,10 +1,10 @@
 ---
 id: NCOW-16
 title: Diagnostics completion checks time out against slow NIM models
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-31 22:29'
-updated_date: '2026-08-01 01:40'
+updated_date: '2026-08-01 01:42'
 labels: []
 dependencies: []
 priority: high
@@ -19,10 +19,10 @@ diagnostics.js's postMessages() hardcodes a 30-second AbortController timeout fo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 postMessages' timeout is no longer a single hardcoded 30s for every check — either raised to accommodate known-slow NIM models, made configurable per call, or otherwise reworked so a slow-but-working model does not read as a diagnostics failure
-- [ ] #2 Re-running diagnostics against meta/llama-3.3-70b-instruct on the real account (or an equivalently slow model) shows checks 4, 5, 6 and 8 passing rather than aborting
-- [ ] #3 checkStreaming's own read-loop timing (50 chunks) is reviewed for the same slow-model assumption while touching this area
-- [ ] #4 npm test passes
+- [x] #1 postMessages' timeout is no longer a single hardcoded 30s for every check — either raised to accommodate known-slow NIM models, made configurable per call, or otherwise reworked so a slow-but-working model does not read as a diagnostics failure
+- [x] #2 Re-running diagnostics against meta/llama-3.3-70b-instruct on the real account (or an equivalently slow model) shows checks 4, 5, 6 and 8 passing rather than aborting
+- [x] #3 checkStreaming's own read-loop timing (50 chunks) is reviewed for the same slow-model assumption while touching this area
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -161,3 +161,35 @@ this task didn't do.
 
 Overall: "Solid, well-evidenced work... Ready to merge."
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+postMessages' single hardcoded 30s timeout replaced with DEFAULT_TIMEOUT_MS
+(30s, non-model checks) and a configurable MODEL_COMPLETION_TIMEOUT_MS (60s,
+model-touching checks 4/5/6/8). On timeout, checks now report an accurate,
+actionable "too slow for interactive use" message instead of an opaque aborted
+error. checkStreaming's fixed-50-chunk cap replaced with the same elapsed-time
+budget (AC#3).
+
+AC#2 was re-scoped mid-implementation by explicit user decision: live testing
+showed 90s/180s/300s ceilings all still timed out against genuine NVIDIA-side
+queue congestion on the shared/free trial endpoint (a raw curl bypassing this
+app entirely still took 186.6s, with NVIDIA's own response reporting real
+queue depth). A model taking minutes to respond isn't "slow but fine" for an
+interactive proxy, so the fix settled on 60s + accurate messaging rather than
+chasing an ever-larger timeout.
+
+Verified: npm test 150/150 pass on merged dev (1 pre-existing, unrelated
+licenses-manifest failure only reproduces under a fresh npm install, not
+present here). Live-verified twice independently against the real NVIDIA
+account -- once by the implementing worker, once by the reviewer -- covering
+both the fast model (sub-second, unaffected) and the slow/congested model
+(a legitimate 46.9s pass and a legitimate 60s-timeout-with-accurate-message
+observed on the same model minutes apart, proving no fixed ceiling alone
+fixes this).
+
+Independently reviewed (opus, xhigh) -- APPROVE, all 4 ACs confirmed live.
+Merged to dev via PR #2 (squash commit a56b156). Non-blocking findings
+recorded in Implementation Notes; to be proposed as follow-up tasks.
+<!-- SECTION:FINAL_SUMMARY:END -->
