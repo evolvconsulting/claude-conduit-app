@@ -89,6 +89,12 @@ const CHANNELS = {
   diagnostics: {
     invoke: {
       run: 'diagnostics:run',
+      // NCOW-17 AC#3: diagnostics:run's worst-case wall time is ~7 minutes
+      // (5x60s model-completion checks + check 10's 120s live CLI smoke).
+      // cancel() aborts the AbortSignal threaded through the in-progress
+      // run (see engine-context.js) so the renderer has a way to actually
+      // stop a run rather than only being able to wait it out.
+      cancel: 'diagnostics:cancel',
     },
     events: {
       progress: 'diagnostics:progress',
