@@ -1,4 +1,4 @@
-# NIM Proxy Manager
+# Claude Conduit
 
 Cross-platform Electron app that sets up and supervises a local LiteLLM proxy so Claude
 Desktop and the Claude Code CLI route to NVIDIA NIM models.
@@ -8,10 +8,17 @@ cited throughout the code — but it is no longer the whole story. Post-v1 decis
 Backlog tasks (NCOW-2 onward), and where the two disagree, the task wins and DESIGN.md
 should be corrected. NCOW-4 already reversed a documented v1 decision this way.
 
-**Two renames are already agreed and not yet done** (NCOW-12): the product becomes
-**Claude Conduit** and the repo becomes **claude-conduit**; and NCOW-14 drops the
-NVIDIA-only framing so NIM becomes one provider among several. Expect the names above to
-be wrong soon, and don't invest in new NVIDIA-specific abstractions.
+**NCOW-12 (rebrand to Claude Conduit) has landed.** The product name, config directory
+(`claude-conduit`), electron-builder identity, and every in-repo URL/slug now reflect the
+new name; README documents the persisted-state migration decisions (config dir, pm2 app
+name, Electron userData/encrypted key, Claude Desktop entry) and `src/engine/
+configDirMigration.js` / `userDataMigration.js` implement the ones that migrate. The actual
+GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-conduit`) is
+still a pending, manual, out-of-band step — `REPO_URL` already points at the new location.
+**NCOW-14 is still pending**: it will drop the NVIDIA-only framing so NIM becomes one
+provider among several — don't invest in new NVIDIA-specific abstractions (the pm2 app name
+`litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by NCOW-12
+for exactly this reason; see README).
 
 <!-- BACKLOG.MD GUIDELINES START -->
 <!-- backlog.md-instructions-version: 1.48.0 -->
@@ -40,11 +47,11 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 141 tests. Run before AND after any change.
+npm test          # node --test, 175 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change
-npm run patch:dev-name  # macOS: make a *source* run say "NIM Proxy Manager", not "Electron"
+npm run patch:dev-name  # macOS: make a *source* run say "Claude Conduit", not "Electron"
 npm run pack      # unpacked app dir — fastest packaging sanity check
 npm run dist      # all three platforms (also dist:mac / dist:win / dist:linux)
 ```
@@ -75,10 +82,22 @@ step that could produce it, and the packaging allowlist copies it straight off d
 ## Safe manual testing (load-bearing)
 
 `NIM_PROXY_TEST_HOME` **combined with `--dev`** redirects every path the app touches — its
-config dir, `~/.claude`, and Claude Desktop's `configLibrary` — under a fake home. It is the
-only way to click destructive buttons without hitting this machine's real Claude
-Desktop/Code config. Never remove it. It is ignored without `--dev`, so it can never engage
-in a packaged build.
+config dir, `~/.claude`, Claude Desktop's `configLibrary`, and (since NCOW-12)
+`secretStore.js`'s encrypted-key file — under a fake home. It is the only way to click
+destructive buttons without hitting this machine's real Claude Desktop/Code config or its
+real encrypted NVIDIA key. Never remove it. It is ignored without `--dev`, so it can never
+engage in a real end-user launch of a packaged build (nothing about the packaged binary
+itself prevents passing `--dev` — a controlled test launch of the raw executable with
+`NIM_PROXY_TEST_HOME` set is exactly as safe as a source `--dev` run, and was used to verify
+NCOW-12's AC#8).
+
+NOTE (NCOW-12): this redirects the one file this app itself writes into Electron's userData
+directory (`nim-key.enc`), but NOT Electron's *own* internal `--user-data-dir` (Chromium's
+session/GPU/network cache) — that always lands under the real
+`~/Library/Application Support/<productName>/` (or platform equivalent) on every launch,
+packaged or dev, because it's set by Electron itself before any app code runs. This is
+disposable Chromium housekeeping, never anything sensitive this app writes, and is safe to
+delete after a manual test run.
 
 ```sh
 NIM_PROXY_TEST_HOME=/tmp/fake-home NIM_TEST_API_KEY=$(grep NVIDIA_NIM_API_KEY .env | cut -d= -f2) \

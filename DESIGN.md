@@ -1,12 +1,15 @@
-# Spec: `claude-nim-proxy` — Route Claude Desktop (Cowork) & Claude Code through LiteLLM → NVIDIA NIM
+# Spec: `claude-conduit` — Route Claude Desktop (Cowork) & Claude Code through LiteLLM → NVIDIA NIM
 
 > **⚠️ This is the v1 spec, not the current source of truth.** It described the app as
 > originally built and shipped. Decisions made since then live in Backlog tasks (NCOW-2
 > onward) and **override this document where they conflict**; sections corrected that way
-> are marked with the task ID (see §7.4). Two agreed changes will invalidate large parts of
-> this spec when they land: **NCOW-12** renames the product to Claude Conduit, and
-> **NCOW-14** removes the assumption that NVIDIA NIM is the only possible upstream.
-> Check the backlog before treating anything below as current.
+> are marked with the task ID (see §7.4). **NCOW-12 has landed**: the product is now
+> **Claude Conduit** and the repository is `claude-conduit` — every `claude-nim-proxy` /
+> "NIM Proxy Manager" reference below has been updated to match (the hypothetical CLI
+> wizard this spec describes was never built; see §2/§11 for what that means for this
+> document). **NCOW-14** is still pending and will invalidate the sections below that
+> assume NVIDIA NIM is the only possible upstream. Check the backlog before treating
+> anything below as current.
 
 **Status:** Implementation-ready specification
 **Audience:** Implementing engineer (or engineering agent). Every load-bearing external fact was
@@ -82,11 +85,11 @@ Repository layout:
 
 | Path | Purpose |
 |---|---|
-| `claude-nim-proxy.mjs` | The entire CLI (wizard + subcommands). ESM, `#!/usr/bin/env node`. |
+| `claude-conduit.mjs` | The entire CLI (wizard + subcommands). ESM, `#!/usr/bin/env node`. |
 | `README.md` | Install one-liner, prerequisites, gotchas (§12), troubleshooting, uninstall. |
-| `package.json` | `"bin": {"claude-nim-proxy": "./claude-nim-proxy.mjs"}`, `"engines": {"node": ">=18"}`, no deps. Publishing to npm optional; `node claude-nim-proxy.mjs` must always work standalone. |
+| `package.json` | `"bin": {"claude-conduit": "./claude-conduit.mjs"}`, `"engines": {"node": ">=18"}`, no deps. Publishing to npm optional; `node claude-conduit.mjs` must always work standalone. |
 
-Generated at runtime under `~/.config/claude-nim-proxy/` (created `0700`):
+Generated at runtime under `~/.config/claude-conduit/` (created `0700`):
 
 | File | Mode | Purpose |
 |---|---|---|
@@ -102,7 +105,7 @@ Generated at runtime under `~/.config/claude-nim-proxy/` (created `0700`):
 ## 3. CLI reference
 
 ```
-claude-nim-proxy [setup]            # default subcommand: the interactive wizard
+claude-conduit [setup]            # default subcommand: the interactive wizard
     --nim-api-key <key>             # skip the key prompt
     --model <id>                    # skip primary-model picker
     --small-model <id>              # skip small-model picker
@@ -110,10 +113,10 @@ claude-nim-proxy [setup]            # default subcommand: the interactive wizard
     --nim-base-url <url>            # self-hosted NIM (default https://integrate.api.nvidia.com/v1)
     --configure-cli | --no-cli      # skip the "configure Claude Code?" prompt (yes/no)
     --yes                           # accept all defaults; with --nim-api-key => fully non-interactive
-claude-nim-proxy test               # end-to-end validation (§11); exit 0 = all pass
-claude-nim-proxy status             # what's installed/running/configured (§9.2)
-claude-nim-proxy restart            # pm2 restart litellm-nim (after manual config edits)
-claude-nim-proxy uninstall [--purge]
+claude-conduit test               # end-to-end validation (§11); exit 0 = all pass
+claude-conduit status             # what's installed/running/configured (§9.2)
+claude-conduit restart            # pm2 restart litellm-nim (after manual config edits)
+claude-conduit uninstall [--purge]
 ```
 
 **Exit codes (all subcommands):** `0` success · `1` unexpected failure · `2` prerequisite missing ·
@@ -318,9 +321,9 @@ available for Claude Code's optional gateway model discovery.
 ```bash
 #!/bin/bash
 set -euo pipefail
-set -a; source "$HOME/.config/claude-nim-proxy/litellm.env"; set +a
+set -a; source "$HOME/.config/claude-conduit/litellm.env"; set +a
 exec litellm \
-  --config "$HOME/.config/claude-nim-proxy/config.yaml" \
+  --config "$HOME/.config/claude-conduit/config.yaml" \
   --host 127.0.0.1 \
   --port {{PORT}}
 ```
@@ -345,14 +348,14 @@ exec litellm \
 module.exports = {
   apps: [{
     name: 'litellm-nim',
-    script: '/Users/<user>/.config/claude-nim-proxy/run.sh',
+    script: '/Users/<user>/.config/claude-conduit/run.sh',
     interpreter: 'bash',
     autorestart: true,
     max_restarts: 10,
     restart_delay: 3000,
     kill_timeout: 10000,
-    out_file: '/Users/<user>/.config/claude-nim-proxy/logs/out.log',
-    error_file: '/Users/<user>/.config/claude-nim-proxy/logs/err.log',
+    out_file: '/Users/<user>/.config/claude-conduit/logs/out.log',
+    error_file: '/Users/<user>/.config/claude-conduit/logs/err.log',
     time: true,                     // timestamps in logs
   }],
 };
@@ -364,7 +367,7 @@ module.exports = {
 
 1. If an app named `litellm-nim` already exists in `pm2 jlist` → `pm2 delete litellm-nim` first
    (idempotent re-setup).
-2. `pm2 start ~/.config/claude-nim-proxy/ecosystem.config.cjs`
+2. `pm2 start ~/.config/claude-conduit/ecosystem.config.cjs`
 3. Poll `GET http://127.0.0.1:<port>/health/liveliness` every 2 s, up to 60 s. LiteLLM cold start
    is slow (schema build); print a spinner/dots. Timeout → print
    `pm2 logs litellm-nim --lines 50 --nostream` output and exit 1.
@@ -455,7 +458,7 @@ Merge algorithm (implement exactly):
    can't parse). Missing → start from `{}`.
 2. Set only the keys above inside `env`; preserve every other key in the file (`permissions`,
    `hooks`, `model`, `apiKeyHelper`, unrelated `env` entries) untouched.
-3. Before writing: copy the original to `settings.json.bak.claude-nim-proxy.<ISO-timestamp>`,
+3. Before writing: copy the original to `settings.json.bak.claude-conduit.<ISO-timestamp>`,
    record backup path + exact key list in `manifest.json`.
 4. Write atomically (temp file + rename), pretty-printed 2-space JSON.
 
@@ -484,7 +487,7 @@ report "not detectable" rather than guessing).
   "pm2_app": "litellm-nim",
   "cli_configured": true,
   "settings_file": "/Users/…/.claude/settings.json",
-  "settings_backup": "/Users/…/.claude/settings.json.bak.claude-nim-proxy.2026-07-17T…",
+  "settings_backup": "/Users/…/.claude/settings.json.bak.claude-conduit.2026-07-17T…",
   "env_keys_set": ["ANTHROPIC_BASE_URL", "…"]
 }
 ```
@@ -497,7 +500,7 @@ report "not detectable" rather than guessing).
 2. `pm2 delete litellm-nim` (ignore "not found") + `pm2 save`.
 3. Print desktop-removal instructions (Developer form → set Inference provider back / disable 3P;
    fully restart the app).
-4. `--purge`: delete `~/.config/claude-nim-proxy/` entirely (keys included). Without it, keep and
+4. `--purge`: delete `~/.config/claude-conduit/` entirely (keys included). Without it, keep and
    print the path.
 5. Remind: Claude Code returns to the saved claude.ai login; run `/login` if prompted.
 
@@ -511,13 +514,13 @@ paths use `~/.config` already. Document in README; CI can run the Linux flow hea
 
 ---
 
-## 11. Test mode (`claude-nim-proxy test`)
+## 11. Test mode (`claude-conduit test`)
 
 Runs the full chain, prints a table, exit 0 iff all critical checks pass (else 4). Each failure
 names the broken layer (client config / proxy / LiteLLM translation / NIM upstream) and one fix.
 In the shipped app this table is the GUI's Diagnostics view (`src/renderer/views/diagnostics-view.js`,
 implemented by `src/engine/diagnostics.js`'s `runDiagnostics()`) rather than a separate CLI binary —
-no `claude-nim-proxy` executable exists in this repo; the section heading is v1-spec language kept
+no `claude-conduit` executable exists in this repo; the section heading is v1-spec language kept
 for the request/response shapes below, which the implementation still follows exactly.
 
 **Timeouts (NCOW-16, NCOW-17).** Checks 1–3 and 9 are non-model calls and fail fast (proxy alive:
@@ -581,13 +584,13 @@ calling manifests later as Claude "doing nothing", which users can't self-diagno
 ```
 
 If check 5 fails but 4 passes, the verdict must say: *"Model {{PRIMARY_MODEL_ID}} does not
-reliably support tool calling — rerun `claude-nim-proxy setup` and pick a model from the
+reliably support tool calling — rerun `claude-conduit setup` and pick a model from the
 recommended list."*
 
 Sample output:
 
 ```
-claude-nim-proxy test — 2026-07-17 09:12
+claude-conduit test — 2026-07-17 09:12
   1. Proxy alive ................. ✅
   2. Auth enforced ............... ✅
   3. NIM upstream ................ ✅  (127 models; claude-sonnet-4-5=qwen/qwen3-coder-480b-a35b-instruct)
@@ -598,7 +601,7 @@ claude-nim-proxy test — 2026-07-17 09:12
   8. claude-* wildcard ........... ✅
   9. Claude Code config .......... ✅
  10. Live claude CLI ............. ✅  "OK"
-All checks passed. Claude Desktop steps: ~/.config/claude-nim-proxy/DESKTOP-SETUP.md
+All checks passed. Claude Desktop steps: ~/.config/claude-conduit/DESKTOP-SETUP.md
 ```
 
 ---
@@ -649,16 +652,16 @@ All checks passed. Claude Desktop steps: ~/.config/claude-nim-proxy/DESKTOP-SETU
 
 Acceptance criteria (all must hold):
 
-1. Fresh machine with pm2 + litellm: `claude-nim-proxy` with no flags completes the wizard with
+1. Fresh machine with pm2 + litellm: `claude-conduit` with no flags completes the wizard with
    only two required inputs (API key, model picks), ends with test-mode all-green, and prints the
    Desktop block.
-2. Fully non-interactive: `claude-nim-proxy --yes --nim-api-key … --model … --small-model …
+2. Fully non-interactive: `claude-conduit --yes --nim-api-key … --model … --small-model …
    --no-cli` succeeds with zero prompts (CI-runnable).
 3. `pm2 kill && pm2 resurrect` (daemon restart) → proxy returns without re-running setup.
 4. Re-running setup: master key unchanged; clients keep working without re-configuration; models
    can be swapped and only `config.yaml` + manifest change.
 5. `uninstall`: settings.json equals pre-install content except the removed keys; pm2 app gone;
-   `--purge` leaves no trace under `~/.config/claude-nim-proxy/`.
+   `--purge` leaves no trace under `~/.config/claude-conduit/`.
 6. `test` exits 4 (not 0) when: proxy stopped; wrong NIM key; primary model lacks tool calling.
    Each failure message names the layer and a fix.
 7. No secret ever appears in: pm2 files, process argv (`ps axww` during run), logs, or any file
