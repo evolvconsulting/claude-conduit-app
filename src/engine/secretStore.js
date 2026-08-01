@@ -12,9 +12,10 @@ const path = require('node:path');
  * detection happens then) — a concern that belongs to the caller, not here.
  *
  * The encrypted blob lives under Electron's own userData directory,
- * deliberately OUTSIDE ~/.config/claude-nim-proxy/ — that directory must
+ * deliberately OUTSIDE ~/.config/claude-conduit/ — that directory must
  * keep looking exactly like what DESIGN.md's file table promises, with
- * nothing GUI-proprietary mixed in.
+ * nothing GUI-proprietary mixed in. See userDataMigration.js for what
+ * happens to this file across the NCOW-12 rename.
  *
  * @param {{isEncryptionAvailable: () => boolean, encryptString: (s: string) => Buffer, decryptString: (b: Buffer) => string}} safeStorage
  * @param {string} storagePath

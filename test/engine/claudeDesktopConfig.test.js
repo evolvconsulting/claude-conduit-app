@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   OUR_ENTRY_NAME,
+  LEGACY_ENTRY_NAME,
   DEFAULT_ANTHROPIC_ENTRY_NAMES,
   ConsentRequiredError,
   NoExistingConfigLibraryError,
@@ -138,6 +139,47 @@ test('applyGatewayConfig: falls back to creating a fresh entry if the manifest-r
   });
 
   assert.ok(readMeta(dir).entries.some((e) => e.id === entryId && e.name === OUR_ENTRY_NAME));
+});
+
+test('applyGatewayConfig: NCOW-12 — a reused entry still labelled the pre-rename name is renamed in place', () => {
+  const dir = tempConfigLibraryDir();
+  const ownEntryId = '66666666-6666-4666-8666-666666666666';
+  seedConfigLibrary(dir, {
+    meta: { appliedId: ownEntryId, entries: [{ id: ownEntryId, name: LEGACY_ENTRY_NAME }] },
+    entries: { [ownEntryId]: { inferenceProvider: 'gateway', inferenceGatewayBaseUrl: 'http://127.0.0.1:4000' } },
+  });
+
+  const { entryId } = applyGatewayConfig({
+    configLibraryDir: dir,
+    port: 4000,
+    masterKey: 'sk-litellm-abc',
+    consent: true,
+    manifest: { desktop_config_entry_id: ownEntryId },
+  });
+
+  assert.equal(entryId, ownEntryId, 'reused the existing entry by id, not a fresh one');
+  const meta = readMeta(dir);
+  assert.equal(meta.entries.find((e) => e.id === ownEntryId).name, OUR_ENTRY_NAME, 'display name updated to the new brand');
+  assert.equal(meta.entries.length, 1, 'no duplicate entry created for the rename');
+});
+
+test('applyGatewayConfig: a reused entry already carrying the new name is left alone (idempotent)', () => {
+  const dir = tempConfigLibraryDir();
+  const ownEntryId = '77777777-7777-4777-8777-777777777777';
+  seedConfigLibrary(dir, {
+    meta: { appliedId: ownEntryId, entries: [{ id: ownEntryId, name: OUR_ENTRY_NAME }] },
+    entries: { [ownEntryId]: {} },
+  });
+
+  applyGatewayConfig({
+    configLibraryDir: dir,
+    port: 4000,
+    masterKey: 'sk-litellm-abc',
+    consent: true,
+    manifest: { desktop_config_entry_id: ownEntryId },
+  });
+
+  assert.equal(readMeta(dir).entries.find((e) => e.id === ownEntryId).name, OUR_ENTRY_NAME);
 });
 
 test('backupConfigLibrary + restoreConfigLibraryFromBackup: full round trip', () => {

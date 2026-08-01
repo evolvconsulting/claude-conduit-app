@@ -3,24 +3,45 @@
 const path = require('node:path');
 
 /**
- * DESIGN.md section 2 hardcodes ~/.config/claude-nim-proxy on macOS/Linux —
- * matching that exactly is load-bearing: it's what lets this app interoperate
- * with a prior run of the hypothetical CLI wizard (reuse its master key,
- * import its NVIDIA key, etc). DESIGN.md never targeted Windows, so there's
- * no legacy install to preserve compatibility with there; %APPDATA% is the
- * idiomatic, ACL-private-by-default location instead.
+ * DESIGN.md section 2 originally hardcoded ~/.config/claude-nim-proxy on
+ * macOS/Linux, matching it exactly so this app could interoperate with a
+ * prior run of the hypothetical CLI wizard (reuse its master key, import its
+ * NVIDIA key, etc) — that wizard was never actually built, so there is no
+ * real interop target to preserve. NCOW-12 renames the directory to
+ * claude-conduit to match the product; configDirMigration.js moves an
+ * existing installation's directory across (and repairs the absolute paths
+ * baked into its generated files) the first time this resolves on a machine
+ * that still has the old one. DESIGN.md never targeted Windows, so there's no
+ * legacy install to preserve compatibility with there either; %APPDATA% is
+ * the idiomatic, ACL-private-by-default location instead.
  *
  * @param {{platform?: string, homedir?: string, appData?: string}} [opts]
  */
 function resolveConfigDir(opts = {}) {
+  return resolveConfigDirNamed('claude-conduit', opts);
+}
+
+/**
+ * The pre-NCOW-12 config directory name, resolved with the exact same
+ * per-platform convention as resolveConfigDir. Used only by
+ * configDirMigration.js to find a prior install to migrate — nothing else
+ * should read or write here.
+ *
+ * @param {{platform?: string, homedir?: string, appData?: string}} [opts]
+ */
+function resolveLegacyConfigDir(opts = {}) {
+  return resolveConfigDirNamed('claude-nim-proxy', opts);
+}
+
+function resolveConfigDirNamed(dirName, opts = {}) {
   const platform = opts.platform ?? process.platform;
   const homedir = opts.homedir ?? require('node:os').homedir();
 
   if (platform === 'win32') {
     const appData = opts.appData ?? process.env.APPDATA ?? path.join(homedir, 'AppData', 'Roaming');
-    return path.join(appData, 'claude-nim-proxy');
+    return path.join(appData, dirName);
   }
-  return path.join(homedir, '.config', 'claude-nim-proxy');
+  return path.join(homedir, '.config', dirName);
 }
 
 /**
@@ -83,9 +104,36 @@ function resolveClaudeDesktopConfigLibraryDir(opts = {}) {
   return path.join(homedir, '.config', 'Claude-3p', 'configLibrary');
 }
 
+/**
+ * Electron's own per-platform convention for `app.getPath('appData')` —
+ * duplicated here (rather than calling Electron) so it stays plain-Node and
+ * injectable, matching every other path helper in this file. Used by
+ * userDataMigration.js to locate the pre-NCOW-12 userData directory
+ * (`<appData>/NIM Proxy Manager`, since Electron derives userData from the
+ * app's productName) without needing Electron itself, and so it can be
+ * rooted under NIM_PROXY_TEST_HOME like every other path this app touches —
+ * see main/index.js's resolveUserDataPaths, which is the one real caller.
+ *
+ * @param {{platform?: string, homedir?: string, appData?: string, localAppData?: string}} [opts]
+ */
+function resolveElectronAppDataDir(opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const homedir = opts.homedir ?? require('node:os').homedir();
+
+  if (platform === 'win32') {
+    return opts.appData ?? process.env.APPDATA ?? path.join(homedir, 'AppData', 'Roaming');
+  }
+  if (platform === 'darwin') {
+    return path.join(homedir, 'Library', 'Application Support');
+  }
+  return path.join(homedir, '.config');
+}
+
 module.exports = {
   resolveConfigDir,
+  resolveLegacyConfigDir,
   getFilePaths,
   resolveClaudeCodeSettingsPath,
   resolveClaudeDesktopConfigLibraryDir,
+  resolveElectronAppDataDir,
 };

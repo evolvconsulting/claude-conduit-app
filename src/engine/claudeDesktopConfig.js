@@ -30,7 +30,12 @@ const { execCli, safeTimestampForFilename } = require('./platform');
  * pre-existing "Claude API" default or any other custom profile.
  */
 
-const OUR_ENTRY_NAME = 'NIM Proxy Manager';
+const OUR_ENTRY_NAME = 'Claude Conduit';
+// NCOW-12: the entry this app created before the rename. applyGatewayConfig
+// already reuses a prior entry by id (recorded in manifest.json), regardless
+// of its name, so a renamed OUR_ENTRY_NAME can never cause a duplicate entry
+// — this constant only drives the one-time display-name touch-up below.
+const LEGACY_ENTRY_NAME = 'NIM Proxy Manager';
 const DEFAULT_ANTHROPIC_ENTRY_NAMES = ['Claude API', 'Anthropic API'];
 const ID_PATTERN = /^[a-f0-9-]{36}$/;
 
@@ -91,7 +96,7 @@ function writeEntryConfig(configLibraryDir, id, content) {
  */
 function backupConfigLibrary(configLibraryDir) {
   if (!fs.existsSync(configLibraryDir)) return null;
-  const backupDir = `${configLibraryDir}.bak.claude-nim-proxy.${safeTimestampForFilename()}`;
+  const backupDir = `${configLibraryDir}.bak.claude-conduit.${safeTimestampForFilename()}`;
   fs.cpSync(configLibraryDir, backupDir, { recursive: true });
   return backupDir;
 }
@@ -149,6 +154,19 @@ function applyGatewayConfig(opts) {
   const { id: entryId } = reusable
     ? { id: previousId }
     : findOrCreateEntryByName(opts.configLibraryDir, meta, OUR_ENTRY_NAME);
+
+  // NCOW-12: a reused entry from before the rename is still labelled
+  // LEGACY_ENTRY_NAME in Desktop's own UI. Fix the display name up as part
+  // of this already-consented write, rather than leaving a stale label —
+  // this is the one migration step for the Claude Desktop entry, and it
+  // deliberately rides on the SAME consent gate as every other write here
+  // rather than introducing a new one.
+  if (reusable) {
+    const reusedEntry = meta.entries.find((e) => e.id === entryId);
+    if (reusedEntry && reusedEntry.name === LEGACY_ENTRY_NAME) {
+      reusedEntry.name = OUR_ENTRY_NAME;
+    }
+  }
 
   const existingConfig = readEntryConfig(opts.configLibraryDir, entryId);
   const merged = {
@@ -290,6 +308,7 @@ While third-party inference is active:
 
 module.exports = {
   OUR_ENTRY_NAME,
+  LEGACY_ENTRY_NAME,
   DEFAULT_ANTHROPIC_ENTRY_NAMES,
   ConsentRequiredError,
   NoExistingConfigLibraryError,
