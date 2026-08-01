@@ -1,9 +1,10 @@
 ---
 id: NCOW-17
 title: 'Diagnostics: address NCOW-16 review findings'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-01 02:43'
+updated_date: '2026-08-01 10:13'
 labels: []
 dependencies:
   - NCOW-16
