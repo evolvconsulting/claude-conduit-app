@@ -55,3 +55,27 @@ AC#7: README gets an "Upgrading from NIM Proxy Manager" section, one row per per
 
 AC#8: npm run pack succeeded; static Info.plist check (CFBundleName/CFBundleDisplayName = Claude Conduit, CFBundleIdentifier = com.evolvconsulting.claudeconduit); live packaged-build launch under NIM_PROXY_TEST_HOME confirmed document.title == "Claude Conduit" over CDP, then killed. Self-caught gap: Electron's own internal --user-data-dir (Chromium cache) isn't covered by NIM_PROXY_TEST_HOME -- fixed the one path with real sensitivity (the app's own nim-key.enc write, via resolveUserDataPaths()) and documented the remaining Electron-internal-cache limitation in CLAUDE.md as accepted.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+npm test: 175/175 pass (baseline was 161; +14 new tests: configDirMigration, userDataMigration, claudeDesktopConfig entry-rename, paths).
+
+npm run pack succeeded. Static Info.plist check (zero-execution): CFBundleName/CFBundleDisplayName = Claude Conduit, CFBundleIdentifier = com.evolvconsulting.claudeconduit.
+
+Live packaged-build launch, careful: ran the packaged binary directly with NIM_PROXY_TEST_HOME set and --remote-debugging-port, queried document.title over CDP -> "Claude Conduit", confirmed empty #setup route (fresh install under fake home), killed immediately.
+
+Self-caught issue during that check: Electron sets its own internal --user-data-dir (Chromium session/cache) from the real per-OS default before app code runs -- NIM_PROXY_TEST_HOME did not cover this pre-existing gap. First launch created a real ~/Library/Application Support/Claude Conduit/ (Chromium housekeeping only, no key file, confirmed) -- killed, deleted that folder, then fixed the path that actually matters: index.js's new resolveUserDataPaths() now redirects the file this app itself writes (nim-key.enc) under NIM_PROXY_TEST_HOME. Electron's own internal cache dir still isn't redirectable short of app.setPath() before ready -- documented as a known, accepted limit in CLAUDE.md.
+
+At no point was this machine's real ~/.config/claude-nim-proxy, real pm2 litellm-nim, real ~/Library/Application Support/NIM Proxy Manager (never even read), or real Claude Desktop config touched.
+
+Honest AC#5 gap: "verified against a real pre-rename install" is not literally satisfied by design, per the campaign's safety constraint -- worker believes it cannot be without a human running one real supervised pass. What was verified instead: the copy mechanism itself (fixtures), the decrypt-failure-is-graceful path (pre-existing behavior, now documented), and Electron's actual sourced behavior explaining why macOS won't carry the key over. Flagged explicitly rather than overclaiming.
+
+Flags for human/reviewer judgment:
+1. AC#5's "real pre-rename install" wording -- worker believes this needs one human-supervised real pass before the strictest reading of AC#5 is satisfied.
+2. Worker self-corrected a process mistake: initially edited CLAUDE.md in the main repo path by copy-paste error, caught via git status, reverted with git checkout --, confirmed byte-identical, redid the edit in the worktree. Orchestrator independently verified: main repo's CLAUDE.md is clean, no diff.
+3. Icon not redesigned (still NVIDIA green + evolv terracotta) -- only doc comments updated; worker's read is that a real icon redesign belongs to NCOW-14 (drops NVIDIA framing), not this rename.
+4. Did not touch .claude/skills/backlog-handover/SKILL.md's references to litellm-nim/NIM_PROXY_TEST_HOME/feat/nim-proxy-manager -- treated as campaign infra/historical, not product source/docs.
+
+Orchestrator verification before review dispatch: confirmed branch feat/NCOW-12-rebrand-claude-conduit (4 commits on 398ab91) is pushed to origin; confirmed orchestrator's own main dev checkout has zero diff on CLAUDE.md (flag #2 above is real and already resolved).
+<!-- SECTION:NOTES:END -->
