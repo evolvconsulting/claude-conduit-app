@@ -16,18 +16,28 @@ const claudeDesktopConfig = require('../engine/claudeDesktopConfig');
 const diagnostics = require('../engine/diagnostics');
 const { uninstall: runUninstall } = require('../engine/uninstall');
 const manifestStore = require('../engine/manifest');
+const { migrateLegacyConfigDir } = require('../engine/configDirMigration');
+const { migrateLegacyKeyFile, LEGACY_PRODUCT_NAME } = require('../engine/userDataMigration');
 
 const DEFAULT_PORT = 4000;
 
 /**
  * SAFETY MECHANISM — dev/manual-testing only, never used in a real install:
- * every path this app touches (~/.config/claude-nim-proxy, ~/.claude, the
+ * every path this app touches (~/.config/claude-conduit, ~/.claude, the
  * Claude Desktop configLibrary) is derived from a single `homedir`, which
  * defaults to the real os.homedir(). When launched with --dev AND
  * NIM_PROXY_TEST_HOME set, that env var's directory is used instead — so
  * every button in the app, including the ones that write to Claude Code's
  * settings.json or Claude Desktop's config, can be clicked for real during
  * development without touching this machine's actual configuration.
+ *
+ * NCOW-12: Electron's userData/appData directories (the encrypted-key store,
+ * and the legacy-userData migration above) are NOT derived from this
+ * function — they come from `deps.userDataDir`/`deps.appDataDir`, which
+ * main/index.js's own resolveUserDataPaths() redirects under
+ * NIM_PROXY_TEST_HOME the same way, using the identical --dev + env-var
+ * guard. Both halves have to agree for a --dev test-home run to be fully
+ * isolated from this machine's real Electron userData.
  */
 function resolveHomedir() {
   const isDev = process.argv.includes('--dev');
@@ -36,14 +46,30 @@ function resolveHomedir() {
 }
 
 /**
- * @param {{safeStorage: import('electron').safeStorage, userDataDir: string, broadcast: (channel: string, payload: any) => void}} deps
+ * @param {{safeStorage: import('electron').safeStorage, userDataDir: string, appDataDir: string, broadcast: (channel: string, payload: any) => void}} deps
  */
 function createEngineContext(deps) {
   const homedir = resolveHomedir();
   const configDir = paths.resolveConfigDir({ homedir });
+
+  // NCOW-12: migrate a pre-rename config directory (~/.config/claude-nim-proxy)
+  // to its new name before anything else touches configDir — see
+  // configDirMigration.js for why this needs no separate consent prompt.
+  // Cheap and safe to run on every startup: a no-op once already migrated.
+  migrateLegacyConfigDir({ legacyConfigDir: paths.resolveLegacyConfigDir({ homedir }), newConfigDir: configDir });
+
   const files = paths.getFilePaths(configDir);
   const claudeCodeSettingsPath = paths.resolveClaudeCodeSettingsPath({ homedir });
   const claudeDesktopConfigLibraryDir = paths.resolveClaudeDesktopConfigLibraryDir({ homedir });
+
+  // NCOW-12: best-effort carry-forward of the encrypted NVIDIA key across the
+  // userData directory move that renaming productName causes (Electron
+  // derives userData from it) — see userDataMigration.js for the honest
+  // caveat about macOS Keychain scoping.
+  migrateLegacyKeyFile({
+    legacyUserDataDir: path.join(deps.appDataDir, LEGACY_PRODUCT_NAME),
+    newUserDataDir: deps.userDataDir,
+  });
 
   const secretStore = createSecretStore(deps.safeStorage, path.join(deps.userDataDir, 'nim-key.enc'));
   const pm2Control = createPm2Control(require('pm2'));
