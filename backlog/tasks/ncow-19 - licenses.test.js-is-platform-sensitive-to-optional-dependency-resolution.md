@@ -1,10 +1,10 @@
 ---
 id: NCOW-19
 title: licenses.test.js is platform-sensitive to optional dependency resolution
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-01 14:32'
-updated_date: '2026-08-01 22:09'
+updated_date: '2026-08-01 22:35'
 labels: []
 dependencies: []
 ordinal: 29000
@@ -18,10 +18,10 @@ test/main/licenses.test.js asserts licenses.bundled.length === (a live `npm ls -
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The assertion in test/main/licenses.test.js excludes, from its expected count, any package whose lockfile entry restricts it to an os/cpu that does not match the current platform (so it does not require regenerating licenses.json to drop a legitimately-shipped-on-macOS entry like fsevents)
-- [ ] #2 The test passes on this macOS machine with the current licenses.json (79 entries) exactly as it does today
-- [ ] #3 The test would also pass if run on a platform where fsevents (or any other platform-restricted optional dependency introduced later) is not installed, verified by reasoning through the logic or by simulating the exclusion rather than requiring an actual non-macOS machine
-- [ ] #4 npm test passes
+- [x] #1 The assertion in test/main/licenses.test.js excludes, from its expected count, any package whose lockfile entry restricts it to an os/cpu that does not match the current platform (so it does not require regenerating licenses.json to drop a legitimately-shipped-on-macOS entry like fsevents)
+- [x] #2 The test passes on this macOS machine with the current licenses.json (79 entries) exactly as it does today
+- [x] #3 The test would also pass if run on a platform where fsevents (or any other platform-restricted optional dependency introduced later) is not installed, verified by reasoning through the logic or by simulating the exclusion rather than requiring an actual non-macOS machine
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -129,3 +129,9 @@ intersection (README.md vs test/main/licenses.test.js).
 
 Ready for merge queue once NCOW-9 settles.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Made test/main/licenses.test.js's tree-coverage assertion platform-aware: it now reads package-lock.json's os/cpu restriction metadata and excludes bundled packages that couldn't install on the current platform (currently just fsevents, darwin-only) from the expected count, instead of requiring licenses.json to be regenerated per platform. Added a membership check alongside the count so a balanced total can't mask a swap. Verified with 2 new tests plus independent reviewer re-derivation of the darwin/linux/win32 arithmetic against the real lockfile and licenses.json, and 4-mutant mutation testing (3 confirmed real regression guards, 1 gap documented as non-blocking). npm test 178/178 (176 baseline + 2 new). All 4 ACs independently confirmed by an opus reviewer. Merged via PR #6, squash commit b11e5be.
+<!-- SECTION:FINAL_SUMMARY:END -->

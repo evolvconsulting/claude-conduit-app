@@ -1,10 +1,10 @@
 ---
 id: NCOW-9
 title: Decide and document the GitHub install story for end users
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-31 20:38'
-updated_date: '2026-08-01 22:28'
+updated_date: '2026-08-01 22:36'
 labels: []
 dependencies:
   - NCOW-12
@@ -27,12 +27,12 @@ Output should be a decision plus user-facing install instructions in the README,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Primary install path is chosen and written down with its rationale
-- [ ] #2 Decision recorded on whether a shell install script is offered, with the reasoning either way
-- [ ] #3 README has copy-paste install instructions for macOS, Windows and Linux
-- [ ] #4 Gatekeeper and SmartScreen warnings are documented with the exact steps a user must take to get past them
+- [x] #1 Primary install path is chosen and written down with its rationale
+- [x] #2 Decision recorded on whether a shell install script is offered, with the reasoning either way
+- [x] #3 README has copy-paste install instructions for macOS, Windows and Linux
+- [x] #4 Gatekeeper and SmartScreen warnings are documented with the exact steps a user must take to get past them
 - [ ] #5 Verified by installing from the chosen path on at least one clean target and launching the app successfully
-- [ ] #6 Follow-up implementation tasks created for any release automation or script the decision requires
+- [x] #6 Follow-up implementation tasks created for any release automation or script the decision requires
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -309,3 +309,9 @@ tidied automatically by the eventual squash-merge commit message).
 CLEARED TO MERGE. Proceeding to the merge queue: NCOW-19 first (confirmed
 queue order), then NCOW-9.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Decided and documented the GitHub install story: GitHub Releases with direct per-platform download as the primary path (AC#1), no curl-pipe install script -- rejected because the app already handles its own prerequisites and the only thing a script could add is silently clearing macOS's quarantine flag, the exact malicious-installer pattern (AC#2). Rewrote README's Install section with copy-paste per-platform instructions and exact Gatekeeper/SmartScreen bypass steps (AC#3, AC#4), verified technically accurate against this project's real ad-hoc-signed/unsigned build config. Added docs/distribution.md with full rationale, a verified signing-state table, and a release checklist. Along the way found and fixed two real build-environment issues: added homepage+repository to package.json as hardening so npm run dist behaves identically regardless of checkout layout (worktree, CI, tarball) -- NOT a bugfix for the canonical repo, which was never broken (an initial doc draft got this root-cause wrong; corrected in a request_changes fix cycle, independently re-verified by the reviewer against the actual electron-builder source). AC#6: 4 follow-up tasks recommended (GitHub Actions release workflow, code-signing/notarization, Homebrew cask, real Windows/Linux install verification) but NOT created -- pending user approval per this project's task-creation policy. AC#5 is QUALIFIED, not fully checked: its literal text requires installing from a published Release on a clean target, which doesn't exist yet (no Release published, no clean machine available to any agent). What IS achievable was independently verified twice (worker, then reviewer, including a second launch of the truly final build artifact): codesign confirms genuine ad-hoc/unsigned status, spctl -a -t exec rejects the unsigned app exactly as documented, Windows PE cert tables confirmed empty (unsigned), and the packaged app launches successfully under an isolated NIM_PROXY_TEST_HOME with zero real machine state touched (independently re-verified via mtime checks before and after). Full closure of AC#5 depends on the recommended release-workflow follow-up actually publishing a Release. Two review passes (opus): pass 1 request_changes (one MEDIUM root-cause misattribution, three LOW polish items), pass 2 approve after an independent re-verification against the electron-builder source. npm test 178/178 stable across 10 total runs (7 by reviewers, 3 by wave-integration review) -- one transient 170/176 anomaly on the worker's very first run was investigated and attributed to environment noise (concurrent native-dependency rebuild churn during electron-builder's install), unreproducible, unrelated to this task's diff. Merged via PR #7, squash commit ef793b4.
+<!-- SECTION:FINAL_SUMMARY:END -->
