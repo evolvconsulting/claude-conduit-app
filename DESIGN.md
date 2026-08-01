@@ -515,19 +515,48 @@ paths use `~/.config` already. Document in README; CI can run the Linux flow hea
 
 Runs the full chain, prints a table, exit 0 iff all critical checks pass (else 4). Each failure
 names the broken layer (client config / proxy / LiteLLM translation / NIM upstream) and one fix.
+In the shipped app this table is the GUI's Diagnostics view (`src/renderer/views/diagnostics-view.js`,
+implemented by `src/engine/diagnostics.js`'s `runDiagnostics()`) rather than a separate CLI binary —
+no `claude-nim-proxy` executable exists in this repo; the section heading is v1-spec language kept
+for the request/response shapes below, which the implementation still follows exactly.
 
-| # | Check | Method | Pass criteria | Critical |
-|---|---|---|---|---|
-| 1 | Proxy alive | `GET /health/liveliness` | HTTP 200 | ✅ |
-| 2 | Auth enforced | `POST /v1/messages` **without** key | 401/403 (proves master key required) | ✅ |
-| 3 | NIM reachable & models exist | `GET {nim_base}/models` with NIM key | 200; both configured IDs present (absent → warn, not fail: catalog listings shift) | ✅ (401 ⇒ fail) |
-| 4 | Anthropic-format completion | see request A below | 200; non-empty `content[0].text`; `stop_reason` present | ✅ |
-| 5 | **Tool calling** | request B below | a `content` block `"type":"tool_use"` with parseable `input.city` | ✅ |
-| 6 | Streaming | request A + `"stream": true` | SSE body contains `message_start` | ✅ |
-| 7 | Small model works | request A with `"model":"claude-haiku-4-5"` | 200 | ✅ |
-| 8 | `claude-*` wildcard | request A with `"model":"claude-sonnet-4-6"` | 200 | ✅ |
-| 9 | CLI config coherent | read settings.json | base URL/token match manifest; warn on conflicting shell `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` exports | warn-only |
-| 10 | Live CLI smoke | if `claude` on PATH: `claude -p 'Reply with exactly: OK'` (gateway env exported, 120 s timeout) | non-empty stdout | warn-only |
+**Timeouts (NCOW-16, NCOW-17).** Checks 1–3 and 9 are non-model calls and fail fast (proxy alive:
+5s; NIM catalog reachability: 10s; auth-enforced: 30s; CLI config coherent: local file read, no
+network wait). Checks 4, 5, 6, 7 and 8 each exercise a real model completion and share a 60s
+**interactive-reasonable** timeout — confirmed live (NCOW-16) that simply raising this number (90s,
+180s, even 300s were all tried) does not reliably out-wait a congested shared/free NIM endpoint, and
+for an interactive coding-assistant proxy a model that takes minutes to answer isn't "slow but
+fine". A check that hits its timeout reports an accurate *"Timed out after 60s — {{MODEL}} is
+responding too slowly for interactive use right now..."* diagnosis rather than an opaque aborted-
+request error. `{{MODEL}}` here is always the real model id the user picked in Setup
+(`primaryModelId` for checks 4/5/6/8, `smallModelId` for check 7) — never the hardcoded
+`claude-sonnet-4-5`/`claude-haiku-4-5`/`claude-sonnet-4-6` litellm routing alias each request body
+actually sends (that alias is required for routing and appears in the check's own label, matching
+the sample output below, but the user never chose it, so it never appears in the failure message).
+Check 6 (Streaming) additionally bounds every individual stream read against the same remaining
+budget, not just the gap between reads — `Promise.race([reader.read(), remainingBudgetTimer])` — so
+an upstream that stops sending anything at all, not even an SSE keep-alive, without ever closing the
+connection can't hang the check past its own 60s; its internal scan buffer is also capped (trimmed
+to a bounded tail once a scan doesn't find `message_start`) so a long-running slow stream can't grow
+it, and the cost of rescanning it, without bound. Check 10 keeps its own 120s timeout, unchanged.
+Worst-case total wall time across all ten checks is therefore roughly 5×60s + 120s, ~7 minutes —
+long enough that the Diagnostics view's Run Diagnostics button has a Cancel button next to it once a
+run is in progress (`diagnostics:cancel` over IPC, aborting the `AbortSignal` threaded through the
+in-progress run), rather than only the option to wait it out. Checks already completed when a run is
+cancelled keep their real result; checks not yet started are simply omitted.
+
+| # | Check | Method | Pass criteria | Timeout | Critical |
+|---|---|---|---|---|---|
+| 1 | Proxy alive | `GET /health/liveliness` | HTTP 200 | 5s | ✅ |
+| 2 | Auth enforced | `POST /v1/messages` **without** key | 401/403 (proves master key required) | 30s | ✅ |
+| 3 | NIM reachable & models exist | `GET {nim_base}/models` with NIM key | 200; both configured IDs present (absent → warn, not fail: catalog listings shift) | 10s | ✅ (401 ⇒ fail) |
+| 4 | Anthropic-format completion | see request A below | 200; non-empty `content[0].text`; `stop_reason` present | 60s | ✅ |
+| 5 | **Tool calling** | request B below | a `content` block `"type":"tool_use"` with parseable `input.city` | 60s | ✅ |
+| 6 | Streaming | request A + `"stream": true` | SSE body contains `message_start` | 60s | ✅ |
+| 7 | Small model works | request A with `"model":"claude-haiku-4-5"` | 200 | 60s | ✅ |
+| 8 | `claude-*` wildcard | request A with `"model":"claude-sonnet-4-6"` | 200 | 60s | ✅ |
+| 9 | CLI config coherent | read settings.json | base URL/token match manifest; warn on conflicting shell `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` exports | n/a (local) | warn-only |
+| 10 | Live CLI smoke | if `claude` on PATH: `claude -p 'Reply with exactly: OK'` (gateway env exported, 120 s timeout) | non-empty stdout | 120s | warn-only |
 
 Request A (matches the official gateway smoke test shape):
 
