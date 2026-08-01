@@ -3,7 +3,7 @@ id: doc-3
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 02:44'
+updated_date: '2026-08-01 10:13'
 ---
 # Backlog campaign tracker
 
@@ -37,23 +37,33 @@ orchestrator fast-forwarded its own local `dev` checkout to match and switched o
 is confirmed as GitHub's registered default branch. All future wave worktrees fork from `dev`
 per the skill's normal convention — no more deviation needed.
 
+## Confirmed at restore #2 (2026-08-01) — wave 2 scope vs NCOW-12
+
+NCOW-17 and NCOW-18 (both created at wave 1 settlement) were unordered relative to NCOW-12 in
+the confirmed queue. File-citation conflict check found NCOW-12 conflicts with BOTH: it
+explicitly touches `DESIGN.md` (README/DESIGN.md/CLAUDE.md rebrand updates) and the generated
+`licenses.json`, which collide with NCOW-17 AC#4 (DESIGN.md §11 update) and NCOW-18 (regenerates
+licenses.json) respectively. NCOW-17 and NCOW-18 do not conflict with each other. So NCOW-12
+cannot share a wave with either regardless of ordering — it was always going to be a solo wave.
+User chose (AskUserQuestion): run NCOW-17 + NCOW-18 as wave 2 first (lower risk, ready now, no
+live-verification requirement), defer NCOW-12 to its own wave next. Do not re-ask this ordering.
+
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 1 settlement (2026-08-01): NCOW-16 is Done. NCOW-12 is ready now (no deps) and is
-next — deferred out of wave 1 solely because both NCOW-16 and NCOW-12 need live app/proxy
-verification (Shared Machine State cap of one such task per wave), not because of any other
-conflict. NCOW-9 remains blocked on NCOW-12.
+As of wave 2 dispatch (2026-08-01): NCOW-17 and NCOW-18 dispatched as wave 2. NCOW-12 remains
+ready (no deps) and is next after wave 2 settles — solo wave (see "Confirmed at restore #2").
+NCOW-9 remains blocked on NCOW-12.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-12 | rebrand | (none) | To Do | | ready now; repo rename stays manual |
-| 2 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
-| 3 | NCOW-17 | diagnostics | NCOW-16 (done) | To Do | | ready now; NOT yet given a confirmed queue position relative to NCOW-12 -- needs a quick user check at a future restore, defaults to lowest priority for now |
-| 4 | NCOW-18 | hygiene | (none) | To Do | | ready now; same as NCOW-17 -- unordered relative to NCOW-12, defaults to lowest priority for now |
+| 1 | NCOW-17 | diagnostics | NCOW-16 (done) | Dispatched | 2 | ready; no live-verification requirement |
+| 2 | NCOW-18 | hygiene | (none) | Dispatched | 2 | ready; no live-verification requirement |
+| 3 | NCOW-12 | rebrand | (none) | To Do | | next after wave 2; solo wave — conflicts with both NCOW-17 (DESIGN.md) and NCOW-18 (licenses.json); repo rename stays manual |
+| 4 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
 
 ## Resolved
 
