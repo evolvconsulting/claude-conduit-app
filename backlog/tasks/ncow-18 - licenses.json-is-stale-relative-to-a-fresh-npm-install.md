@@ -1,10 +1,10 @@
 ---
 id: NCOW-18
 title: licenses.json is stale relative to a fresh npm install
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-01 02:43'
-updated_date: '2026-08-01 10:23'
+updated_date: '2026-08-01 10:48'
 labels: []
 dependencies: []
 ordinal: 28000
@@ -20,9 +20,9 @@ Reproduce with: rm -rf node_modules && npm install && node --test test/main/lice
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A fresh 'npm install' from the current package-lock.json followed by 'npm run licenses' regenerates src/assets/licenses.json with no unexpected diff, or if there IS a real diff, it's committed
-- [ ] #2 test/main/licenses.test.js passes under a genuinely fresh npm install (verified by testing in a clean worktree or after rm -rf node_modules, not just on a long-lived local checkout)
-- [ ] #3 npm test passes
+- [x] #1 A fresh 'npm install' from the current package-lock.json followed by 'npm run licenses' regenerates src/assets/licenses.json with no unexpected diff, or if there IS a real diff, it's committed
+- [x] #2 test/main/licenses.test.js passes under a genuinely fresh npm install (verified by testing in a clean worktree or after rm -rf node_modules, not just on a long-lived local checkout)
+- [x] #3 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -53,3 +53,9 @@ Non-blocking findings (not gating merge): (1) the fix flips which platform the t
 
 Reviewer also flagged for the wave log: the package-lock.json `license` field normalization (npm 10.9.8 vs whatever generated the current lockfile) reproduces on every fresh install and should get a single centralized fix rather than every future worker reverting it independently; and confirmed the NCOW-12 wave-conflict reasoning was correct -- generate-licenses.js derives its app name from productName, so the Claude Conduit rebrand will necessarily need its own `npm run licenses` re-run after this merges.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Regenerated src/assets/licenses.json to add fsevents (MIT, darwin-only optional dep of chokidar/pm2), fixing staleness against a genuinely fresh npm install. Root cause: this repo's own long-lived checkouts had node_modules that predated fsevents' resolution. Verified via rm -rf node_modules && npm install && npm run licenses && node --test test/main/licenses.test.js (11/11 pass) and full npm test (150/150). Independently re-verified by an opus reviewer with fresh evidence (byte-identical regen, reproduced the original 78 vs 79 failure, confirmed fsevents is a real production transitive dependency with correct license text). Merged via PR #3 (squash commit e80b263).
+<!-- SECTION:FINAL_SUMMARY:END -->

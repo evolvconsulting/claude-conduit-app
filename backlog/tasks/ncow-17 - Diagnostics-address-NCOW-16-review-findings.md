@@ -1,10 +1,10 @@
 ---
 id: NCOW-17
 title: 'Diagnostics: address NCOW-16 review findings'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-01 02:43'
-updated_date: '2026-08-01 10:41'
+updated_date: '2026-08-01 10:48'
 labels: []
 dependencies:
   - NCOW-16
@@ -19,12 +19,12 @@ Independent review of NCOW-16 (diagnostics timeout rework, PR #2) approved the c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 checkStreaming's elapsed-time budget is enforced even while parked inside a reader.read() call, not just between calls -- e.g. via Promise.race([reader.read(), remainingBudgetTimer]) -- with a test using a mocked response body that never enqueues and never closes, proving the loop no longer hangs past its budget
-- [ ] #2 The timeout message (timeoutDetail()) names the actual model the user selected in Setup (e.g. via primaryModelId, already in scope in runDiagnostics), not a hardcoded alias like 'claude-sonnet-4-5' that the user never chose
-- [ ] #3 Diagnostics' worst-case total wall time (now roughly 5x60s + check 10's 120s, ~7 minutes) has either a UI-level way to cancel an in-progress run, or the IPC handler no longer holds the per-domain mutex for the entire duration -- whichever is the better fit after reviewing ipc.js and diagnostics-view.js
-- [ ] #4 DESIGN.md section 11 is updated to reflect the diagnostics timeout behavior introduced by NCOW-16, per CLAUDE.md's rule that a Backlog task's decision wins over DESIGN.md and the doc should be corrected
-- [ ] #5 The streaming read loop's buffer growth (currently unbounded with an O(n^2) rescan via repeated includes()) is reviewed and bounded if it's a real concern for long-running slow-model streams
-- [ ] #6 npm test passes
+- [x] #1 checkStreaming's elapsed-time budget is enforced even while parked inside a reader.read() call, not just between calls -- e.g. via Promise.race([reader.read(), remainingBudgetTimer]) -- with a test using a mocked response body that never enqueues and never closes, proving the loop no longer hangs past its budget
+- [x] #2 The timeout message (timeoutDetail()) names the actual model the user selected in Setup (e.g. via primaryModelId, already in scope in runDiagnostics), not a hardcoded alias like 'claude-sonnet-4-5' that the user never chose
+- [x] #3 Diagnostics' worst-case total wall time (now roughly 5x60s + check 10's 120s, ~7 minutes) has either a UI-level way to cancel an in-progress run, or the IPC handler no longer holds the per-domain mutex for the entire duration -- whichever is the better fit after reviewing ipc.js and diagnostics-view.js
+- [x] #4 DESIGN.md section 11 is updated to reflect the diagnostics timeout behavior introduced by NCOW-16, per CLAUDE.md's rule that a Backlog task's decision wins over DESIGN.md and the doc should be corrected
+- [x] #5 The streaming read loop's buffer growth (currently unbounded with an O(n^2) rescan via repeated includes()) is reviewed and bounded if it's a real concern for long-running slow-model streams
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -61,3 +61,9 @@ Non-blocking findings: (1) a timer leak in checkStreaming's budget timer when re
 
 CROSS-BRANCH CAVEAT (does not block NCOW-17, but changes merge sequencing): the one npm test failure in NCOW-17's own worktree (test/main/licenses.test.js, 78 !== 79) is NOT a NCOW-17 regression -- licenses.json is byte-identical to dev in this diff. It's an artifact of this worktree's node_modules having macOS's fsevents optional dependency (which the orchestrator's own long-lived main checkout was ALSO independently found to be missing, confirming NCOW-18's root-cause diagnosis exactly). Reviewer flagged that merging NCOW-18 (which sets licenses.bundled to 79 to match a fresh install) needs sequencing awareness: the canonical dev checkout's own historically-stale node_modules would otherwise show a *new* failure in the opposite direction until it's refreshed. Orchestrator will merge NCOW-18 before NCOW-17 to avoid ever hitting a real test failure during the merge queue's own rebase-and-verify step, and has already refreshed its own main checkout's node_modules (npm install picked up fsevents, confirming the diagnosis) ahead of the merge walk.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed all 5 non-blocking findings from NCOW-16's review: (1) checkStreaming's elapsed-time budget now enforced via Promise.race even while parked inside reader.read(); (2) timeout/failure messages now name the real selected model (primaryModelId/smallModelId) instead of a hardcoded alias; (3) added a UI Cancel button + AbortController plumbing (diagnostics:cancel IPC channel) since the diagnostics domain has no per-domain mutex to release; (4) DESIGN.md section 11 rewritten with an accurate timeout table; (5) streaming buffer growth now bounded via a 1024-char tail-trim. 11 new tests added (29/29 in diagnostics.test.js). Independently re-verified by an opus reviewer with fresh evidence: reproduced the pre-fix infinite hang, verified the mutex-absence premise directly against ipc.js, traced AbortController plumbing end-to-end, spot-checked every DESIGN.md timeout number against code. Merged after NCOW-18 (deliberate ordering to avoid the known cross-branch licenses.json count mismatch during the merge queue's mandatory post-rebase test) via PR #4 (squash commit 3cdd1f9). Full npm test: 161/161 pass on merged dev. Wave-level integration review (opus) found zero cross-task issues between this and NCOW-18.
+<!-- SECTION:FINAL_SUMMARY:END -->
