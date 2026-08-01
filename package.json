@@ -5,6 +5,11 @@
   "description": "GUI manager for a local LiteLLM proxy routing Claude Desktop and the Claude Code CLI through NVIDIA NIM models.",
   "author": "evolv consulting <info@evolvconsulting.com>",
   "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/evolvconsulting/claude-conduit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evolvconsulting/claude-conduit.git"
+  },
   "private": true,
   "main": "src/main/index.js",
   "type": "commonjs",
