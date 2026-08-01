@@ -14,7 +14,8 @@ new name; README documents the persisted-state migration decisions (config dir, 
 name, Electron userData/encrypted key, Claude Desktop entry) and `src/engine/
 configDirMigration.js` / `userDataMigration.js` implement the ones that migrate. The actual
 GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-conduit`) is
-still a pending, manual, out-of-band step — `REPO_URL` already points at the new location.
+now done — it was performed manually out of band, and `REPO_URL` and the git remote both
+point at the new location.
 **NCOW-14 is still pending**: it will drop the NVIDIA-only framing so NIM becomes one
 provider among several — don't invest in new NVIDIA-specific abstractions (the pm2 app name
 `litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by NCOW-12
@@ -47,7 +48,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 176 tests. Run before AND after any change.
+npm test          # node --test, 178 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change
