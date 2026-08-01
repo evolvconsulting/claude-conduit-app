@@ -4,7 +4,7 @@ title: Rebrand to Claude Conduit and rename the repo to claude-conduit
 status: In Progress
 assignee: []
 created_date: '2026-07-31 21:50'
-updated_date: '2026-08-01 17:54'
+updated_date: '2026-08-01 18:03'
 labels: []
 dependencies: []
 priority: high
@@ -78,4 +78,20 @@ Flags for human/reviewer judgment:
 4. Did not touch .claude/skills/backlog-handover/SKILL.md's references to litellm-nim/NIM_PROXY_TEST_HOME/feat/nim-proxy-manager -- treated as campaign infra/historical, not product source/docs.
 
 Orchestrator verification before review dispatch: confirmed branch feat/NCOW-12-rebrand-claude-conduit (4 commits on 398ab91) is pushed to origin; confirmed orchestrator's own main dev checkout has zero diff on CLAUDE.md (flag #2 above is real and already resolved).
+
+Opus review, pass 1: request_changes (narrow). Confirmed AC indices: 1, 2, 3, 4, 6, 7, 8 (independently re-verified each -- ran npm test itself, 175/175; read the diff; read the packaged Info.plist directly; reproduced the migration-path claims by reading the actual code, not trusting summaries). AC#5 explicitly PARTIAL, not rounded to pass or fail: migration logic implemented correctly and fixture-verified (10 new tests, idempotent, non-destructive, EXDEV fallback -- all spot-checked and held), but "verified against a real pre-rename install" is genuinely not satisfied, by design. Reviewer's judgment: this is the CORRECT call, not an escalation -- deferring the one-way destructive real-data pass to a human-supervised step is the right autonomous-agent behavior, not a gap. Recommended NOT to route to human_needed; recommended merging once the defect below is fixed, with AC#5 recorded as "implemented + fixture-verified, real-machine leg outstanding."
+
+Safety verification: CONFIRMED, no doubt. Reviewer independently read-only-checked this machine's real ~/.config/claude-nim-proxy (intact, all files Jul-31-dated), real nim-key.enc (untouched, Jul-31 mtime), confirmed no ~/Library/Application Support/Claude Conduit/ residue, confirmed no litellm-nim pm2 app exists, confirmed Claude Desktop's real _meta.json still reads "NIM Proxy Manager" (untouched, consent-gated). Nothing in this diff or the worker's activity touched real user data.
+
+Risk note for the human pass later: migrateLegacyConfigDir runs unprompted at startup before anything else touches configDir, and the packaged binary honors --dev purely via process.argv -- so dist/mac-arm64/Claude Conduit.app launched WITHOUT --dev + NIM_PROXY_TEST_HOME will immediately rename the real config dir and copy the real key. Correct end-user behavior, but that .app in the worktree is live ammunition on this machine until the eventual real-machine verification pass is run deliberately.
+
+Defects found (all LOW/TRIVIAL, none structural):
+1. LOW -- duplicate Claude Desktop entry when manifest.json lacks desktop_config_entry_id. Empirically reproduced: findOrCreateEntryByName searches for "Claude Conduit" only, misses a legacy-named entry, creates a second one instead of reusing it. Reachable via purge-uninstall (destroys manifest) + declining the Claude Desktop opt-in, then reinstall + Apply. Fix: ~4 lines, fall back to a LEGACY_ENTRY_NAME lookup before creating.
+2. LOW (same fix) -- README claim "upgrading never creates a duplicate" is false given defect 1; needs correcting alongside the code fix.
+3. TRIVIAL -- .gitignore:7 has a stale "claude-nim-proxy" comment unrelated to migration.
+4. TRIVIAL -- README:199 says the repo was "nvidia-nim-proxy"; the actual remote slug is nvidia-cowork.
+
+Independent technical verification: confirmed secretStore.load()'s decrypt-failure handling is pre-existing/unchanged (diff to secretStore.js is comment-only); confirmed configDirMigration.js really rewrites the 5 absolute-path occurrences configGen.js bakes into this machine's real run.js/ecosystem.config.cjs; confirmed the Claude Desktop entry really is reused by id (not name) in applyGatewayConfig, and the name mutation is persisted via writeMeta.
+
+Dispatching a fresh worker fix pass for defects 1-4 into the same worktree; capped at 2 retries per campaign policy before this would auto-escalate.
 <!-- SECTION:NOTES:END -->
