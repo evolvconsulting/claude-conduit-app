@@ -1,9 +1,10 @@
 ---
 id: NCOW-12
 title: Rebrand to Claude Conduit and rename the repo to claude-conduit
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-31 21:50'
+updated_date: '2026-08-01 17:27'
 labels: []
 dependencies: []
 priority: high
