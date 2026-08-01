@@ -11,3 +11,7 @@ dist/
 # inputs it produces (build/icon.png/.icns/.ico) and the build/icon.svg source
 # they all derive from are tracked.
 build/icons/
+
+# Active backlog-handover campaign handovers — ephemeral, machine-specific pointers.
+# Consumed handovers move to archive/handovers/, which IS tracked.
+.claude/handovers/
