@@ -4,7 +4,7 @@ title: Rebrand to Claude Conduit and rename the repo to claude-conduit
 status: In Progress
 assignee: []
 created_date: '2026-07-31 21:50'
-updated_date: '2026-08-01 18:03'
+updated_date: '2026-08-01 18:07'
 labels: []
 dependencies: []
 priority: high
@@ -94,4 +94,20 @@ Defects found (all LOW/TRIVIAL, none structural):
 Independent technical verification: confirmed secretStore.load()'s decrypt-failure handling is pre-existing/unchanged (diff to secretStore.js is comment-only); confirmed configDirMigration.js really rewrites the 5 absolute-path occurrences configGen.js bakes into this machine's real run.js/ecosystem.config.cjs; confirmed the Claude Desktop entry really is reused by id (not name) in applyGatewayConfig, and the name mutation is persisted via writeMeta.
 
 Dispatching a fresh worker fix pass for defects 1-4 into the same worktree; capped at 2 retries per campaign policy before this would auto-escalate.
+
+Fix pass 1 (worker) addressed all 4 review-pass-1 findings:
+
+Defect 1 (LOW, duplicate Claude Desktop entry): findOrCreateEntryByName in src/engine/claudeDesktopConfig.js gained an optional legacyName param; applyGatewayConfig now passes LEGACY_ENTRY_NAME through on the non-id path so a missing manifest.json falls back to a legacy-name lookup instead of creating a duplicate. Display-name touch-up now runs on both the id-reuse path and the legacy-name-fallback path. New test in test/engine/claudeDesktopConfig.test.js reproduces the reviewer's exact repro (no manifest option, only a legacy-named entry present) and asserts entryId reused, no duplicate (entries.length === 1), name updated, config content updated.
+
+Defect 2 (LOW, false README claim): corrected to describe both the id-based path and the legacy-name fallback rather than overclaiming "never creates a duplicate."
+
+Defect 3 (TRIVIAL, .gitignore): stale "claude-nim-proxy" comment updated to "claude-conduit".
+
+Defect 4 (TRIVIAL, wrong old repo slug in README): corrected "nvidia-nim-proxy" to the actual remote slug "nvidia-cowork" (confirmed via git remote -v in the worktree).
+
+npm test: 176/176 pass (175 + 1 new), run twice (before and after both commits).
+
+Commits: f775fb8 (engine fix + test), 0e19d45 (docs). Pushed to origin/feat/NCOW-12-rebrand-claude-conduit @ 0e19d45. Orchestrator independently confirmed the push and a clean worktree.
+
+Dispatching review pass 2 (opus) into the same worktree -- second and final review pass under the campaign's 2-retry cap.
 <!-- SECTION:NOTES:END -->
