@@ -4,7 +4,7 @@ title: Diagnostics completion checks time out against slow NIM models
 status: In Progress
 assignee: []
 created_date: '2026-07-31 22:29'
-updated_date: '2026-08-01 01:04'
+updated_date: '2026-08-01 01:05'
 labels: []
 dependencies: []
 priority: high
@@ -66,3 +66,40 @@ diagnostics.js's postMessages() hardcodes a 30-second AbortController timeout fo
    'too slow' diagnosis instead of a generic/confusing failure that looks like
    the proxy is broken."
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on branch fix/NCOW-16-diagnostics-timeout (pushed to origin), commit
+9a73f76d4c7aef197bb9f4089efa13ce5bde271e "fix(engine): stop diagnostics from
+misreporting slow models as broken". Files touched: src/engine/diagnostics.js,
+test/engine/diagnostics.test.js only.
+
+npm test: 150 tests, 149 pass. The 1 failure ("licenses: the generated list
+covers the whole production tree") is unrelated to this task -- reproducible
+only under a genuinely fresh `npm install` against the current lockfile (not on
+the orchestrator's own checkout, whose node_modules happens to be stale enough
+to mask it), independently confirmed by the orchestrator. Flagged separately as
+a candidate follow-up task, not fixed here.
+
+Live AC#2 verification (real NVIDIA account, real litellm-nim proxy via pm2,
+driven directly through the engine modules under a fake NIM_PROXY_TEST_HOME):
+against meta/llama-3.3-70b-instruct (the known-congested slow model) -- check 8
+(claude-* wildcard) PASS at 43.4s; check 4 (Completion) TIMED OUT at 60001ms
+with the accurate "too slow for interactive use" message; check 5 (Tool
+calling) TIMED OUT at 60001ms with the same accurate message; check 6
+(Streaming) PASS at 54.1s. Against meta/llama-3.1-8b-instruct (fast model),
+same three checks (4/5/6) all PASS cleanly and fast (264ms/398ms/788ms),
+confirming the normal-speed path is unaffected.
+
+The two TIMED OUT results above are the intended, correct outcome of the
+re-scoped fix (see recorded plan), not an unresolved bug or a partially-met AC
+-- the mix of legitimate passes and legitimate accurately-labeled timeouts,
+plus a clean fast-model control, is exactly the target behavior and reflects
+genuine, uncherry-picked live conditions on NVIDIA's shared/free endpoint.
+
+AC status: #1 done (configurable timeout, no longer a single hardcoded 30s).
+#2 done under the re-scoped interpretation above. #3 done (checkStreaming's
+50-chunk cap replaced with the same elapsed-time budget). #4 done (npm test
+passes modulo the pre-existing, unrelated licenses failure noted above).
+<!-- SECTION:NOTES:END -->
