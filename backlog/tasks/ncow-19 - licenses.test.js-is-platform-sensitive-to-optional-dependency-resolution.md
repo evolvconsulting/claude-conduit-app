@@ -4,7 +4,7 @@ title: licenses.test.js is platform-sensitive to optional dependency resolution
 status: In Progress
 assignee: []
 created_date: '2026-08-01 14:32'
-updated_date: '2026-08-01 22:04'
+updated_date: '2026-08-01 22:09'
 labels: []
 dependencies: []
 ordinal: 29000
@@ -83,4 +83,49 @@ incidental unrelated package-lock.json change (npm had added a root
 this task's diff.
 
 Next: dispatching opus review into the same worktree before merge.
+
+Reviewer verdict (opus): APPROVE. AC indices independently confirmed: #1, #2,
+#3, #4 (all four).
+
+AC#1: read the exclusion logic line-by-line; conservative "excluded only if
+every lockfile entry fails to match" rule confirmed correctly implemented
+(not inverted).
+AC#2: independently re-derived the darwin arithmetic from real npm-ls +
+lockfile + licenses.json content (not the worker's numbers): 78 + 1 + 0 = 79.
+npm test 178/178, licenses.test.js 13/13.
+AC#3: independently re-derived the full cross-platform table using npm's own
+verbatim upstream checkList semantics (fetched from npm/npm-install-checks),
+not the worker's reimplementation -- worker's numbers reproduced exactly
+across darwin/arm64, darwin/x64, linux/x64, win32/x64, linux/arm64.
+AC#4: reviewer's own npm test runs (twice) both showed 178/178 pass.
+
+Scope: git diff dev...branch --name-only confirms test/main/licenses.test.js
+only, +116/-5, no drive-by changes. package-lock.json cleanliness claim
+independently confirmed true (0-line diff vs dev, identical MD5 across
+HEAD/dev/on-disk). Commit message matches repo conventions.
+
+Mutation testing (4 mutants, each applied then reverted, worktree verified
+clean after): reverting to the old assertion fails the new simulation test;
+flipping every->some (conservative-vs-permissive direction) survives
+uncovered (LOW-1); deleting the !x blacklist rule fails the matcher test;
+removing a package from the described set fails the membership check. 3/4
+real regression guards confirmed; 1 gap found and documented.
+
+Non-blocking findings (all LOW/TRIVIAL, none reachable with the current
+dependency tree, all fail loud rather than silent-pass): LOW-1 the
+conservative "every" rule itself is untested (no lockfile name today has
+multiple entries with differing os); LOW-2 matchesPlatformList diverges from
+npm on two untested edge cases ("any" literal, bare-string os/cpu values),
+both diverging in the under-exclusion (fail-loud) direction; LOW-3 libc
+(musl/glibc) restrictions unhandled, self-flagged by the worker; TRIVIAL
+per-name boolean model could mis-balance if a name ever had both a
+restricted and unrestricted lockfile entry plus duplicate bundled entries
+(no such name exists today). Reviewer recommends approving as-is and
+optionally filing the LOW/TRIVIAL findings as a small future hardening
+task -- not blocking.
+
+Overlap risk vs NCOW-9 (sibling in-flight this wave): none -- zero file
+intersection (README.md vs test/main/licenses.test.js).
+
+Ready for merge queue once NCOW-9 settles.
 <!-- SECTION:NOTES:END -->
