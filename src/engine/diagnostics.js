@@ -63,19 +63,43 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MODEL_COMPLETION_TIMEOUT_MS = 60_000;
 
 /**
- * Accurate, actionable detail for a model-completion check (4/5/6/8) that
+ * Accurate, actionable detail for a model-completion check (4/5/6/7/8) that
  * hit MODEL_COMPLETION_TIMEOUT_MS — distinguishes "this model is too slow
  * for interactive use right now" from a generic aborted-request failure
  * that reads exactly like a broken proxy. See MODEL_COMPLETION_TIMEOUT_MS
  * above for the live evidence behind this framing.
+ *
+ * `model` here should be the real model id the user picked in Setup (e.g.
+ * opts.primaryModelId/smallModelId) — NOT the "claude-sonnet-4-5"/
+ * "claude-haiku-4-5"/"claude-sonnet-4-6" routing alias every request body
+ * actually sends. Those aliases are required for litellm to route the
+ * request correctly (DESIGN.md section 11's Request A/B shapes), but the
+ * user never chose them, so surfacing one back in a failure message reads
+ * as a name the user doesn't recognize. See the `displayModel` parameter on
+ * checkCompletion/checkToolCalling/checkStreaming below for how the two are
+ * kept separate (NCOW-17).
  */
 function timeoutDetail(model, timeoutMs) {
   return `Timed out after ${Math.round(timeoutMs / 1000)}s — ${model} is responding too slowly for interactive use right now (this can happen on NVIDIA's shared/free endpoint under load). Try again later or pick a different model.`;
 }
 
-async function postMessages({ port, masterKey, body, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+/**
+ * Message used in place of timeoutDetail() when a request was aborted
+ * because the user cancelled the run (NCOW-17), not because it hit its own
+ * timeout — both surface as the same AbortError, but they mean very
+ * different things and deserve different wording.
+ */
+const CANCELLED_DETAIL = 'Cancelled.';
+
+async function postMessages({ port, masterKey, body, timeoutMs = DEFAULT_TIMEOUT_MS, signal }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // NCOW-17: an optional external signal (runDiagnostics' cancellation
+  // token, see runDiagnostics below) is combined with this call's own
+  // per-request timeout so either one aborts the fetch — a user-initiated
+  // cancel doesn't have to wait out the remainder of the current check's
+  // timeout budget.
+  const combinedSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
       method: 'POST',
@@ -85,7 +109,7 @@ async function postMessages({ port, masterKey, body, timeoutMs = DEFAULT_TIMEOUT
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: combinedSignal,
     });
     return response;
   } finally {
@@ -98,13 +122,24 @@ function result({ id, label, critical, pass, detail, fixHint, ms }) {
 }
 
 /** Check 1: proxy alive. */
-async function checkProxyAlive({ port }) {
+async function checkProxyAlive({ port, signal }) {
   const started = Date.now();
+  const timeoutSignal = AbortSignal.timeout(5000);
+  const combinedSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/health/liveliness`, { signal: AbortSignal.timeout(5000) });
+    const response = await fetch(`http://127.0.0.1:${port}/health/liveliness`, { signal: combinedSignal });
     return result({ id: 1, label: 'Proxy alive', critical: true, pass: response.status === 200, ms: Date.now() - started, detail: `HTTP ${response.status}` });
   } catch (err) {
-    return result({ id: 1, label: 'Proxy alive', critical: true, pass: false, ms: Date.now() - started, detail: err.message, fixHint: 'Start the proxy from the Dashboard.' });
+    const cancelled = Boolean(signal?.aborted);
+    return result({
+      id: 1,
+      label: 'Proxy alive',
+      critical: true,
+      pass: false,
+      ms: Date.now() - started,
+      detail: cancelled ? CANCELLED_DETAIL : err.message,
+      fixHint: cancelled ? undefined : 'Start the proxy from the Dashboard.',
+    });
   }
 }
 
@@ -123,10 +158,10 @@ async function checkProxyAlive({ port }) {
  * check can actually verify is "no key never reaches a model" (HTTP != 2xx)
  * — not the specific status code DESIGN.md assumed.
  */
-async function checkAuthEnforced({ port }) {
+async function checkAuthEnforced({ port, signal }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey: null, body: buildRequestA() });
+    const response = await postMessages({ port, masterKey: null, body: buildRequestA(), signal });
     const pass = response.status < 200 || response.status >= 300;
     return result({
       id: 2,
@@ -137,7 +172,8 @@ async function checkAuthEnforced({ port }) {
       detail: `HTTP ${response.status} without a key (proxy correctly rejected the request without reaching a model)`,
     });
   } catch (err) {
-    return result({ id: 2, label: 'Auth enforced', critical: true, pass: false, ms: Date.now() - started, detail: err.message });
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.message;
+    return result({ id: 2, label: 'Auth enforced', critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
@@ -173,11 +209,20 @@ async function checkNimReachable({ apiKey, nimBaseUrl, primaryModelId, smallMode
   });
 }
 
-/** Check 4: Anthropic-format completion. */
-async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', timeoutMs = MODEL_COMPLETION_TIMEOUT_MS }) {
+/**
+ * Check 4: Anthropic-format completion.
+ *
+ * `model` is the litellm routing alias the request body actually sends
+ * (DESIGN.md section 11 Request A hardcodes "claude-sonnet-4-5" for the
+ * primary slot) — it must stay that literal alias for routing to work.
+ * `displayModel` (NCOW-17) is the real model id the user picked in Setup,
+ * used only in the human-readable timeout message so a user is never told
+ * an alias they never chose is "too slow".
+ */
+async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey, body: buildRequestA({ model }), timeoutMs });
+    const response = await postMessages({ port, masterKey, body: buildRequestA({ model }), timeoutMs, signal });
     if (!response.ok) {
       return result({ id: 4, label: `Completion (${model})`, critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
@@ -186,16 +231,20 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', t
     const pass = Boolean(text) && Boolean(body.stop_reason);
     return result({ id: 4, label: `Completion (${model})`, critical: true, pass, ms: Date.now() - started, detail: pass ? undefined : 'Missing content[0].text or stop_reason' });
   } catch (err) {
-    const detail = err.name === 'AbortError' ? timeoutDetail(model, timeoutMs) : err.message;
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
     return result({ id: 4, label: `Completion (${model})`, critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
-/** Check 5: tool calling — "the single most valuable check" (DESIGN.md section 11). */
-async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', timeoutMs = MODEL_COMPLETION_TIMEOUT_MS }) {
+/**
+ * Check 5: tool calling — "the single most valuable check" (DESIGN.md section 11).
+ * See checkCompletion above for why `model` (the routing alias) and
+ * `displayModel` (the real, user-chosen model id, NCOW-17) are separate.
+ */
+async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey, body: buildRequestB({ model }), timeoutMs });
+    const response = await postMessages({ port, masterKey, body: buildRequestB({ model }), timeoutMs, signal });
     if (!response.ok) {
       return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
@@ -208,13 +257,31 @@ async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', 
       critical: true,
       pass,
       ms: Date.now() - started,
-      detail: pass ? undefined : `Model ${model} does not reliably support tool calling — go to Setup and pick a model from the recommended list.`,
+      detail: pass ? undefined : `Model ${displayModel} does not reliably support tool calling — go to Setup and pick a model from the recommended list.`,
     });
   } catch (err) {
-    const detail = err.name === 'AbortError' ? timeoutDetail(model, timeoutMs) : err.message;
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
     return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
+
+// AC#5 (NCOW-17): without a cap, the read loop's `buffer` grows without
+// bound for a slow/chatty upstream that keeps the connection open sending
+// non-matching chunks (SSE keep-alives, or any event before message_start)
+// right up to the full timeoutMs budget — and every `.includes()` call
+// below rescans the ENTIRE buffer from the start, so total work over the
+// life of one check is O(n^2) in bytes received. Once an unsuccessful scan
+// happens, only the trailing STREAM_SCAN_TAIL_CHARS characters are kept —
+// comfortably longer than the longest search token ('message_start', 13
+// chars) so a match split across two chunk boundaries is never missed, and
+// short enough that each iteration's `.includes()` call does roughly
+// constant work regardless of how long the stream has been open.
+const STREAM_SCAN_TAIL_CHARS = 1024;
+
+// AC#1/AC#3 (NCOW-17) sentinel: distinguishes "the remaining-budget timer
+// won the race" from a real `{ value, done }` read result without relying
+// on `instanceof`/shape checks.
+const READ_BUDGET_EXCEEDED = Symbol('checkStreaming.readBudgetExceeded');
 
 /**
  * Check 6: streaming. Confirmed live (NCOW-16): the read loop used to cap
@@ -227,11 +294,23 @@ async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', 
  * timeoutMs given to postMessages (rather than an arbitrary chunk count)
  * ties both bounds to one number instead of two, and means a slow model
  * gets exactly as much time here as it does for the underlying request.
+ *
+ * AC#1 (NCOW-17): the elapsed-time check above only re-ran BETWEEN calls to
+ * `reader.read()` — a single read() call that never settles on its own (an
+ * upstream that stops sending anything at all, not even a keep-alive, and
+ * never closes the connection) hung this check well past timeoutMs, because
+ * `await reader.read()` has no timeout of its own. Each read is now raced
+ * against a timer for whatever budget remains, so the loop can never be
+ * parked inside one read() call for longer than the check's own budget.
+ *
+ * See checkCompletion above for why `model` (the routing alias) and
+ * `displayModel` (the real, user-chosen model id, NCOW-17 AC#2) are kept
+ * separate.
  */
-async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', timeoutMs = MODEL_COMPLETION_TIMEOUT_MS }) {
+async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal }) {
   const started = Date.now();
   try {
-    const response = await postMessages({ port, masterKey, body: buildRequestA({ model, stream: true }), timeoutMs });
+    const response = await postMessages({ port, masterKey, body: buildRequestA({ model, stream: true }), timeoutMs, signal });
     if (!response.ok || !response.body) {
       return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
@@ -240,39 +319,68 @@ async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', ti
     let buffer = '';
     let sawMessageStart = false;
     let streamEnded = false;
-    while (!sawMessageStart && Date.now() - started < timeoutMs) {
-      const { value, done } = await reader.read();
+
+    while (!sawMessageStart) {
+      const remainingMs = timeoutMs - (Date.now() - started);
+      if (remainingMs <= 0 || signal?.aborted) break;
+
+      let budgetTimer;
+      const remainingBudget = new Promise((resolve) => {
+        budgetTimer = setTimeout(() => resolve(READ_BUDGET_EXCEEDED), remainingMs);
+      });
+      const readPromise = reader.read();
+      const outcome = await Promise.race([readPromise, remainingBudget]);
+      clearTimeout(budgetTimer);
+
+      if (outcome === READ_BUDGET_EXCEEDED) {
+        // The read this raced against is now abandoned — reader.cancel()
+        // below settles it (per the Streams spec, cancelling resolves any
+        // pending read with { done: true }); swallow so an eventual settle
+        // or rejection can never surface as an unhandled rejection.
+        readPromise.catch(() => {});
+        break;
+      }
+
+      const { value, done } = outcome;
       if (done) {
         streamEnded = true;
         break;
       }
       buffer += decoder.decode(value, { stream: true });
-      if (buffer.includes('message_start')) sawMessageStart = true;
+      if (buffer.includes('message_start')) {
+        sawMessageStart = true;
+      } else if (buffer.length > STREAM_SCAN_TAIL_CHARS) {
+        buffer = buffer.slice(-STREAM_SCAN_TAIL_CHARS);
+      }
     }
     reader.cancel().catch(() => {});
+
+    if (signal?.aborted) {
+      return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail: CANCELLED_DETAIL });
+    }
     // Two distinct "no message_start" failure shapes: the stream ended on
     // its own without ever sending it (a real protocol/proxy problem — keep
     // the specific message), vs. the loop's own elapsed-time budget ran out
     // while still waiting (the same slow-model situation every other
     // model-completion check reports — give it the same accurate message).
     const timedOut = !sawMessageStart && !streamEnded;
-    const detail = sawMessageStart ? undefined : timedOut ? timeoutDetail(model, timeoutMs) : 'No message_start event seen in SSE stream';
+    const detail = sawMessageStart ? undefined : timedOut ? timeoutDetail(displayModel, timeoutMs) : 'No message_start event seen in SSE stream';
     return result({ id: 6, label: 'Streaming', critical: true, pass: sawMessageStart, ms: Date.now() - started, detail });
   } catch (err) {
-    const detail = err.name === 'AbortError' ? timeoutDetail(model, timeoutMs) : err.message;
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
     return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
 /** Check 7: small model works. */
-async function checkSmallModel({ port, masterKey }) {
-  const c = await checkCompletion({ port, masterKey, model: 'claude-haiku-4-5' });
+async function checkSmallModel({ port, masterKey, smallModelId, timeoutMs, signal }) {
+  const c = await checkCompletion({ port, masterKey, model: 'claude-haiku-4-5', displayModel: smallModelId, timeoutMs, signal });
   return { ...c, id: 7, label: 'Completion (claude-haiku-4-5)' };
 }
 
-/** Check 8: claude-* wildcard. */
-async function checkClaudeWildcard({ port, masterKey }) {
-  const c = await checkCompletion({ port, masterKey, model: 'claude-sonnet-4-6' });
+/** Check 8: claude-* wildcard (routes to the primary model — see configGen.js). */
+async function checkClaudeWildcard({ port, masterKey, primaryModelId, timeoutMs, signal }) {
+  const c = await checkCompletion({ port, masterKey, model: 'claude-sonnet-4-6', displayModel: primaryModelId, timeoutMs, signal });
   return { ...c, id: 8, label: 'claude-* wildcard' };
 }
 
@@ -332,7 +440,7 @@ function buildLiveCliSmokeEnv({ port, masterKey, primaryModel, smallModel, baseE
   return env;
 }
 
-async function checkLiveCliSmoke({ port, masterKey, primaryModel, smallModel }) {
+async function checkLiveCliSmoke({ port, masterKey, primaryModel, smallModel, signal }) {
   const started = Date.now();
   const { findExecutable } = require('./platform');
   const claudePath = findExecutable(resolveCliCommand('claude'));
@@ -343,13 +451,17 @@ async function checkLiveCliSmoke({ port, masterKey, primaryModel, smallModel }) 
   const TIMEOUT_MS = 120_000;
   const env = buildLiveCliSmokeEnv({ port, masterKey, primaryModel, smallModel });
 
-  const runPromise = execCli(claudePath, ['-p', 'Reply with exactly: OK'], { timeout: TIMEOUT_MS, env })
+  // AC#3 (NCOW-17): `signal` here is runDiagnostics' cancellation token.
+  // execFile (which execCli wraps) natively supports an abort `signal`
+  // option — passing it through lets a user cancel interrupt this check's
+  // subprocess directly, rather than waiting out the full 120s TIMEOUT_MS.
+  const runPromise = execCli(claudePath, ['-p', 'Reply with exactly: OK'], { timeout: TIMEOUT_MS, env, signal })
     .then(({ stdout, code }) => {
       const pass = code === 0 && stdout.trim().length > 0;
       return result({ id: 10, label: 'Live CLI smoke', critical: false, pass, ms: Date.now() - started, detail: pass ? stdout.trim().slice(0, 200) : `exit ${code}` });
     })
     .catch((err) =>
-      result({ id: 10, label: 'Live CLI smoke', critical: false, pass: false, ms: Date.now() - started, detail: err.message })
+      result({ id: 10, label: 'Live CLI smoke', critical: false, pass: false, ms: Date.now() - started, detail: signal?.aborted ? CANCELLED_DETAIL : err.message })
     );
 
   const hardTimeoutPromise = new Promise((resolve) =>
@@ -366,37 +478,65 @@ async function checkLiveCliSmoke({ port, masterKey, primaryModel, smallModel }) 
  * All 10 DESIGN.md section 11 checks. Exits (in the CLI sense) 0 iff every
  * critical check passes — here expressed as allCriticalPassed on the result.
  *
- * @param {{port: number, masterKey: string, apiKey: string, nimBaseUrl?: string, primaryModelId: string, smallModelId: string, manifest?: object, settingsPath?: string}} opts
+ * AC#3 (NCOW-17): worst-case wall time here is roughly 5×60s (checks
+ * 4/5/6/7/8) + check 10's 120s, ~7 minutes — long enough that a UI-level way
+ * to cancel an in-progress run matters. `opts.signal` (an AbortSignal, wired
+ * up by engine-context.js's diagnostics.cancel handler) is threaded into
+ * every check that can actually be interrupted (1/2/4/5/6/7/8/10, all of
+ * which race a network call or subprocess against it — see each check's own
+ * comments). The run itself is a plain sequential loop rather than the
+ * `results = [await ..., await ..., ...]` array literal this used to be, so
+ * a signal that's already aborted before a check even starts can skip it
+ * outright instead of starting a check that's just going to immediately
+ * report "Cancelled.": whichever checks already completed keep their real
+ * result, the rest are simply absent from `results`, and the top-level
+ * `cancelled: true` tells the caller (and the renderer) the run didn't
+ * finish on its own.
+ *
+ * @param {{port: number, masterKey: string, apiKey: string, nimBaseUrl?: string, primaryModelId: string, smallModelId: string, manifest?: object, settingsPath?: string, signal?: AbortSignal}} opts
  */
 async function runDiagnostics(opts) {
-  const results = [
-    await checkProxyAlive(opts),
-    await checkAuthEnforced(opts),
-    await checkNimReachable(opts),
-    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
-    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
-    await checkStreaming(opts),
-    await checkSmallModel(opts),
-    await checkClaudeWildcard(opts),
-    await checkCliConfigCoherent(opts),
-    await checkLiveCliSmoke({ port: opts.port, masterKey: opts.masterKey, primaryModel: opts.primaryModelId, smallModel: opts.smallModelId }),
+  const { signal } = opts;
+  const steps = [
+    () => checkProxyAlive(opts),
+    () => checkAuthEnforced(opts),
+    () => checkNimReachable(opts),
+    () => checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal }),
+    () => checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal }),
+    () => checkStreaming({ port: opts.port, masterKey: opts.masterKey, displayModel: opts.primaryModelId, signal }),
+    () => checkSmallModel(opts),
+    () => checkClaudeWildcard(opts),
+    () => checkCliConfigCoherent(opts),
+    () => checkLiveCliSmoke({ port: opts.port, masterKey: opts.masterKey, primaryModel: opts.primaryModelId, smallModel: opts.smallModelId, signal }),
   ];
-  const allCriticalPassed = results.every((r) => !r.critical || r.status === 'pass');
-  return { results, allCriticalPassed };
+
+  const results = [];
+  let cancelled = false;
+  for (const step of steps) {
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+    results.push(await step());
+  }
+  const allCriticalPassed = !cancelled && results.every((r) => !r.critical || r.status === 'pass');
+  return { results, allCriticalPassed, cancelled };
 }
 
 /**
  * Focused subset (checks 3+4+5) for a fast, standalone key+model sanity
  * check — callable from the setup wizard right after model selection, and
- * again later as a re-runnable "Test Connection" action.
+ * again later as a re-runnable "Test Connection" action. Worst case here is
+ * ~2×60s + check 3's 10s, well under the ~7 minutes runDiagnostics can take,
+ * so this does not need runDiagnostics' cancellation support (AC#3 above).
  *
  * @param {{apiKey: string, nimBaseUrl?: string, port: number, masterKey: string, primaryModelId: string, smallModelId: string}} opts
  */
 async function runQuickValidation(opts) {
   const results = [
     await checkNimReachable(opts),
-    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
-    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5' }),
+    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId }),
+    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId }),
   ];
   const allCriticalPassed = results.every((r) => !r.critical || r.status === 'pass');
   return { results, allCriticalPassed };
