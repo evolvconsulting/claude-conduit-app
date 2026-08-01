@@ -51,41 +51,89 @@ contained malware. If you already have one of them, upgrade before continuing.
 
 ## Install
 
-Builds are **unsigned** — there's no paid Apple Developer ID or Windows code-signing
-certificate behind them. Both operating systems will therefore warn you on first launch.
-The one-time workarounds are below.
+**Download the build for your OS from the
+[Releases page](https://github.com/evolvconsulting/claude-conduit/releases/latest).**
+That's the only install path: no Homebrew cask, no `winget`, no apt repository, and
+deliberately no `curl … | sh` installer script. The reasoning behind both of those
+choices is written up in [docs/distribution.md](docs/distribution.md).
 
-### macOS — `Claude Conduit-<version>-universal.dmg`
+Nothing else has to be installed first — Node and pm2 ride along inside the app, and the
+app installs `litellm` for you (via your Python) during setup.
+
+> **Builds are not code-signed yet.** macOS builds are ad-hoc signed and *not* notarized;
+> Windows builds carry no Authenticode signature. Both operating systems therefore warn
+> loudly on first launch, and you have to click through it once. Real signing is planned
+> before 1.0, at which point these sections get much shorter.
+
+### macOS — `Claude-Conduit-<version>-universal.dmg`
 
 Universal build; runs natively on both Apple Silicon and Intel.
 
-1. Open the `.dmg` and drag the app to **Applications**.
-2. **Right-click** (or Control-click) the app → **Open** → **Open** in the dialog.
-   Double-clicking will *not* work the first time — macOS only offers the "open anyway"
-   path from the right-click menu.
+1. Open the `.dmg` and drag **Claude Conduit** onto the **Applications** shortcut.
+2. Launch it once from Applications. macOS blocks it with a dialog along the lines of
+   *"Apple could not verify "Claude Conduit" is free of malware…"* — click **Done**
+   (**not** *Move to Trash*).
+3. Open **System Settings → Privacy & Security**, scroll down to **Security**. There's a
+   line saying Claude Conduit was blocked — click **Open Anyway**, authenticate, then
+   confirm with **Open**.
 
-If macOS still refuses ("damaged and can't be opened" — which really means "quarantined
-and unsigned"), clear the quarantine flag:
+That's once per installed version; afterwards it launches normally.
+
+On **macOS 15 (Sequoia) and later** step 3 is the only route — Apple removed the old
+Control-click → *Open* override. On **macOS 14 and earlier**, Control-click the app →
+**Open** → **Open** still works and replaces steps 2–3.
+
+If you'd rather do it from a terminal (or the *Open Anyway* button isn't there), clear the
+download-quarantine flag yourself and then open the app normally:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Claude Conduit.app"
 ```
 
-After that it opens normally forever. The first launch can take **20–40 seconds** while
-macOS verifies the (large) bundle; subsequent launches are fast.
+Either way, the *first* launch can take **20–40 seconds** while macOS verifies the large
+universal bundle. Later launches are fast.
 
-### Windows — `Claude Conduit Setup <version>.exe`
+### Windows — `Claude-Conduit-Setup-<version>.exe`
 
 Installs per-user, so it needs no administrator rights. There's also a
-`Claude Conduit <version>.exe` portable build that runs without installing.
+`Claude-Conduit-<version>.exe` portable build that runs without installing anything.
 
-SmartScreen will show *"Windows protected your PC"*. Click **More info** →
-**Run anyway**.
+1. Run the downloaded `.exe`.
+2. SmartScreen shows *"Windows protected your PC"* with only a **Don't run** button.
+   Click **More info** — the publisher line will say *Unknown publisher* — then
+   **Run anyway**.
+3. Follow the installer (it lets you change the install directory).
+
+If Windows offers *"Keep"* / *"Keep anyway"* on the download itself in Edge or Chrome,
+that's the same warning one step earlier — the file is unsigned, not damaged.
 
 ### Linux
 
-- **AppImage** — `chmod +x 'Claude Conduit-<version>.AppImage'` then run it.
-- **deb** — `sudo dpkg -i claude-conduit_<version>_amd64.deb`
+Both artifacts are x86-64.
+
+**AppImage** — self-contained, no install:
+
+```sh
+chmod +x Claude-Conduit-<version>.AppImage
+./Claude-Conduit-<version>.AppImage
+```
+
+If that fails with `dlopen(): error loading libfuse.so.2`, your distro ships FUSE 3 only
+(Ubuntu 22.04+, Debian 12+). Either install the compatibility library —
+`sudo apt install libfuse2` (`libfuse2t64` on Ubuntu 24.04+) — or skip FUSE entirely:
+
+```sh
+./Claude-Conduit-<version>.AppImage --appimage-extract-and-run
+```
+
+**deb** — installs to `/opt` with a desktop entry. Use `apt`, not `dpkg -i`, so
+dependencies resolve:
+
+```sh
+sudo apt install ./claude-conduit_<version>_amd64.deb
+```
+
+No rpm is published; on Fedora/openSUSE use the AppImage.
 
 The system tray is optional: if your desktop has no AppIndicator/StatusNotifier host
 (support is inconsistent across Linux desktops), the app logs a warning and runs
@@ -93,12 +141,16 @@ perfectly well from its window alone.
 
 ### About the download size
 
+Measured from a real `npm run dist` at 0.1.0:
+
 | Artifact | Size |
 |---|---|
-| macOS `.dmg` / `.zip` (universal) | ~224 MB |
-| Windows installer / portable `.exe` | ~97 MB |
-| Linux `.AppImage` | ~128 MB |
-| Linux `.deb` | ~98 MB |
+| macOS `.dmg` (universal) | ~223 MB |
+| macOS `.zip` (universal) | ~221 MB |
+| Windows installer `.exe` | ~102 MB |
+| Windows portable `.exe` | ~102 MB |
+| Linux `.AppImage` | ~131 MB |
+| Linux `.deb` | ~103 MB |
 
 Most of that is the bundled Chromium/Node runtime, and the macOS build carries **two**
 architectures. This is the accepted tradeoff for shipping something that runs with no
@@ -233,11 +285,19 @@ npm run dist:linux    # AppImage + deb
 npm run dist          # all three
 ```
 
-Artifacts land in `dist/`. macOS builds are **ad-hoc signed** (`identity: "-"`): a fully
+Artifacts land in `dist/`, alongside the `latest*.yml` update metadata electron-builder
+emits from `package.json`'s `repository` field (a future auto-updater reads those, so
+don't rename artifacts when uploading a release — see
+[docs/distribution.md](docs/distribution.md) for the full release checklist).
+
+macOS builds are **ad-hoc signed** (`identity: "-"`): a fully
 unsigned binary won't launch at all on Apple Silicon, and the hardened runtime then needs
 the `disable-library-validation` entitlement in `build/entitlements.mac.plist` or Electron's
-own dylibs get rejected. Windows and Linux builds are unsigned. Cross-building all three
-targets from macOS works; electron-builder downloads the toolchains it needs.
+own dylibs get rejected. There is no notarization, so `spctl` rejects the app until the
+user clears quarantine. Windows builds really are unsigned — electron-builder logs
+`signing with signtool.exe` even with no certificate configured, but the emitted `.exe`
+files carry an empty PE certificate table. Cross-building all three targets from macOS
+works; electron-builder downloads the toolchains it needs.
 
 ### Safe manual testing
 
