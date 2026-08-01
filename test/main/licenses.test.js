@@ -81,9 +81,63 @@ test('licenses: every bundled entry has either license text or a declared licens
   }
 });
 
-test('licenses: the generated list covers the whole production tree', () => {
+// NCOW-19. licenses.json is generated on whichever machine ran `npm run
+// licenses` (macOS today), so it legitimately contains packages that npm only
+// installs on *that* platform — fsevents is a darwin-only optional dependency
+// of pm2's chokidar. A live `npm ls` on Linux or Windows never sees those, so
+// comparing raw counts would make this test pass only on the platform the file
+// was generated on. Everything below deliberately reproduces npm's own os/cpu
+// matching so the expected count adapts instead.
+
+/**
+ * npm's os/cpu semantics: an empty/absent list matches everything, a `!x` entry
+ * blacklists x, and once any positive entry is present the value must be in it.
+ */
+function matchesPlatformList(list, value) {
+  if (!Array.isArray(list) || list.length === 0) return true;
+  if (list.some((v) => v.startsWith('!') && v.slice(1) === value)) return false;
+  const positive = list.filter((v) => !v.startsWith('!'));
+  return positive.length === 0 || positive.includes(value);
+}
+
+function isInstallableOn(lockEntry, platform, arch) {
+  return (
+    matchesPlatformList(lockEntry.os, platform) && matchesPlatformList(lockEntry.cpu, arch)
+  );
+}
+
+/** name -> every lockfile entry that installs a package under that name. */
+function lockEntriesByName() {
+  const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
+  const byName = new Map();
+  for (const [location, entry] of Object.entries(lock.packages || {})) {
+    if (!location.includes('node_modules/')) continue; // "" is the project itself
+    const name = location.slice(location.lastIndexOf('node_modules/') + 'node_modules/'.length);
+    if (!byName.has(name)) byName.set(name, []);
+    byName.get(name).push(entry);
+  }
+  return byName;
+}
+
+/**
+ * Bundled entries that this platform could never have installed — shipped in
+ * licenses.json, absent from a live `npm ls` here.
+ */
+function platformExcluded(bundled, platform, arch, byName = lockEntriesByName()) {
+  return bundled.filter((b) => {
+    const entries = byName.get(b.name);
+    if (!entries || entries.length === 0) return false;
+    return entries.every((e) => !isInstallableOn(e, platform, arch));
+  });
+}
+
+function nameOfDir(dir) {
+  return dir.slice(dir.lastIndexOf('node_modules/') + 'node_modules/'.length);
+}
+
+function installedProductionDirs() {
   const { execFileSync } = require('node:child_process');
-  const installed = execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
+  return execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
@@ -91,13 +145,70 @@ test('licenses: the generated list covers the whole production tree', () => {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l && l !== ROOT);
+}
 
-  // +1 for electron, which npm ls --omit=dev deliberately excludes.
+test('licenses: the generated list covers the whole production tree', () => {
+  const installed = installedProductionDirs();
+
+  const excluded = platformExcluded(licenses.bundled, process.platform, process.arch);
+
+  // +1 for electron, which npm ls --omit=dev deliberately excludes; + anything
+  // the lockfile restricts to an os/cpu this machine is not.
   assert.equal(
     licenses.bundled.length,
-    installed.length + 1,
-    'licenses.json is stale — run `npm run licenses`',
+    installed.length + 1 + excluded.length,
+    `licenses.json is stale — run \`npm run licenses\`${
+      excluded.length ? ` (excluded here: ${excluded.map((b) => b.name).join(', ')})` : ''
+    }`,
   );
+
+  // The count alone would let a swap slide through, so pin the membership too:
+  // everything npm actually installed must be described.
+  const described = new Set(licenses.bundled.map((b) => b.name));
+  const undescribed = installed.map(nameOfDir).filter((name) => !described.has(name));
+  assert.deepEqual(undescribed, [], 'installed packages missing from licenses.json');
+});
+
+test('licenses: tree coverage holds on platforms that skip optional deps', () => {
+  // AC#3 without a second machine. Take the real installed tree, drop whatever
+  // npm would refuse to install on a foreign platform, and re-run the exact
+  // arithmetic the assertion above uses. If it still balances, the same
+  // committed licenses.json passes there too.
+  const byName = lockEntriesByName();
+  const installed = installedProductionDirs();
+
+  for (const [platform, arch] of [['linux', 'x64'], ['win32', 'x64'], ['linux', 'arm64']]) {
+    const wouldInstall = installed.filter((dir) => {
+      const entries = byName.get(nameOfDir(dir));
+      return !entries || entries.some((e) => isInstallableOn(e, platform, arch));
+    });
+    const excluded = platformExcluded(licenses.bundled, platform, arch, byName);
+
+    assert.equal(
+      licenses.bundled.length,
+      wouldInstall.length + 1 + excluded.length,
+      `tree coverage would not balance on ${platform}/${arch}`,
+    );
+  }
+
+  // The simulation is only meaningful if it actually drops something: fsevents
+  // is darwin-only, so a non-darwin run must lose at least one package.
+  const onLinux = platformExcluded(licenses.bundled, 'linux', 'x64', byName).map((b) => b.name);
+  assert.ok(onLinux.includes('fsevents'), `expected fsevents to be excluded on linux, got ${onLinux}`);
+
+  // ...and nothing at all is dropped on the platform that generated the file.
+  assert.deepEqual(platformExcluded(licenses.bundled, 'darwin', 'arm64', byName), []);
+});
+
+test('licenses: os/cpu matching follows npm\'s own negation rules', () => {
+  assert.equal(isInstallableOn({}, 'linux', 'x64'), true);
+  assert.equal(isInstallableOn({ os: [] }, 'linux', 'x64'), true);
+  assert.equal(isInstallableOn({ os: ['darwin'] }, 'darwin', 'arm64'), true);
+  assert.equal(isInstallableOn({ os: ['darwin'] }, 'linux', 'x64'), false);
+  assert.equal(isInstallableOn({ os: ['!win32'] }, 'linux', 'x64'), true);
+  assert.equal(isInstallableOn({ os: ['!win32'] }, 'win32', 'x64'), false);
+  assert.equal(isInstallableOn({ cpu: ['arm64'] }, 'darwin', 'x64'), false);
+  assert.equal(isInstallableOn({ os: ['linux'], cpu: ['x64'] }, 'linux', 'x64'), true);
 });
 
 test('licenses: runtime-installed LiteLLM is described, not fabricated', () => {
