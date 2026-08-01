@@ -3,7 +3,7 @@ id: doc-3
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 01:43'
+updated_date: '2026-08-01 02:44'
 ---
 # Backlog campaign tracker
 
@@ -52,6 +52,8 @@ conflict. NCOW-9 remains blocked on NCOW-12.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-12 | rebrand | (none) | To Do | | ready now; repo rename stays manual |
 | 2 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
+| 3 | NCOW-17 | diagnostics | NCOW-16 (done) | To Do | | ready now; NOT yet given a confirmed queue position relative to NCOW-12 -- needs a quick user check at a future restore, defaults to lowest priority for now |
+| 4 | NCOW-18 | hygiene | (none) | To Do | | ready now; same as NCOW-17 -- unordered relative to NCOW-12, defaults to lowest priority for now |
 
 ## Resolved
 
@@ -78,10 +80,18 @@ conflict. NCOW-9 remains blocked on NCOW-12.
 - NCOW-15: same reasoning as NCOW-14 (its own description: "expect to split this into subtasks
   when it is picked up"), and depends on NCOW-14 besides. Excluded per the same decision.
 
-## Candidate follow-up work found during wave 1 (not yet tasks — pending user decision)
+## Follow-up tasks created at wave 1 settlement
 
-Found during NCOW-16's implementation/review; not created as Backlog tasks yet per this
-campaign's rule that new tasks need explicit user sign-off:
+User approved (AskUserQuestion, between waves) bundling these into two new tasks rather than
+leaving them untracked or splitting further:
+
+- NCOW-17 "Diagnostics: address NCOW-16 review findings" -- bundles the streaming elapsed-time
+  enforcement gap, the model-name mismatch in the timeout message, the worst-case wall
+  time/UI-cancel gap, the DESIGN.md section 11 update, and the minor nitpicks below.
+- NCOW-18 "licenses.json is stale relative to a fresh npm install" -- the orchestrator's own
+  independent finding, unrelated to NCOW-16 itself.
+
+Original findings, for reference:
 
 - `licenses.json` is stale relative to a genuinely fresh `npm install` from the current
   lockfile (`test/main/licenses.test.js` fails with "78 !== 79" only under a clean install —
