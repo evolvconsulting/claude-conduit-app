@@ -3,7 +3,7 @@ id: doc-3
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 17:27'
+updated_date: '2026-08-01 21:15'
 ---
 # Backlog campaign tracker
 
@@ -66,17 +66,16 @@ fast, low-risk wave. Do not re-ask this ordering.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 3 dispatch (2026-08-01): NCOW-12 is Dispatched, wave 3, solo (Shared Machine State —
-needs live app/proxy verification under `NIM_PROXY_TEST_HOME`). NCOW-19 remains ready (no deps,
-no conflict with NCOW-12) and is next after NCOW-12 settles. NCOW-9 remains blocked on NCOW-12.
+As of wave 3 settlement (2026-08-01): NCOW-12 is Done, merged into dev (PR #5). NCOW-9 (deps:
+NCOW-12) is now unblocked. NCOW-19 remains ready (no deps) and is next — small, low-risk,
+no live verification needed.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-12 | rebrand | (none) | Dispatched | 3 | solo wave — large, touches persisted user state + needs live verification; repo rename stays manual |
-| 2 | NCOW-19 | hygiene | (none) | To Do | | ready now; runs next after NCOW-12 settles per restore #3 confirmation |
-| 3 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
+| 1 | NCOW-19 | hygiene | (none) | To Do | | ready now; next wave |
+| 2 | NCOW-9 | release | NCOW-12 | To Do | | newly unblocked — NCOW-12 resolved this wave |
 
 ## Resolved
 
@@ -85,6 +84,7 @@ no conflict with NCOW-12) and is next after NCOW-12 settles. NCOW-9 remains bloc
 | 1 | NCOW-16 | Done, 2026-08-01, wave 1 | postMessages' single hardcoded 30s timeout replaced with DEFAULT_TIMEOUT_MS (30s) + configurable MODEL_COMPLETION_TIMEOUT_MS (60s, checks 4/5/6/8); timeouts now report an accurate "too slow for interactive use" message instead of an opaque abort. checkStreaming's fixed-50-chunk cap replaced with the same elapsed-time budget (AC#3). AC#2 re-scoped mid-implementation by explicit user decision after live evidence showed 90s/180s/300s ceilings all still timed out against genuine NVIDIA-side queue congestion on the shared/free trial endpoint. npm test 150/150 pass on merged dev. Live-verified twice independently against the real NVIDIA account. Reviewed by opus/xhigh — APPROVE, all 4 ACs independently confirmed live. Merged via PR #2, squash commit a56b156. |
 | 2 | NCOW-18 | Done, 2026-08-01, wave 2 | Regenerated src/assets/licenses.json to add fsevents (MIT, darwin-only optional dep of chokidar/pm2), fixing staleness against a genuinely fresh npm install. Root cause: long-lived local checkouts (including the orchestrator's own main checkout, confirmed independently) had node_modules predating fsevents' resolution. Verified via a fully clean reinstall cycle and full npm test (150/150). Independently re-verified by an opus reviewer with fresh evidence (byte-identical regen, reproduced the original 78-vs-79 failure, confirmed fsevents is a real production transitive dependency with correct license text). All 3 ACs confirmed. Merged via PR #3, squash commit e80b263. |
 | 3 | NCOW-17 | Done, 2026-08-01, wave 2 | Closed all 5 non-blocking findings from NCOW-16's review: per-read elapsed-time budget enforcement in checkStreaming (Promise.race), real selected-model name in timeout/failure messages, a UI Cancel button + AbortController plumbing (diagnostics domain has no per-domain mutex to release, confirmed by reading ipc.js directly), DESIGN.md section 11 rewritten with an accurate timeout table, and a bounded streaming buffer (1024-char tail-trim). 11 new tests (29/29 in diagnostics.test.js). All 6 ACs independently confirmed by an opus reviewer (reproduced the pre-fix infinite hang, verified the mutex-absence premise directly, traced AbortController plumbing end-to-end, spot-checked every DESIGN.md timeout number against code). Deliberately merged after NCOW-18 to avoid the known cross-branch licenses.json count mismatch during the merge queue's mandatory post-rebase test. Full npm test: 161/161 pass on merged dev. Wave-level integration review (opus) found zero cross-task issues between this and NCOW-18. Merged via PR #4, squash commit 3cdd1f9. |
+| 4 | NCOW-12 | Done, 2026-08-01, wave 3 | Renamed product to Claude Conduit everywhere user-visible plus every code-level repo-slug reference (actual gh repo rename stays manual, per locked decision). Implemented all 4 persisted-state migration decisions: config dir migrates unprompted with absolute-path repair; pm2 app name deliberately left unchanged (deferred to NCOW-14); Electron userData/encrypted key migrates best-effort (documented one-time re-entry on macOS due to Keychain app-name scoping, never a crash); Claude Desktop entry migrates its display name via the existing consent-gated Apply flow, with a legacy-name fallback (added in a review fix pass) for when manifest.json itself is lost. Two opus review passes: pass 1 found and specified a real reproducible duplicate-Claude-Desktop-entry edge case; the fix added a legacy-name lookup plus a test reproducing the exact scenario; pass 2 independently mutation-tested the fix (reverted it, confirmed the new test fails as expected) and approved. npm test 176/176 (up from 161, +15 new tests across the wave). All 8 ACs verified with objective evidence, including AC#5's full real-machine pass — run by the orchestrator under the user's live, explicit supervision (backup-first, then a genuine upgrade of this machine's actual pre-rename install: config dir migrated, key correctly failed to decrypt on macOS and was re-entered, Claude Desktop entry relabeled with zero duplication and a fresh automatic backup, clean pm2 shutdown on quit). User chose to leave the machine in the migrated state. Merged via PR #5, squash commit 5b507e9. |
 
 ## Not queued — needs a human / blocked
 
@@ -93,7 +93,8 @@ no conflict with NCOW-12) and is next after NCOW-12 settles. NCOW-9 remains bloc
   revisit after NCOW-15 is scoped/done separately.
 - NCOW-10: needs real code-signing certificates (external/human-provisioned) before its ACs
   (a real install→update end to end) can be genuinely verified by an agent. Also depends on
-  NCOW-9 and NCOW-12 (dependency graph), so not reachable this campaign regardless.
+  NCOW-9 (now unblocked at the task-dependency level, but still blocked on the certificates), so
+  not reachable this campaign regardless.
 - NCOW-11: depends on NCOW-15, deliberately excluded from this campaign (see Confirmed at
   init). Revisit once NCOW-15 is scoped/done separately.
 - NCOW-13: depends on NCOW-14, deliberately excluded from this campaign (see Confirmed at
@@ -134,5 +135,28 @@ no conflict with NCOW-12) and is next after NCOW-12 settles. NCOW-9 remains bloc
   (AskUserQuestion) creating a follow-up task rather than leaving it untracked: NCOW-19. Settled:
   both tasks marked Done with all confirmed ACs checked.
 
-- 2026-08-01 — wave 3 dispatched (task: NCOW-12): solo, per restore #3 confirmation above. In
-  flight — see next wave log entry at settlement.
+- 2026-08-01 — wave 3 (task: NCOW-12): solo, per restore #3 confirmation. Worker (sonnet)
+  implemented the full rebrand + all 4 persisted-state migration decisions, verified only via
+  synthetic fixtures (never real machine state, per explicit scope boundary). Review pass 1
+  (opus): request_changes — independently confirmed AC#1/2/3/4/6/7/8 and the safety boundary
+  held completely (read-only checked this machine's real config dir, key, pm2, and Claude
+  Desktop state — all untouched), found a real reproducible duplicate-Claude-Desktop-entry edge
+  case (2 LOW defects) plus 2 TRIVIAL doc nits; explicitly judged AC#5's real-machine leg should
+  stay deferred to a human pass rather than escalate. Fix pass (sonnet): added a legacy-name
+  fallback lookup with a test reproducing the exact scenario, fixed the doc nits. Review pass 2
+  (opus, final under the 2-retry cap): approve — independently mutation-tested the fix (reverted
+  it, confirmed the new test fails as expected), ran 5 additional scenario checks beyond the
+  worker's own test, confirmed all defects fixed with no regressions; flagged one trailing
+  trivial doc-count nit (175→176) that didn't need its own review pass. A small fix-2 worker
+  applied that. Merged via PR #5 (squash 5b507e9) after a clean rebase + mandatory re-test
+  (176/176), worktree released, branch deleted, dev synced (176/176 confirmed again).
+  AC#5's real-machine leg was then completed live: the orchestrator, under the user's explicit
+  supervision (AskUserQuestion at two checkpoints — before the live launch, and after, on final
+  disposition), backed up this machine's actual pre-rename install, launched the freshly packaged
+  build against it, and watched every migration decision play out for real — config dir renamed
+  and paths repaired, the encrypted key correctly failed to decrypt on macOS (Keychain app-name
+  scoping) and was re-entered successfully, the proxy came online under the new pm2 name
+  (litellm-nim, unchanged), the real Claude Desktop entry relabeled in place with zero
+  duplication and a fresh automatic backup, and pm2 shut down cleanly on quit. User chose to
+  leave the machine in the migrated state. NCOW-12 settled: Done, all 8 ACs checked, final
+  summary recorded. NCOW-9 (deps: NCOW-12) is now unblocked.
