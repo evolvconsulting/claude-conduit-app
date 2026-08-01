@@ -1,10 +1,10 @@
 ---
 id: NCOW-9
 title: Decide and document the GitHub install story for end users
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-31 20:38'
-updated_date: '2026-07-31 21:56'
+updated_date: '2026-08-01 21:59'
 labels: []
 dependencies:
   - NCOW-12
