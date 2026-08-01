@@ -1,10 +1,10 @@
 ---
 id: NCOW-12
 title: Rebrand to Claude Conduit and rename the repo to claude-conduit
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-31 21:50'
-updated_date: '2026-08-01 21:13'
+updated_date: '2026-08-01 21:14'
 labels: []
 dependencies: []
 priority: high
@@ -26,14 +26,14 @@ It also touches things with USER DATA behind them, which need a migration decisi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Product name reads Claude Conduit everywhere the user can see it: window title, macOS menu bar, dock and taskbar, tray tooltip, About dialog, installer and desktop entry
-- [ ] #2 The repository is renamed to claude-conduit and every hardcoded URL in the app, tests and docs points at the new location
-- [ ] #3 electron-builder appId, productName, dmg title and Linux desktop identifiers are updated, and a packaged build carries them
-- [ ] #4 A documented decision covers each piece of persisted state (config directory, pm2 app name, Electron userData holding the encrypted key, Claude Desktop entry): migrate, leave, or reinstall
-- [ ] #5 Whatever migration is chosen is implemented and verified against a real pre-rename install, including that the stored API key is still readable afterwards
-- [ ] #6 No occurrence of the old product name or repo slug remains in src, tests, docs or build config except where deliberately retained for migration
-- [ ] #7 README documents what existing users must do, if anything
-- [ ] #8 `npm test` passes and a packaged build launches under the new identity
+- [x] #1 Product name reads Claude Conduit everywhere the user can see it: window title, macOS menu bar, dock and taskbar, tray tooltip, About dialog, installer and desktop entry
+- [x] #2 The repository is renamed to claude-conduit and every hardcoded URL in the app, tests and docs points at the new location
+- [x] #3 electron-builder appId, productName, dmg title and Linux desktop identifiers are updated, and a packaged build carries them
+- [x] #4 A documented decision covers each piece of persisted state (config directory, pm2 app name, Electron userData holding the encrypted key, Claude Desktop entry): migrate, leave, or reinstall
+- [x] #5 Whatever migration is chosen is implemented and verified against a real pre-rename install, including that the stored API key is still readable afterwards
+- [x] #6 No occurrence of the old product name or repo slug remains in src, tests, docs or build config except where deliberately retained for migration
+- [x] #7 README documents what existing users must do, if anything
+- [x] #8 `npm test` passes and a packaged build launches under the new identity
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -134,3 +134,13 @@ User was asked (AskUserQuestion) whether to leave this machine in the migrated s
 
 This closes AC#5 with real evidence, not just fixture verification. All 8 ACs are now independently confirmed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Renamed the product to Claude Conduit and every code-level reference to the repo slug (claude-conduit); the actual gh repo rename stays a manual out-of-band step per this campaign's locked decision. Implemented and verified all four persisted-state migration decisions: config dir migrates unprompted (with absolute-path repair in run.js/ecosystem.config.cjs), pm2 app name is deliberately left as litellm-nim (deferred to NCOW-14), the Electron userData/encrypted key migrates best-effort (documented macOS Keychain re-scoping means one re-entry is expected, never a crash), and the Claude Desktop entry migrates its display name via the existing consent-gated Apply flow with a legacy-name fallback for the case where manifest.json itself was lost.
+
+Two independent opus review passes: pass 1 found a real, reproducible duplicate-Claude-Desktop-entry edge case (legacy-name fallback added, with a test reproducing the exact scenario); pass 2 independently mutation-tested the fix (reverted it, confirmed the new test fails as expected) and approved. All 8 ACs verified with objective evidence: npm test 176/176 (re-run independently by the worker, both reviewers, and the orchestrator after final rebase), a packaged build's Info.plist read directly for identity, and -- critically -- AC#5's full real-machine pass, run by the orchestrator under the user's live supervision (per the reviewers' own decide-vs-defer judgment that this specific step needed a human-consented pass, not an autonomous one): backed up the real pre-rename install, launched the packaged build against it, watched the config dir migrate and paths repair, watched the key correctly fail to decrypt on macOS and successfully re-entered it, and confirmed the real Claude Desktop entry relabeled in place with zero duplication and a fresh automatic backup. User chose to leave the machine in the migrated state.
+
+Merged via PR #5, squash commit 5b507e9.
+<!-- SECTION:FINAL_SUMMARY:END -->
