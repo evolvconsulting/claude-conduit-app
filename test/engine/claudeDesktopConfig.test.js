@@ -163,6 +163,32 @@ test('applyGatewayConfig: NCOW-12 — a reused entry still labelled the pre-rena
   assert.equal(meta.entries.length, 1, 'no duplicate entry created for the rename');
 });
 
+test('applyGatewayConfig: NCOW-12 — no manifest id recorded (e.g. lost to a purge-uninstall) still finds and reuses a legacy-named entry instead of duplicating it', () => {
+  const dir = tempConfigLibraryDir();
+  const legacyEntryId = '88888888-8888-4888-8888-888888888888';
+  seedConfigLibrary(dir, {
+    meta: { appliedId: legacyEntryId, entries: [{ id: legacyEntryId, name: LEGACY_ENTRY_NAME }] },
+    entries: { [legacyEntryId]: { inferenceProvider: 'gateway', inferenceGatewayBaseUrl: 'http://127.0.0.1:4000' } },
+  });
+
+  // No `manifest` opt at all — mirrors a fresh manifest.json (e.g. after a
+  // purge-uninstall that destroyed it while the user declined the separate
+  // Claude Desktop opt-in), so there is no desktop_config_entry_id to reuse
+  // by id.
+  const { entryId } = applyGatewayConfig({
+    configLibraryDir: dir,
+    port: 4001,
+    masterKey: 'sk-litellm-abc',
+    consent: true,
+  });
+
+  assert.equal(entryId, legacyEntryId, 'reused the existing legacy-named entry, not a fresh one');
+  const meta = readMeta(dir);
+  assert.equal(meta.entries.length, 1, 'no duplicate entry created');
+  assert.equal(meta.entries.find((e) => e.id === legacyEntryId).name, OUR_ENTRY_NAME, 'display name updated to the new brand');
+  assert.equal(readEntryConfig(dir, legacyEntryId).inferenceGatewayBaseUrl, 'http://127.0.0.1:4001');
+});
+
 test('applyGatewayConfig: a reused entry already carrying the new name is left alone (idempotent)', () => {
   const dir = tempConfigLibraryDir();
   const ownEntryId = '77777777-7777-4777-8777-777777777777';
