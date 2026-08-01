@@ -3,7 +3,7 @@ id: doc-3
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 10:13'
+updated_date: '2026-08-01 14:33'
 ---
 # Backlog campaign tracker
 
@@ -52,24 +52,29 @@ live-verification requirement), defer NCOW-12 to its own wave next. Do not re-as
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 2 dispatch (2026-08-01): NCOW-17 and NCOW-18 dispatched as wave 2. NCOW-12 remains
-ready (no deps) and is next after wave 2 settles — solo wave (see "Confirmed at restore #2").
-NCOW-9 remains blocked on NCOW-12.
+As of wave 2 settlement (2026-08-01): NCOW-17 and NCOW-18 are Done, merged into dev (PRs #3, #4).
+A new follow-up, NCOW-19 (platform-sensitive licenses test, discovered by the wave-2 integration
+review, user-approved), is ready now with no deps. NCOW-12 remains ready (no deps) — still the
+one large, sensitive task in the queue, needing a solo wave (persisted-state migration decisions,
+live app verification). NCOW-9 remains blocked on NCOW-12. NCOW-12 vs NCOW-19's relative priority
+has not been confirmed — check with the user at the next restore before building wave 3, same as
+was done for NCOW-17/18 vs NCOW-12 at restore #2.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-17 | diagnostics | NCOW-16 (done) | Dispatched | 2 | ready; no live-verification requirement |
-| 2 | NCOW-18 | hygiene | (none) | Dispatched | 2 | ready; no live-verification requirement |
-| 3 | NCOW-12 | rebrand | (none) | To Do | | next after wave 2; solo wave — conflicts with both NCOW-17 (DESIGN.md) and NCOW-18 (licenses.json); repo rename stays manual |
-| 4 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
+| 1 | NCOW-12 | rebrand | (none) | To Do | | next candidate; solo wave regardless — large, touches persisted user state + needs live verification; repo rename stays manual |
+| 2 | NCOW-19 | hygiene | (none) | To Do | | ready now; created at wave 2 integration review; NOT yet given a confirmed queue position relative to NCOW-12 -- needs a quick user check at a future restore, same pattern as NCOW-17/18 |
+| 3 | NCOW-9 | release | NCOW-12 | Blocked | | unblocks once NCOW-12 resolves |
 
 ## Resolved
 
 | # | Task ID | Status/date/wave | Evidence summary |
 | --- | --- | --- | --- |
-| 1 | NCOW-16 | Done, 2026-08-01, wave 1 | postMessages' single hardcoded 30s timeout replaced with DEFAULT_TIMEOUT_MS (30s) + configurable MODEL_COMPLETION_TIMEOUT_MS (60s, checks 4/5/6/8); timeouts now report an accurate "too slow for interactive use" message instead of an opaque abort. checkStreaming's fixed-50-chunk cap replaced with the same elapsed-time budget (AC#3). AC#2 re-scoped mid-implementation by explicit user decision after live evidence showed 90s/180s/300s ceilings all still timed out against genuine NVIDIA-side queue congestion on the shared/free trial endpoint (raw curl bypassing this app entirely still took 186.6s, NVIDIA's own response reporting real queue depth of 16 running + 11 waiting requests) — a model taking minutes to respond isn't "slow but fine" for an interactive proxy. npm test 150/150 pass on merged dev (1 pre-existing, unrelated licenses-manifest failure only reproduces under a fresh install). Live-verified twice independently (worker + reviewer) against the real NVIDIA account, both fast and slow models. Reviewed by opus/xhigh — APPROVE, all 4 ACs independently confirmed live. Merged via PR #2, squash commit a56b156. |
+| 1 | NCOW-16 | Done, 2026-08-01, wave 1 | postMessages' single hardcoded 30s timeout replaced with DEFAULT_TIMEOUT_MS (30s) + configurable MODEL_COMPLETION_TIMEOUT_MS (60s, checks 4/5/6/8); timeouts now report an accurate "too slow for interactive use" message instead of an opaque abort. checkStreaming's fixed-50-chunk cap replaced with the same elapsed-time budget (AC#3). AC#2 re-scoped mid-implementation by explicit user decision after live evidence showed 90s/180s/300s ceilings all still timed out against genuine NVIDIA-side queue congestion on the shared/free trial endpoint. npm test 150/150 pass on merged dev. Live-verified twice independently against the real NVIDIA account. Reviewed by opus/xhigh — APPROVE, all 4 ACs independently confirmed live. Merged via PR #2, squash commit a56b156. |
+| 2 | NCOW-18 | Done, 2026-08-01, wave 2 | Regenerated src/assets/licenses.json to add fsevents (MIT, darwin-only optional dep of chokidar/pm2), fixing staleness against a genuinely fresh npm install. Root cause: long-lived local checkouts (including the orchestrator's own main checkout, confirmed independently) had node_modules predating fsevents' resolution. Verified via a fully clean reinstall cycle and full npm test (150/150). Independently re-verified by an opus reviewer with fresh evidence (byte-identical regen, reproduced the original 78-vs-79 failure, confirmed fsevents is a real production transitive dependency with correct license text). All 3 ACs confirmed. Merged via PR #3, squash commit e80b263. |
+| 3 | NCOW-17 | Done, 2026-08-01, wave 2 | Closed all 5 non-blocking findings from NCOW-16's review: per-read elapsed-time budget enforcement in checkStreaming (Promise.race), real selected-model name in timeout/failure messages, a UI Cancel button + AbortController plumbing (diagnostics domain has no per-domain mutex to release, confirmed by reading ipc.js directly), DESIGN.md section 11 rewritten with an accurate timeout table, and a bounded streaming buffer (1024-char tail-trim). 11 new tests (29/29 in diagnostics.test.js). All 6 ACs independently confirmed by an opus reviewer (reproduced the pre-fix infinite hang, verified the mutex-absence premise directly, traced AbortController plumbing end-to-end, spot-checked every DESIGN.md timeout number against code). Deliberately merged after NCOW-18 to avoid the known cross-branch licenses.json count mismatch during the merge queue's mandatory post-rebase test. Full npm test: 161/161 pass on merged dev. Wave-level integration review (opus) found zero cross-task issues between this and NCOW-18. Merged via PR #4, squash commit 3cdd1f9. |
 
 ## Not queued — needs a human / blocked
 
@@ -90,50 +95,31 @@ NCOW-9 remains blocked on NCOW-12.
 - NCOW-15: same reasoning as NCOW-14 (its own description: "expect to split this into subtasks
   when it is picked up"), and depends on NCOW-14 besides. Excluded per the same decision.
 
-## Follow-up tasks created at wave 1 settlement
-
-User approved (AskUserQuestion, between waves) bundling these into two new tasks rather than
-leaving them untracked or splitting further:
-
-- NCOW-17 "Diagnostics: address NCOW-16 review findings" -- bundles the streaming elapsed-time
-  enforcement gap, the model-name mismatch in the timeout message, the worst-case wall
-  time/UI-cancel gap, the DESIGN.md section 11 update, and the minor nitpicks below.
-- NCOW-18 "licenses.json is stale relative to a fresh npm install" -- the orchestrator's own
-  independent finding, unrelated to NCOW-16 itself.
-
-Original findings, for reference:
-
-- `licenses.json` is stale relative to a genuinely fresh `npm install` from the current
-  lockfile (`test/main/licenses.test.js` fails with "78 !== 79" only under a clean install —
-  masked on the orchestrator's own long-lived `node_modules`). Found independently by the
-  orchestrator, confirmed reproducible, unrelated to any campaign task.
-- `checkStreaming`'s elapsed-time budget (diagnostics.js) is only checked *between*
-  `reader.read()` calls, not enforced while parked inside one — latent, not a regression, not
-  currently reachable (litellm doesn't flush SSE headers before the first upstream chunk, so
-  `postMessages`' own AbortController still covers it today), but the code comment overclaims
-  the bound as authoritative post-headers.
-- The new timeout message hardcodes a fixed model alias (e.g. "claude-sonnet-4-5") rather than
-  the user's actually-selected model — reads confusingly next to "try a different model."
-- Diagnostics' worst-case total wall time roughly doubled with NCOW-16's change (~7 min), with
-  no UI-level timeout/cancel in `ipc.js` or `diagnostics-view.js`.
-- `DESIGN.md` section 11 was not updated to reflect NCOW-16's behavior change — per `CLAUDE.md`,
-  the task wins and DESIGN.md should be corrected, which this task didn't do.
-- Minor nitpicks (unbounded buffer/O(n^2) rescan in the streaming loop; inconsistent
-  explicit-model-vs-raw-opts passing between checks; non-timeout-error branch for checks 5/6
-  not covered by a mocked unit test) — bundled with the above rather than tracked separately.
-
 ## Wave log
 
 - 2026-08-01 — wave 1 (task: NCOW-16): dispatched alone (Shared Machine State cap — NCOW-12
   also needs live verification, so only one live-verification task per wave). Worker (sonnet)
   implemented the timeout rework; live verification revealed the account's real-world latency
-  has no reliable finite "just wait longer" ceiling (90s/180s/300s all still timed out against
-  genuine NVIDIA-side queue congestion, confirmed via a raw curl bypassing litellm entirely).
-  User redirected the approach mid-flight: capped at an interactive-reasonable 60s with
-  accurate "too slow" messaging instead of chasing a bigger number. Reviewer (opus, xhigh)
-  independently re-verified all 4 ACs live — APPROVE, no blocking findings, several
-  non-blocking findings recorded (see "Candidate follow-up work" above). Rebased cleanly onto
-  dev (no conflicts — bookkeeping commits touched only the task file), re-tested, merged via
-  PR #2 (squash commit a56b156), worktree released, branch deleted. No wave-level integration
-  review performed (wave size was 1 — no sibling branch to cross-check against). Settled: task
-  marked Done with all 4 ACs checked.
+  has no reliable finite "just wait longer" ceiling. User redirected the approach mid-flight:
+  capped at an interactive-reasonable 60s with accurate "too slow" messaging. Reviewer (opus,
+  xhigh) independently re-verified all 4 ACs live — APPROVE. Merged via PR #2 (squash commit
+  a56b156), worktree released, branch deleted. Settled: task marked Done with all 4 ACs checked.
+
+- 2026-08-01 — wave 2 (tasks: NCOW-17, NCOW-18): dispatched in parallel (sonnet workers, two
+  treehouse worktrees) after user confirmed this pairing over a solo NCOW-12 wave. Both
+  implemented cleanly and pushed. Reviewed in parallel by independent opus reviewers, both
+  APPROVE — NCOW-18 all 3 ACs confirmed, NCOW-17 all 6 ACs confirmed. NCOW-17's reviewer
+  surfaced a cross-branch caveat: the licenses.json count divergence is platform-dependent
+  (fsevents, a darwin-only optional dep), and the orchestrator's own long-lived main checkout
+  independently reproduced the exact same staleness NCOW-18 was fixing — confirming the root
+  cause and prompting the orchestrator to refresh its own node_modules ahead of the merge walk.
+  Merge queue deliberately reordered (NCOW-18 first, then NCOW-17, rather than the tracker's
+  listed order) so the mandatory post-rebase npm test never hit the known count mismatch —
+  confirmed working exactly as predicted (150/150 after NCOW-18's merge, 161/161 after NCOW-17's).
+  Merged via PR #3 (squash e80b263) then PR #4 (squash 3cdd1f9), worktrees released, branches
+  deleted. Wave-level integration review (opus) found the two changesets genuinely disjoint,
+  npm test 161/161 on the combined result, no cross-task defects — one non-blocking observation
+  (licenses.test.js's tree-coverage assertion is now platform-sensitive, darwin-green only, the
+  mirror image of the bug NCOW-18 fixed; no CI exists so nothing broken today). User approved
+  (AskUserQuestion) creating a follow-up task rather than leaving it untracked: NCOW-19. Settled:
+  both tasks marked Done with all confirmed ACs checked.
