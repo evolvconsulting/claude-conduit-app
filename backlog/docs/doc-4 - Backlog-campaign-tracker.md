@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 01:47'
+updated_date: '2026-08-02 02:48'
 ---
 # Backlog campaign tracker
 
@@ -68,22 +68,24 @@ conflict.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of restore 1, wave 2 dispatch (2026-08-02): NCOW-10.1 is Done and merged to `dev` (6633b4a).
-NCOW-10.2 dispatched alone as wave 2. NCOW-10.3 still blocked on NCOW-10.2.
+As of restore 1, post-wave-2 settlement (2026-08-02): NCOW-10.1 and NCOW-10.2 are both Done
+and merged to `dev` (6633b4a, 0325e2c). NCOW-10.3 is now ready (both its deps satisfied) --
+real end-to-end auto-update install verification on Windows and/or Linux. This is the last
+remaining task in this campaign round.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.2 | release | NCOW-9 (done) | Dispatched | 2 | CI release workflow |
-| 3 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 | To Do | | real end-to-end verification; blocked on NCOW-10.2 |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done) | To Do | | real end-to-end auto-update install verification; now ready, last task in this round |
 
 ## Resolved
 
 | # | Task ID | Status/date/wave | Evidence summary |
 | --- | --- | --- | --- |
 | 1 | NCOW-10.1 | Done, 2026-08-02, wave 1 | electron-updater + GitHub Releases feed, documented in new docs/auto-update.md (docs/distribution.md untouched). In-app checker via new update:* IPC channels + non-blocking renderer banner. macOS notify-only (pending signing certs) per campaign decision; Windows/Linux get electron-updater's silent path. Proxy-restart reuses the single existing stop-proxy call site (poller stop -> proxy stop -> shutdown latch -> quitAndInstall). Two opus review passes: pass 1 request_changes (startup-broadcast-vs-late-subscriber race that could silently drop the macOS notification, AC3; plus 3 minor items) -- fixed via status caching/coalescing so a late subscriber gets an accurate replay without a second real check; pass 2 approve, all 5 ACs independently confirmed. 219/219 tests passing. Squash-merged PR #9 -> dev @ 6633b4a. Real E2E install verification deferred to NCOW-10.3 by design. |
+| 2 | NCOW-10.2 | Done, 2026-08-02, wave 2 | GitHub Actions release workflow (.github/workflows/release.yml): 3-platform matrix, npm test gate, electron-builder --publish always on a tag push, publishes latest.yml/latest-mac.yml/latest-linux.yml. docs/distribution.md updated. Verified via a real smoke-test tag (v0.0.0-ci-smoketest) against the live repo -- surfaced and fixed 6 real bugs: a genuine Windows production bug in configDirMigration.js's path-rewrite (JSON.stringify backslash-escaping mismatch, would have left real Windows upgraders with a broken pm2 launcher), a broken npm run licenses on Windows (ENOENT then EINVAL, fixed via resolveCliCommand + shell:true), two Windows-only test bugs (hardcoded forward-slash path parsing, hardcoded bare 'node' expectation), and two CI-workflow races (tag/version mismatch, concurrent duplicate-release creation). Also documented a real upstream electron-builder 26.15.3 bug (macOS zip blockmap gets an unsanitized name even through --publish always) as non-load-bearing today. One opus review pass: approve, all 4 ACs independently re-verified against fresh observed output (re-ran npm test, re-checked the real CI run's actual asset listing, reproduced the Windows bug against pre-fix dev code to confirm it was genuine). Test release + tag cleaned up, package.json version reverted. 220/220 tests passing. Squash-merged PR #10 -> dev @ 0325e2c. Note: a concurrency incident occurred mid-implementation -- an earlier worker instance that was told to stand down kept running silently in the background and briefly clobbered a second worker's uncommitted fix-pass edits in the same worktree; caught via direct CI-log inspection by the orchestrator, resolved by force-killing the stale instance via TaskStop, no data lost (fixes were fully re-described and reapplied). |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -118,3 +120,28 @@ across 4 waves)*
   main checkout needed a fresh `npm install` post-merge to pick up the new electron-updater
   dependency before its own `npm test` run was clean (219/219) -- noted here since it's a
   one-time local-environment step, not a code defect.
+- 2026-08-02 — wave 2 (task: NCOW-10.2): dispatched alone once NCOW-10.1 merged (conflict on
+  docs/distribution.md cleared). Real smoke-test verification (v0.0.0-ci-smoketest, real tag
+  against the live repo, pre-authorized) surfaced 6 real bugs over 6 fix-pass iterations, most
+  notably a genuine Windows production bug in configDirMigration.js's path-rewrite logic
+  (JSON.stringify's backslash-escaping meant the migration silently never rewrote run.js/
+  ecosystem.config.cjs on Windows, which would have left a real Windows upgrader's pm2 launcher
+  pointed at the deleted legacy directory) -- exactly the kind of defect this project's
+  verification standard (CLAUDE.md) exists to catch, code-reading alone would have missed it.
+  Also broke and fixed npm run licenses on Windows, fixed two Windows-only test bugs, fixed two
+  CI-workflow races (tag/version mismatch, concurrent duplicate-release creation), and
+  documented a real upstream electron-builder blockmap-naming bug as a non-blocking known gap.
+  Concurrency incident: the FIRST worker instance, told to stand down after a diagnosis
+  handoff, kept running silently in the background (its "stopping" self-report was inaccurate)
+  and briefly clobbered a second worker's uncommitted mid-fix-pass edits in the same shared
+  worktree. Caught by the orchestrator cross-checking real CI-log evidence directly rather than
+  trusting agent self-reports, resolved via TaskStop (force-kill), no data lost -- the fixes
+  were fully re-described (with root causes already diagnosed) and re-applied cleanly by the
+  surviving instance. One opus review pass: approve, all 4 ACs independently re-verified
+  against fresh observed output (re-ran npm test, re-checked the real CI run's actual published
+  asset listing, reproduced the Windows configDirMigration bug against pre-fix dev code to
+  confirm it was a genuine defect and not a test artifact). 220/220 tests passing. Test release
+  + tag cleaned up from the real repo; package.json version reverted. Merged PR #10 (squash) ->
+  dev @ 0325e2c. NCOW-10.3 (real end-to-end install verification) is now unblocked -- last task
+  in this campaign round, deliberately not dispatched this session (context-length stopping
+  point after a long CI-debugging wave; see handover).
