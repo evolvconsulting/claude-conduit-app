@@ -4,7 +4,7 @@ title: pm2 daemon can never cold-bootstrap when embedded in this Electron app
 status: In Progress
 assignee: []
 created_date: '2026-08-02 15:05'
-updated_date: '2026-08-02 18:56'
+updated_date: '2026-08-02 19:04'
 labels: []
 dependencies: []
 priority: high
@@ -127,4 +127,29 @@ Deliberately left alone per scope: non-blocking #3 (daemon outliving the app), n
 Local pm2 safety re-confirmed: ps before/after showed only the pre-existing real user daemon (pid 1479, ~/.pm2) remaining; no orphans; no pm2 kill ever used.
 
 **Correction to this task's own description:** cause #3 as originally written (asarUnpack missing pm2's hoisted dependency closure, e.g. `debug`) does NOT reproduce against the shipped code — see review pass 1 notes. The original 'Cannot find module debug' observation came from a hand-run experiment pointed at the app.asar.unpacked copy of Daemon.js, which this app never does. Causes #1 and #2 stand as described.
+
+## Wave 6 opus review pass 2 — verdict: APPROVE
+
+Confirmed AC: #1 (carried forward from pass 1), #2 (macOS fresh/mine, Linux carried forward), #3 (fresh), #5 (fresh), #6 (fresh, 244/244 observed). #4 re-confirmed NOT APPLICABLE. No unconfirmed ACs; reviewer specifically looked for a reason to re-run a platform test and could not construct one — the win32 branch of resolveRpcSocketPath returns before the new PM2_DAEMON_RPC_PORT check (so the nit is literally unreachable on win32), and child.kill() fires only when fn === reject, whereas every pass-1 Windows observation was a success path.
+
+**Regression test independently validated as genuinely failing pre-fix.** Reviewer did not trust the fixer's before/after: it extracted pm2Control.js at 043d7dd (verified `grep child.kill` → no match) and at 2d635a6 into a scratchpad harness and ran the identical 3-call scenario against each, counting orphans TWO independent ways (ppid === process.pid, and a PM2_HOME-string match on ps output, immune to a wrong ppid filter). Pre-fix: 3 rejections, 3 live orphans (pids 31051/31343/31636, both filters agreeing). Fixed: 3 rejections, 0 orphans by both filters.
+Root cause of the fixer's ps false-negative confirmed: node_modules/pm2/lib/Daemon.js:451 sets process.title under `if (require.main === module)` BEFORE daemon.start(), so the title is renamed even on a bind-failing daemon and 'Daemon.js' never appears in ps. Filtering on 'God Daemon' is correct. Also confirmed there is no self-fork — the direct child IS the God daemon (the only spawn in Daemon.js is the unrelated update path at line 51), so child.kill() targets the real daemon, not a wrapper.
+
+Three edge cases empirically verified: kill() after 'exit' already fired → _handle === null → returns false, no signal sent, so no pid-reuse hazard; spawn failure with child.pid undefined → kill() returns false without throwing (the try/catch is belt-and-braces); a detached child in its own pgid IS reached by kill() (targets the pid, not the group). No window where the child exists but is unkillable, and no path where a stale pid gets signalled.
+
+**Blocking #1 RESOLVED** (src/engine/pm2Control.js:152-164). The `if (fn === reject)` guard is correct: finish(resolve, ...) is called from exactly one place (onMessage:177, after child.disconnect() and child.unref()), finish(reject, ...) from timeout:141, onError:168, onExit:180. Success path provably never kills — test:236 asserts probeDaemonAlive === true AFTER spawnDaemon resolves, and the reviewer's own packaged run confirmed the daemon survives a resolve.
+
+**Blocking #2 RESOLVED.** electron-builder.yml is now BYTE-IDENTICAL to base dev (git diff 09e53fd...HEAD -- electron-builder.yml is empty). Verified fresh: app.asar.unpacked = 482 files (only pm2, @pm2, fsevents — the latter two from electron-builder's own native-module defaults, not our pattern); app.asar = 3097 entries with ZERO .env matches, and no .env in the unpacked tree either. The revised comment is now accurate: anchoring createRequire at app.asar/src/engine/pm2Control.js resolves pm2/package.json to app.asar/node_modules/pm2/package.json (inside the package, NOT the repo's node_modules — a real risk here since dist/ sits inside the repo), and the real file exists at app.asar.unpacked/node_modules/pm2/lib/Daemon.js; the asar shim bridges the two.
+
+Deferred items confirmed absent: whole branch touches only 3 files; src/main/shutdown.js and src/engine/paths.js untouched; the spawn() options block unchanged in 2d635a6. No drive-bys.
+
+### Non-blocking findings carried forward (NOT fixed in this task — candidates for follow-up)
+
+1. **A timeout can now kill a slow-but-healthy daemon, trading a leak for a possible livelock** (src/engine/pm2Control.js:140-143, 152-164). Pre-fix, a daemon that bound its sockets at 15.1s survived the timeout and the next 5s poll's probeDaemonAlive found it and skipped the spawn — self-healing. Post-fix we kill it, so each retry restarts from zero and a machine that consistently needs >15s never converges. Risk low in practice (bootstrap measured at ~57ms locally, sub-second from the packaged binary) and this is exactly what pass 1 directed, so non-blocking. Clean mitigation if ever wanted: on the TIMEOUT path only, await probeDaemonAlive() first and treat 'alive' as success instead of killing.
+2. **The win32 reject path is now entirely untested** (test/engine/pm2Control.test.js:225, 272 both skip on win32; no live Windows failure scenario exercised in either pass). child.kill() maps to TerminateProcess on the child handle and should work regardless of detached, but that is inference. Acceptable because the worst case is the call no-ops and win32 reverts to pre-fix leak behaviour — strictly not worse than before.
+3. NIT: the leak test leaks the very processes it detects on failure (test:276-295) — the finally only rmSync's pm2Home, with no process.kill of the pids in `leaked`; a future regression would leave 3 God daemons alive pointing at a just-deleted PM2_HOME. The sibling test at :238-244 does clean up its pid.
+4. NIT: only the timeout reject path is covered; onError/onExit share the same finish() helper so coverage value is marginal, but the test's name promises more than it exercises.
+5. Positive note: the PM2_DAEMON_RPC_PORT fix is exactly right — pm2/paths.js's env-override loop maps DAEMON_RPC_PORT → PM2_DAEMON_RPC_PORT with a plain truthy check, and the win32 block overwrites DAEMON_RPC_PORT AFTER it; src/engine/pm2Control.js:31-35 mirrors both semantics and ordering, including the subtlety that on non-win32 the env override beats an explicitly-passed pm2Home, which is what pm2 itself does.
+
+Hygiene: all probing under throwaway PM2_HOMEs; final ps sweep showed only the user's own long-running daemon (pid 1479, ~/.pm2) untouched; no pm2 kill run anywhere.
 <!-- SECTION:NOTES:END -->
