@@ -1,9 +1,9 @@
 ---
 id: doc-3
-title: Backlog campaign tracker
+title: 'Backlog campaign tracker (superseded) — waves 1-4 complete, 2026-08-01'
 type: other
 created_date: '2026-08-01 00:06'
-updated_date: '2026-08-01 22:37'
+updated_date: '2026-08-02 00:16'
 ---
 # Backlog campaign tracker — COMPLETE (2026-08-01, after wave 4)
 
