@@ -4,7 +4,7 @@ title: Verify real end-to-end auto-update on Windows and/or Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-02 01:08'
-updated_date: '2026-08-02 15:04'
+updated_date: '2026-08-02 21:20'
 labels: []
 dependencies:
   - NCOW-20
@@ -89,4 +89,18 @@ RECOMMENDATION: (1) check off AC1/AC2 now. (2) Route AC3 to a fresh worker with 
 Also still open, unfixed, low priority: package-lock.json still reads 0.1.0 vs package.json's 0.1.1 (previously flagged in NCOW-20's review, never picked up).
 
 Scope/safety confirmed clean: dev unchanged at 0a5c830 by this wave, zero source changes, VM cleanup verified independently (no leftover scheduled tasks, no PM2_HOME env override, no stray processes, ~/.pm2 untouched -- reviewer used a throwaway PM2_HOME for its own probes so as not to disturb anything).
+
+## Wave 7 (2026-08-02) — AC#3 attempt BLOCKED on environment availability, not on the mechanism
+
+Dispatched solo to retry AC#3 with the wave-5 unblocker (pre-start a real pm2 daemon on winvm). The worker never got past step 1: **winvm was offline for the entire session**, at the Tailscale layer, not merely SSH.
+
+Worker evidence: ssh -> 'Operation timed out'; tailscale status showed winvm 'offline, last seen 11m ago' growing to 15m+ with rx stuck at 0; tailscale ping (below SSH) timed out with no reply; two bounded polling loops (12x15s then 8x15s, ~7 minutes) never succeeded once; every other tailnet peer was normal, so this was specific to winvm. It also checked whether winvm could be powered on indirectly from mbam5 (no prlctl/VBoxManage/vmrun, no Parallels install found) — no available mechanism to wake it.
+
+Orchestrator independently corroborated rather than trusting the self-report: tailscale status -> 'offline, last seen 19m ago'; tailscale ping -> 3x timed out; direct ssh -> Operation timed out. winvm WAS reachable at the start of this session (hostname -> winvm) and was used successfully by NCOW-22's reviewer earlier the same session, so it dropped mid-session. Deliberately NOT routed through an opus reviewer: the escalation policy's purpose is to avoid trusting an uncorroborated 'unfinishable', and this was corroborated directly with two independent probes. A reviewer cannot power on a VM, and the mechanism itself is not in question.
+
+Nothing was touched on winvm (never connected), no pm2 daemon was started, no repo files changed, nothing pushed. winvm should be exactly as wave 5 left it (v0.1.1 installed, litellm 1.94.1 + x64 Python 3.11, corrected litellm_path) — unconfirmed, since it could not be reached.
+
+**The plan itself was not invalidated and remains directly executable once winvm is reachable:** pre-start a real pm2 daemon (`npm i -g pm2 && pm2 ping`, creating the \\.\pipe\rpc.sock named pipe) -> reinstall the published v0.1.0 -> get the proxy genuinely running under the app's own control (getStatus() reporting running with a real pid) -> trigger the real update to v0.1.1 -> observe the proxy across it. The daemon pre-start is still required because BOTH published builds (v0.1.0, v0.1.1) predate NCOW-22's cold-bootstrap fix, which merged today at e4b517c — the fix is on dev but not in any published artifact.
+
+Useful spec detail the worker did establish by code trace (worth keeping): NCOW-10.1's defined behavior is installUpdateAndRestart() in src/main/autoUpdate.js calling stopStatusPoller() -> await stopProxyForShutdown() (src/main/shutdown.js, 15s-timeout-bounded, degrades gracefully on hang/error) -> markShuttingDown() (sets the shuttingDown latch) -> autoUpdater.quitAndInstall(). Also confirmed via src/main/index.js that there is NO proxy auto-start on relaunch — it is purely user/tray-driven, which is what AC#3's 'after' state should be judged against.
 <!-- SECTION:NOTES:END -->
