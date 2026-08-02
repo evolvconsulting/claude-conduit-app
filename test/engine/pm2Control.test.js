@@ -6,6 +6,7 @@ const net = require('node:net');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execSync } = require('node:child_process');
 const { createPm2Control, probeDaemonAlive, spawnDaemon } = require('../../src/engine/pm2Control');
 
 function fakePm2({ apps = [] } = {}) {
@@ -214,7 +215,17 @@ test('probeDaemonAlive: true when something is actually listening on the resolve
   }
 });
 
-test('spawnDaemon: actually launches a real pm2 daemon that starts listening, under a throwaway PM2_HOME', async () => {
+test('spawnDaemon: actually launches a real pm2 daemon that starts listening, under a throwaway PM2_HOME', async (t) => {
+  // Skipped on win32 for the same reason as the sibling test above: a
+  // throwaway PM2_HOME isolates files but not the transport, since
+  // resolveRpcSocketPath() hardcodes a single shared named pipe on win32
+  // regardless of PM2_HOME. On a machine with a live pm2 daemon already
+  // using that pipe, the opening "not alive yet" assertion below fails
+  // immediately — this only ever passed by accident on a daemon-less CI box.
+  if (process.platform === 'win32') {
+    t.skip('rpc socket path is a fixed, shared named pipe on win32');
+    return;
+  }
   const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-spawn-'));
   let pid;
   try {
@@ -231,6 +242,55 @@ test('spawnDaemon: actually launches a real pm2 daemon that starts listening, un
         // Already exited.
       }
     }
+    fs.rmSync(pm2Home, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Lists this test process's direct child processes whose command line
+ * identifies them as a pm2 daemon. Note the daemon renames its own process
+ * title to "PM2 vX.Y.Z: God Daemon (<PM2_HOME>)" — it does NOT keep
+ * "Daemon.js" anywhere in `ps` output, so a filter on the script path alone
+ * would silently pass even with the leak still present.
+ */
+function liveDaemonChildren() {
+  const out = execSync('ps -eo pid,ppid,command').toString();
+  const pids = [];
+  for (const line of out.split('\n').slice(1)) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+    if (!match) continue;
+    const [, pid, ppid, command] = match;
+    if (Number(ppid) === process.pid && command.includes('God Daemon')) pids.push(Number(pid));
+  }
+  return pids;
+}
+
+test('spawnDaemon: a rejecting attempt does not leak the daemon it spawned (review finding #1 regression)', async (t) => {
+  // ps-based process inspection needs a real POSIX `ps`; skipped on win32
+  // like the sibling real-process tests above (win32 also shares one
+  // pipe-based rpc transport, so this scenario doesn't isolate there either).
+  if (process.platform === 'win32') {
+    t.skip('ps-based child-process inspection is POSIX-only; rpc transport is also shared on win32');
+    return;
+  }
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-leak-'));
+  try {
+    // Reproduces the reviewer's exact repro: a non-socket file already
+    // sitting at the resolved rpc socket path makes the daemon's own socket
+    // bind fail every time, so every spawnDaemon() call below rejects.
+    fs.writeFileSync(path.join(pm2Home, 'rpc.sock'), 'not a socket');
+
+    for (let i = 0; i < 3; i++) {
+      await assert.rejects(spawnDaemon({ pm2Home, timeoutMs: 2000 }));
+    }
+
+    // Brief grace period for a just-killed child to actually leave the
+    // process table before inspecting it.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const leaked = liveDaemonChildren();
+    assert.deepEqual(leaked, [], `expected no leaked daemon processes; found pids: ${leaked.join(', ')}`);
+  } finally {
     fs.rmSync(pm2Home, { recursive: true, force: true });
   }
 });

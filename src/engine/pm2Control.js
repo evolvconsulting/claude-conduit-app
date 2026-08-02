@@ -19,13 +19,18 @@ function resolvePm2Home(pm2Home) {
 /**
  * Mirrors node_modules/pm2/paths.js exactly (NCOW-22 cause #1): on win32,
  * pm2 hardcodes a single static named pipe for its RPC transport regardless
- * of PM2_HOME — its own source has a `@todo` acknowledging this. Everywhere
- * else the socket is a plain file under PM2_HOME.
+ * of PM2_HOME — its own source has a `@todo` acknowledging this, and that
+ * hardcoding wins even if PM2_DAEMON_RPC_PORT is also set (paths.js applies
+ * the win32 override after the env-override loop). Everywhere else, pm2
+ * honours a PM2_DAEMON_RPC_PORT env override on top of the plain
+ * PM2_HOME-relative file path — mirror that here too, or a probe run under
+ * an environment with that override set watches the wrong path forever.
  *
  * @param {string} [pm2Home]
  */
 function resolveRpcSocketPath(pm2Home) {
   if (process.platform === 'win32') return '\\\\.\\pipe\\rpc.sock';
+  if (process.env.PM2_DAEMON_RPC_PORT) return process.env.PM2_DAEMON_RPC_PORT;
   return path.join(resolvePm2Home(pm2Home), 'rpc.sock');
 }
 
@@ -102,10 +107,12 @@ function ensurePm2HomeStructure(pm2Home) {
  * child boots as a second GUI instance of this very app instead of running
  * Daemon.js at all. ELECTRON_RUN_AS_NODE makes the same binary behave as a
  * plain Node interpreter instead. For a packaged build, electron-builder.yml
- * additionally has to keep pm2's *entire* dependency closure — not just
- * pm2's own files — unpacked from app.asar for this to work (cause #3): a
- * plain-Node child spawned from the asar-unpacked copy of pm2/lib/Daemon.js
- * cannot require() hoisted deps (e.g. `debug`) that stayed inside app.asar.
+ * additionally has to unpack pm2's own files from app.asar (cause #3): pm2
+ * spawns Daemon.js by real script path, and a path inside app.asar can be
+ * read but not executed as a child process. Electron's asar fs shim stays
+ * active in this ELECTRON_RUN_AS_NODE child, so require()s of pm2's hoisted
+ * deps (e.g. `debug`) that stay inside app.asar still resolve fine — only
+ * pm2's own tree needs unpacking, not the whole node_modules closure.
  *
  * Reuses pm2's own lib/Daemon.js unmodified — it already self-daemonizes
  * and posts an IPC 'message' once its rpc/pub sockets are bound and ready,
@@ -142,6 +149,19 @@ function spawnDaemon(opts = {}) {
       child.removeListener('error', onError);
       child.removeListener('message', onMessage);
       child.removeListener('exit', onExit);
+      if (fn === reject) {
+        // Every reject path (timeout, onError, and defensively onExit even
+        // though the child is normally already gone by then) must not leave
+        // a live, detached/unref'd daemon behind. Without this, a persistent
+        // bootstrap failure leaks one orphan pm2 daemon per retry, since
+        // AC#3's memo-clearing makes every subsequent proxy:* call retry and
+        // status-poller.js polls every 5s (NCOW-22 review finding).
+        try {
+          child.kill();
+        } catch {
+          // Best-effort — the child may already be gone.
+        }
+      }
       fn(arg);
     }
     function onError(err) {
