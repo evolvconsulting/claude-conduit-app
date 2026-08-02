@@ -272,7 +272,7 @@ test('installUpdateAndRestart: two overlapping calls do not stop the proxy or in
   assert.ok([first.ok, second.ok].includes(false), 'the overlapping call should be rejected, not silently dropped');
 });
 
-test('installUpdateAndRestart: still marks shutting-down and installs even if the proxy stop itself fails', async () => {
+test('installUpdateAndRestart: still marks shutting-down and installs even if the proxy stop resolves with stopped:false', async () => {
   // stopProxyForShutdown (shutdown.js) already never rejects — it always
   // resolves {stopped:false, reason:'failed'} — but this guards against that
   // contract changing out from under installUpdateAndRestart unnoticed.
@@ -291,4 +291,36 @@ test('installUpdateAndRestart: still marks shutting-down and installs even if th
 
   await createAutoUpdate(deps).installUpdateAndRestart();
   assert.deepEqual(order, ['stopProxyForShutdown', 'markShuttingDown', 'quitAndInstall']);
+});
+
+test('installUpdateAndRestart: if stopProxyForShutdown rejects outright, install is aborted but installInProgress still resets', async () => {
+  // Unlike the case above (shutdown.js resolving {stopped:false}), this
+  // covers the finally block's other job: even a genuine rejection out of
+  // stopProxyForShutdown must not leave installInProgress stuck true forever
+  // — a later real attempt must still get a chance to run, not be silently
+  // swallowed as ALREADY_INSTALLING.
+  const order = [];
+  const { autoUpdater } = fakeAutoUpdater();
+  autoUpdater.quitAndInstall = () => order.push('quitAndInstall');
+
+  const deps = baseDeps({
+    autoUpdater,
+    stopProxyForShutdown: async () => {
+      order.push('stopProxyForShutdown');
+      throw new Error('pm2 wedged');
+    },
+    markShuttingDown: () => order.push('markShuttingDown'),
+  });
+
+  const auto = createAutoUpdate(deps);
+  await assert.rejects(() => auto.installUpdateAndRestart(), /pm2 wedged/);
+  assert.deepEqual(order, ['stopProxyForShutdown'], 'markShuttingDown/quitAndInstall must not run after a rejection');
+
+  order.length = 0;
+  await assert.rejects(() => auto.installUpdateAndRestart(), /pm2 wedged/);
+  assert.deepEqual(
+    order,
+    ['stopProxyForShutdown'],
+    'a second attempt must actually run (installInProgress was reset), not be short-circuited as already-installing',
+  );
 });
