@@ -3,10 +3,10 @@ id: NCOW-10.2
 title: >-
   Add CI release workflow publishing artifacts + update metadata to GitHub
   Releases
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 01:07'
-updated_date: '2026-08-02 02:46'
+updated_date: '2026-08-02 02:47'
 labels: []
 dependencies:
   - NCOW-9
@@ -30,10 +30,10 @@ Per the campaign tracker (doc-4): builds are UNSIGNED for now (no code-signing c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CI workflow builds all target platforms and publishes the resulting artifacts to a GitHub Release
-- [ ] #2 The update-metadata files (latest.yml / latest-mac.yml / latest-linux.yml) are published alongside the artifacts, with filenames intact (no space-to-period corruption)
-- [ ] #3 Workflow trigger is defined and documented (e.g. on version tag push)
-- [ ] #4 docs/distribution.md is updated to reference the new CI workflow as the recommended release path
+- [x] #1 CI workflow builds all target platforms and publishes the resulting artifacts to a GitHub Release
+- [x] #2 The update-metadata files (latest.yml / latest-mac.yml / latest-linux.yml) are published alongside the artifacts, with filenames intact (no space-to-period corruption)
+- [x] #3 Workflow trigger is defined and documented (e.g. on version tag push)
+- [x] #4 docs/distribution.md is updated to reference the new CI workflow as the recommended release path
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -49,3 +49,9 @@ Implemented by worker (with one concurrency incident: an earlier worker instance
 
 REVIEW (opus): approve. Confirmed AC indices: [1, 2, 3, 4] -- all independently re-verified against fresh observed output, not the worker's report: re-ran npm test (220/220), independently re-verified CI run 30729113396 via gh (all 5 jobs green, per-platform test counts pulled from raw logs), empirically reproduced the configDirMigration Windows bug against origin/dev's actual code (proving it was a genuine defect, not a test artifact: old code left stale-legacy-path=true, new code correctly rewrites), confirmed AC1 (npm test genuinely gates the build, proven from a failed run showing the build step skipped after a test failure) and AC2 (latest*.yml/latest-mac.yml/latest-linux.yml all intact in the final release's actual asset listing, only the documented electron-builder blockmap bug affects one unrelated file) from real evidence. Cleanup independently re-confirmed: zero releases, zero tags, package.json version 0.1.0, diff vs origin/dev on package.json is exactly the one-line test-script fix. Scope confirmed clean (src/engine/platform.js diff empty, docs/auto-update.md untouched, no pm2 hits). Minor findings only (non-blocking): workflow_dispatch tag input interpolated directly into a shell run: block and into checkout's ref: (classic Actions script-injection shape, low real risk since workflow_dispatch already requires write access matching the contents:write grant; idiomatic hardening would route it through env: instead) -- worth a future hardening pass, not required now; SHA256SUMS generation would mis-parse an asset name containing a space (latent only, no current asset has one); CLAUDE.md's 'npm test # node --test, 178 tests' comment is now stale on count (220 actual) though the script text itself matches exactly post-fix -- pre-existing drift from NCOW-10.1, flagged since this branch touched the script; Node-20 deprecation warnings on actions/checkout@v4 etc, GitHub-side, unrelated. APPROVED for merge.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented and merged (PR #10, squash-merged as 0325e2c on dev). GitHub Actions release workflow (.github/workflows/release.yml): 3-platform matrix, npm test as a hard gate, electron-builder --publish always on a version-tag push, publishing artifacts + latest.yml/latest-mac.yml/latest-linux.yml to GitHub Releases. Unsigned per campaign decision. docs/distribution.md updated to reference it as the recommended release path, plus documents a real upstream electron-builder blockmap-naming bug found during verification. Verified via a real smoke-test tag against the live repo (per this project's verification standard) rather than trusting the YAML unread -- this surfaced and fixed 6 real bugs across 6 iterations, most notably a genuine Windows production bug in configDirMigration.js's path-rewrite logic that could have left real Windows upgraders with a broken pm2 launcher pointing at a deleted directory. One opus review pass: approve, all 4 ACs independently re-verified against fresh observed output (re-ran npm test, re-checked the real CI run's actual published asset listing, reproduced the Windows bug against dev's pre-fix code to confirm it was genuine, not a test artifact). Test release + tag cleaned up from the real repo, package.json version reverted. 220/220 tests passing on dev post-merge. Minor non-blocking hardening notes recorded (workflow_dispatch input interpolation, SHA256SUMS space-handling, a stale test-count comment in CLAUDE.md -- none require action now).
+<!-- SECTION:FINAL_SUMMARY:END -->
