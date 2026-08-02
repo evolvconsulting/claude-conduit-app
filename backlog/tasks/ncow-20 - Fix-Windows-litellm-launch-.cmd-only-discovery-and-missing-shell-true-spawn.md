@@ -1,9 +1,10 @@
 ---
 id: NCOW-20
 title: 'Fix Windows litellm launch: .cmd-only discovery and missing shell:true spawn'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 04:37'
+updated_date: '2026-08-02 06:55'
 labels: []
 dependencies: []
 priority: high
