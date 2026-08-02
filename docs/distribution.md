@@ -150,7 +150,12 @@ fields stay; it is not a fix for anything the canonical repo ever got wrong.
 
 ## Release checklist (what a published Release must contain)
 
-Until this is automated (see follow-ups), a release is cut by hand and must include:
+**Recommended path: the CI release workflow (NCOW-10.2, `.github/workflows/release.yml`).**
+Push a version tag (`vX.Y.Z`) and CI does all four items below for you — see "CI release
+workflow" below for exactly how. Cutting a release by hand (the process this checklist
+was originally written for) still works and is documented here as a fallback for when CI
+itself needs debugging, but it is no longer the recommended way to publish. Either way, a
+release must contain:
 
 1. The six artifacts from `npm run dist`.
 2. The update metadata electron-builder emits beside them — `latest.yml`,
@@ -165,8 +170,60 @@ Setup 0.1.0.exe`), but `latest*.yml` records them space-normalized to dashes
 what the README documents. Uploading through GitHub's *web UI* silently rewrites spaces to
 periods (`Claude.Conduit.Setup.0.1.0.exe`), which matches neither. So either publish with
 `electron-builder --publish` / `gh release upload` using the dashed names, or rename
-before uploading. This is exactly the kind of hand-cut-release footgun the release
-workflow follow-up exists to remove.
+before uploading. This is exactly the footgun the CI release workflow below exists to
+remove: it always goes through `electron-builder --publish always`, never the web UI, so
+the space-to-dash mismatch and the space-to-period corruption can't happen.
+
+Verified directly against `node_modules/electron-publish/out/gitHubPublisher.js` and
+`httpPublisher.js` (2026-08-01): `GitHubPublisher` calls its `HttpPublisher` superclass
+constructor with `useSafeArtifactName = true`, so the filename it uploads to GitHub is
+always `task.safeArtifactName` (the dashed form recorded in `latest*.yml`'s `url`/`path`
+fields) rather than `path.basename(task.file)` (the on-disk name with spaces). A real
+`npm run dist:mac` build confirmed the on-disk/yml split directly: `dist/Claude
+Conduit-0.1.0-universal.dmg` on disk, `Claude-Conduit-0.1.0-universal.dmg` as the `path:`
+in `dist/latest-mac.yml`. `electron-builder --publish` (what both the CI workflow and a
+correctly hand-cut release use) reconciles that automatically; `gh release upload` on the
+raw `dist/*` globs, or any web-UI upload, would not.
+
+---
+
+## CI release workflow (NCOW-10.2)
+
+`.github/workflows/release.yml` builds and publishes a Release automatically.
+
+**Trigger:** push a tag matching `v*.*.*` (e.g. `v0.2.0`) to `evolvconsulting/claude-conduit`.
+It also accepts a manual `workflow_dispatch` run against an already-pushed tag, for
+re-running the publish step (e.g. after a transient failure) without cutting a new tag.
+
+**What it does:**
+
+1. Three matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`) each check out the
+   tag, run `npm ci && npm test`, then run this repo's own `dist:mac` / `dist:win` /
+   `dist:linux` script with `-- --publish always` appended. electron-builder cannot
+   cross-build a platform's native installer target on another OS in CI the way `npm run
+   dist` does locally from macOS (an NSIS `.exe` needs Windows, a `.dmg`/ad-hoc-signed
+   `.app` needs macOS), so each job publishes only its own platform's artifacts — the same
+   six artifacts `npm run dist` produces locally, split across three runners instead of one.
+2. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
+   "Asset names matter" note above for why this matters over any manual alternative). All
+   three jobs target the same tag, so electron-builder finds-or-creates a single release
+   and all three jobs' assets land on it. A release electron-builder creates defaults to a
+   **draft**.
+3. A `finalize` job (needs all three build jobs) downloads every uploaded asset, computes a
+   `SHA256SUMS` file over all of them (artifacts, `.blockmap`s, and the three `latest*.yml`
+   files), uploads that alongside, sets release notes from
+   `.github/release-notes-template.md` (the unsigned-build warning + README link), and
+   flips the release out of draft. A draft release is invisible to GitHub's
+   `/releases/latest` endpoint, which is what `electron-updater`'s GitHub provider and this
+   app's own macOS notify-only check (`docs/auto-update.md`) both read — so this step is
+   what actually makes a release "live" for auto-update purposes, not just visible on the
+   Releases page.
+4. No signing step exists anywhere in the workflow, matching "Signing reality" above —
+   these are the same unsigned artifacts `npm run dist` already produces locally.
+
+**Permissions:** the workflow requests `contents: write` at the top level so the built-in
+`${{ secrets.GITHUB_TOKEN }}` (passed to electron-builder as `GH_TOKEN`, and to `gh` in the
+finalize job) is sufficient — no separate PAT or repo secret is needed.
 
 ---
 
@@ -199,10 +256,11 @@ Not done (and not doable from a dev machine):
 
 ## Follow-ups this decision implies
 
-Proposed, not yet created — see NCOW-9's report:
+See NCOW-9's report:
 
-1. A GitHub Actions release workflow (tag → build all three platforms → publish the
-   Release with correct asset names, `latest*.yml` and `SHA256SUMS`).
+1. ~~A GitHub Actions release workflow (tag → build all three platforms → publish the
+   Release with correct asset names, `latest*.yml` and `SHA256SUMS`).~~ **Done — NCOW-10.2,
+   see "CI release workflow" above.**
 2. Code signing and notarization (Apple Developer ID + Windows Authenticode), which is
    what lets most of the README's Install section be deleted.
 3. A Homebrew cask (and possibly a `winget` manifest), gated on #2.
