@@ -1,10 +1,10 @@
 ---
 id: NCOW-22
 title: pm2 daemon can never cold-bootstrap when embedded in this Electron app
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 15:05'
-updated_date: '2026-08-02 19:04'
+updated_date: '2026-08-02 19:06'
 labels: []
 dependencies: []
 priority: high
@@ -32,12 +32,12 @@ One candidate remedy -- dropping pm2 in favor of a different process supervisor 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A genuinely fresh install (no pre-existing pm2 daemon on the target machine) can successfully start, stop, and restart the litellm-nim proxy through this app's own UI/IPC (not a manual workaround), verified live on at least Windows (the platform where this was discovered)
-- [ ] #2 The same cold-bootstrap path is confirmed working (or the platform-specific gap is documented) on macOS and Linux, not just assumed safe by inference from code
-- [ ] #3 pm2Control.js's ensureConnected() has a bounded timeout so a wedged connect can never again silently and permanently block every proxy:* IPC call for the rest of the app's lifetime, regardless of whether the underlying pm2 bootstrap issue is also fixed
+- [x] #1 A genuinely fresh install (no pre-existing pm2 daemon on the target machine) can successfully start, stop, and restart the litellm-nim proxy through this app's own UI/IPC (not a manual workaround), verified live on at least Windows (the platform where this was discovered)
+- [x] #2 The same cold-bootstrap path is confirmed working (or the platform-specific gap is documented) on macOS and Linux, not just assumed safe by inference from code
+- [x] #3 pm2Control.js's ensureConnected() has a bounded timeout so a wedged connect can never again silently and permanently block every proxy:* IPC call for the rest of the app's lifetime, regardless of whether the underlying pm2 bootstrap issue is also fixed
 - [ ] #4 If dropping pm2 for a different process supervisor is considered as part of the fix, that decision is explicitly raised to and confirmed by the user first, given it would reopen this project's AGPL licensing basis
-- [ ] #5 Regression tests cover the fix using this project's existing test patterns
-- [ ] #6 npm test passes
+- [x] #5 Regression tests cover the fix using this project's existing test patterns
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -153,3 +153,17 @@ Deferred items confirmed absent: whole branch touches only 3 files; src/main/shu
 
 Hygiene: all probing under throwaway PM2_HOMEs; final ps sweep showed only the user's own long-running daemon (pid 1479, ~/.pm2) untouched; no pm2 kill run anywhere.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed the cold-bootstrap hang: pm2Control.ensureConnected() now raw-probes the resolved rpc socket/pipe with net.connect BEFORE calling pm2.connect(), and when nothing is listening it spawns pm2's own unmodified lib/Daemon.js via ELECTRON_RUN_AS_NODE with an explicit PM2_HOME, waits for its ready IPC message, then connects — so pingDaemon() always takes its working 'connect' path. The whole flow is bounded by a 30s timeout that clears the memoized promise on failure, so a wedged connect can never again permanently block every proxy:* IPC call (AC#3 stands independently of the bootstrap fix). Squash-merged PR #13 -> dev @ e4b517c; 244/244 tests passing on merged dev (235 baseline + 9).
+
+Verified live on genuinely daemon-less machines, start -> stop -> restart with real new pids: Windows (winvm) not-installed -> start 13212ms -> pid 3664 -> stop 589ms -> restart 13243ms -> pid 7100 -> stop, daemon observed as electron.exe ...pm2\lib\Daemon.js; macOS from a REAL PACKAGED artifact (npm run pack), daemon spawned under a throwaway PM2_HOME with lsof confirming it running the packaged Electron Framework binary; Linux (linuxvm, Ubuntu 26.04 aarch64) daemon bootstrap confirmed plus full suite 243/243. Full suite independently run by the reviewer on all three platforms.
+
+AC#1, #2, #3, #5, #6 checked. AC#4 deliberately left UNCHECKED as not-applicable, on both reviewers' explicit recommendation: dropping pm2 was never considered, pm2 remains the supervisor, require('pm2') and test/main/licenses.test.js are untouched, so the AGPL sign-off the criterion guards was never triggered.
+
+Two opus review passes. Pass 1 (request_changes) caught a real regression the implementation introduced — spawnDaemon() never killed the child on its reject paths, an unbounded leak of one Electron-weight daemon per retry against a 5s poller, reproduced live as 3 simultaneous orphans — and DISPROVED cause #3 of this task's own description: the asarUnpack/'debug' gap does not reproduce against the shipped code, because require.resolve returns the app.asar path and Electron's asar shim stays active in ELECTRON_RUN_AS_NODE children. The broadened asarUnpack was therefore reverted to the original narrow pattern (electron-builder.yml is byte-identical to base dev) and the inaccurate rationale comments corrected in both files. Pass 2 (approve) independently reconstructed the leak repro rather than trusting the fix — pre-fix 3 orphans, post-fix 0, counted two independent ways — and confirmed child.kill() reaches a detached child, no-ops safely after exit, and never fires on the success path.
+
+Known non-blocking items left for follow-up, all recorded in the notes: a timeout can now kill a slow-but-healthy daemon (trading the leak for a possible livelock on a machine that consistently needs >15s; mitigation is to probe-then-treat-alive-as-success on the timeout path only); the win32 reject path is untested (worst case it no-ops back to pre-fix behaviour, strictly not worse); and two test nits. Separately discovered and confirmed live but NOT fixed here: on win32, paths.js resolveConfigDir ignores the injected homedir because APPDATA is always set, so NIM_PROXY_TEST_HOME does not protect the config dir on Windows — a real hole in this project's documented safe-manual-testing mechanism, deserving its own task.
+<!-- SECTION:FINAL_SUMMARY:END -->
