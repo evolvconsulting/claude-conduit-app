@@ -4,11 +4,10 @@ title: Verify real end-to-end auto-update on Windows and/or Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-02 01:08'
-updated_date: '2026-08-02 04:37'
+updated_date: '2026-08-02 06:52'
 labels: []
 dependencies:
-  - NCOW-10.1
-  - NCOW-10.2
+  - NCOW-20
 parent_task_id: NCOW-10
 priority: high
 type: task
