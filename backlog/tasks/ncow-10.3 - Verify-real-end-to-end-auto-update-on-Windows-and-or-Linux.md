@@ -4,7 +4,7 @@ title: Verify real end-to-end auto-update on Windows and/or Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-02 01:08'
-updated_date: '2026-08-02 03:24'
+updated_date: '2026-08-02 04:23'
 labels: []
 dependencies:
   - NCOW-10.1
@@ -29,3 +29,35 @@ This step publishes a real, unsigned GitHub Release of this app on evolvconsulti
 - [ ] #2 Verified by installing an older built version and updating it to a newer one on at least one platform, with evidence captured (steps taken, before/after version numbers, logs)
 - [ ] #3 The LiteLLM proxys defined restart behavior (from NCOW-10.1) is confirmed to hold across a real update
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Publish v0.1.0 (current package.json version, tag matches, no bump needed) against dev HEAD, watch CI, confirm published.
+2. Install v0.1.0 on winvm (Windows VM via ~/.scripts/winvm.sh), complete first-run setup with real NIM API key so the LiteLLM proxy actually runs.
+3. Bump package.json to 0.1.1 on the task branch, tag, push, watch CI, confirm v0.1.1 published.
+4. Fully quit and relaunch the installed v0.1.0 app on winvm so a fresh startup update-check fires; observe detect/download/install of v0.1.1 (driving the installed app's UI via CDP over an SSH-tunneled --remote-debugging-port, matching this project's own documented local CDP-driving pattern).
+5. Confirm the relaunched app reports v0.1.1 and the LiteLLM proxy is running again post-relaunch (AC#3).
+6. Capture evidence throughout; clean up all VM-side scaffolding; push branch for review.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+WORKER RESULT: status=blocked (on AC#1/#2's core success path), branch feat/NCOW-10.3-e2e-auto-update-verification pushed @ 64ed0fe (version bump 0.1.0->0.1.1 only, npm test 220/220 both before and after).
+
+COMPLETED: v0.1.0 tagged against dev@a9d9692, published via CI run 30730946316 (Claude-Conduit-Setup-0.1.0.exe + latest.yml + SHA256SUMS). Installed on winvm via gh release download + silent NSIS install (/S), first-run setup completed live via CDP (--remote-debugging-port tunneled over SSH) using the real NIM key from .env -- 102 models returned, config saved. v0.1.1 tagged against branch commit 64ed0fe, published via CI run 30732005426 (Claude-Conduit-Setup-0.1.1.exe, latest.yml confirmed pointing at 0.1.1). Fully quit and relaunched the installed v0.1.0 app (fresh process, confirmed via new CDP target + StartTime) so a real fresh startup check fired against the now-published v0.1.1.
+
+CRITICAL FINDING -- AC#1/#2 cannot pass as currently built: electron-updater's default GitHubProvider polls the PUBLIC unauthenticated feed https://github.com/evolvconsulting/claude-conduit/releases.atom. This repo is PRIVATE, so that endpoint 404s -- confirmed directly (curl -> 404 vs authenticated gh api -> 200) AND live inside the real installed app (startup check returned {state:'error', message:'404 ... authentication token...'}). Root cause traced in node_modules/electron-updater/out/providerFactory.js: PrivateGitHubProvider (authenticated) is only selected when app-update.yml's baked-in githubOptions.private === true, which requires publish:{provider:github, private:true} in electron-builder.yml -- absent today. This is a static build-time choice, not fixable by an env var at launch. The auto-update feature cannot work for ANY real user while the repo stays private. The graceful-degradation design from NCOW-10.1 held correctly under this real failure: well-formed {state:'error'} broadcast, no crash, banner correctly stayed hidden.
+
+TWO INDEPENDENT REAL WINDOWS BUGS found while trying to get litellm running for AC#3 (unrelated to the privacy blocker):
+1. src/engine/platform.js's resolveCliCommand() unconditionally appends .cmd for win32; pip-installed litellm/uv/pipx ship as .exe entry-point stubs on Windows, never .cmd -- so checkLitellmOnPath()/detectInstaller() can NEVER find a real Windows litellm install.
+2. Even with a .cmd present, configGen.js's generated run.js calls spawn(litellmAbsPath, args, {stdio:'inherit'}) with no shell:true -- modern Node (Electron 43, post CVE-2024-27980 hardening) throws spawn EINVAL for any direct .cmd/.bat spawn without shell:true. Litellm currently can NEVER start on Windows via this app, from these two compounding bugs alone.
+3. Additional robustness gap noted (not blocking, informational): pm2Control.ensureConnected() memoizes its pm2.connect() promise with no timeout/retry -- a hung first connect permanently wedges every future proxy:* IPC call with no recovery short of restarting the app.
+
+Cleanup: all VM-side scratch (scheduled tasks, litellm.cmd shim, rust/cargo toolchain, ncow103 folder, orphaned pm2 entry, SSH tunnels) removed. Claude Conduit v0.1.0 remains installed on winvm (fine to leave per instructions) but not running. Both v0.1.0 and v0.1.1 GitHub Releases remain published permanently, as pre-authorized.
+
+BLOCKERS requiring a human decision (not something the worker could resolve unilaterally):
+1. Repo-privacy vs electron-updater's public feed -- needs a real choice: make evolvconsulting/claude-conduit public, or add publish:{provider:github,private:true} to electron-builder.yml plus a strategy for distributing a read-only GH token to installed clients.
+2. The two Windows litellm-launch bugs block AC#3 independent of the update mechanism -- candidate for a follow-up task.
+<!-- SECTION:NOTES:END -->
