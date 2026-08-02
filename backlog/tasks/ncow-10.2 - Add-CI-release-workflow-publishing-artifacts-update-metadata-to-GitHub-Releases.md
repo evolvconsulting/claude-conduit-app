@@ -3,9 +3,10 @@ id: NCOW-10.2
 title: >-
   Add CI release workflow publishing artifacts + update metadata to GitHub
   Releases
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 01:07'
+updated_date: '2026-08-02 01:47'
 labels: []
 dependencies:
   - NCOW-9
