@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 01:09'
+updated_date: '2026-08-02 01:47'
 ---
 # Backlog campaign tracker
 
@@ -50,7 +50,7 @@ now vs. dispatch as one large task. User chose **split into subtasks first**. Cr
 
 - **NCOW-10.1** — mechanism decision + in-app checker + graceful degradation + proxy-restart
   behavior (orig. AC#1, #2, #4, #5, #7). No new Backlog dependencies (parent's NCOW-9/NCOW-12
-  deps already satisfied).
+  deps already satisfied). **Done — see Resolved.**
 - **NCOW-10.2** — CI release workflow publishing artifacts + update metadata (orig. AC#6).
   `--dep NCOW-9` (already Done).
 - **NCOW-10.3** — real end-to-end verification on Windows and/or Linux (orig. AC#3, #8).
@@ -59,33 +59,35 @@ now vs. dispatch as one large task. User chose **split into subtasks first**. Cr
 File-conflict note: both NCOW-10.1 and NCOW-10.2 cite `docs/distribution.md` (10.1 as a
 reference for its mechanism-decision doc, 10.2's AC#4 explicitly requires editing it to point at
 the new CI workflow) — treated as a real shared-file conflict per this skill's conflict-graph
-rule, not dispatched in the same wave. NCOW-10.1 goes first (more foundational, no dependency on
-CI); NCOW-10.2 is expected to be wave 2, rebased on top of NCOW-10.1's merged doc edits.
+rule, not dispatched in the same wave. NCOW-10.1 went first and is now merged; NCOW-10.1's own
+diff confirmed it never touched `docs/distribution.md` (put its decision doc in a new
+`docs/auto-update.md` instead), so NCOW-10.2 is clear to proceed without inheriting any
+conflict.
 
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of restore 1, wave 1 (2026-08-02): NCOW-10.1 dispatched alone (file-conflict with NCOW-10.2
-on docs/distribution.md — see above). NCOW-10.2 is otherwise ready now (dep NCOW-9 satisfied) and
-expected to be wave 2. NCOW-10.3 blocked on both.
+As of restore 1, post-wave-1 settlement (2026-08-02): NCOW-10.1 is Done and merged to `dev`
+(6633b4a). NCOW-10.2 is now ready (dep NCOW-9 satisfied, no remaining conflict). NCOW-10.3 still
+blocked on NCOW-10.2.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1, see above |
-| 2 | NCOW-10.1 | release | (none — parent's deps already satisfied) | Dispatched | 1 | mechanism + in-app checker + proxy-restart |
-| 3 | NCOW-10.2 | release | NCOW-9 (done) | To Do | | CI release workflow; conflicts with 10.1 on docs/distribution.md, deferred to wave 2 |
-| 4 | NCOW-10.3 | release | NCOW-10.1, NCOW-10.2 | To Do | | real end-to-end verification; blocked until both land |
+| 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
+| 2 | NCOW-10.2 | release | NCOW-9 (done) | To Do | | CI release workflow; ready now, no remaining conflict |
+| 3 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 | To Do | | real end-to-end verification; blocked on NCOW-10.2 |
 
 ## Resolved
 
-*(none yet this round — see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17,
-12, 19, 9 all Done across 4 waves)*
-
 | # | Task ID | Status/date/wave | Evidence summary |
 | --- | --- | --- | --- |
+| 1 | NCOW-10.1 | Done, 2026-08-02, wave 1 | electron-updater + GitHub Releases feed, documented in new docs/auto-update.md (docs/distribution.md untouched). In-app checker via new update:* IPC channels + non-blocking renderer banner. macOS notify-only (pending signing certs) per campaign decision; Windows/Linux get electron-updater's silent path. Proxy-restart reuses the single existing stop-proxy call site (poller stop -> proxy stop -> shutdown latch -> quitAndInstall). Two opus review passes: pass 1 request_changes (startup-broadcast-vs-late-subscriber race that could silently drop the macOS notification, AC3; plus 3 minor items) -- fixed via status caching/coalescing so a late subscriber gets an accurate replay without a second real check; pass 2 approve, all 5 ACs independently confirmed. 219/219 tests passing. Squash-merged PR #9 -> dev @ 6633b4a. Real E2E install verification deferred to NCOW-10.3 by design. |
+
+*(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
+across 4 waves)*
 
 ## Not queued — needs a human / blocked
 
@@ -105,5 +107,15 @@ expected to be wave 2. NCOW-10.3 blocked on both.
 
 ## Wave log
 
-- 2026-08-02 — wave 1 setup (task: NCOW-10.1): NCOW-10 split into NCOW-10.1/10.2/10.3 per user
-  decision at restore. NCOW-10.1 marked Dispatched, In Progress; worker dispatch follows.
+- 2026-08-02 — wave 1 (task: NCOW-10.1): NCOW-10 split into NCOW-10.1/10.2/10.3 per user
+  decision at restore. NCOW-10.1 dispatched alone (file-conflict with NCOW-10.2 avoided).
+  Review pass 1: request_changes (blocking race between the startup update-status broadcast
+  and the renderer's late subscription, which could silently drop the macOS notify-only
+  notification -- violates AC3; plus 3 minor findings: doc/code timing mismatch, an
+  overstated test name, a permanently-dead update-banner button on install failure). Fix pass
+  addressed all of it via status caching + coalescing, a doc correction, and the two minor
+  fixes plus one added test. Review pass 2: approve, all 5 ACs independently confirmed,
+  219/219 tests re-run by the reviewer. Merged PR #9 (squash) -> dev @ 6633b4a. Orchestrator's
+  main checkout needed a fresh `npm install` post-merge to pick up the new electron-updater
+  dependency before its own `npm test` run was clean (219/219) -- noted here since it's a
+  one-time local-environment step, not a code defect.
