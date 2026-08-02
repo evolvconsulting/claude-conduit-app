@@ -1,7 +1,7 @@
 ---
 id: NCOW-10.3
 title: Verify real end-to-end auto-update on Windows and/or Linux
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 01:08'
 updated_date: '2026-08-02 23:58'
@@ -26,7 +26,7 @@ This step publishes a real, unsigned GitHub Release of this app on evolvconsulti
 <!-- AC:BEGIN -->
 - [x] #1 On a platform where silent/auto-update is possible (Windows and/or Linux), an installed older version actually downloads and installs a newer version end-to-end, observed live rather than inferred from code
 - [x] #2 Verified by installing an older built version and updating it to a newer one on at least one platform, with evidence captured (steps taken, before/after version numbers, logs)
-- [ ] #3 The LiteLLM proxys defined restart behavior (from NCOW-10.1) is confirmed to hold across a real update
+- [x] #3 The LiteLLM proxys defined restart behavior (from NCOW-10.1) is confirmed to hold across a real update
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -145,3 +145,19 @@ NIT: litellm exits 'code [1] via signal [SIGINT]' on both stops (the update stop
 **winvm end state (reviewer-verified, stronger than the worker's claim):** config is not merely byte-identical but provably never opened for write — every file in %APPDATA%\claude-conduit has an mtime PREDATING this wave (config.yaml/ecosystem.config.cjs 8/1 23:10, manifest.json/run.js 09:28, litellm.env 09:29); only logs/ was written. Proxy stopped, port 4000 free (0 connections), no litellm/python processes. No leftover scheduled tasks or scratch. Both GitHub Releases still published and untouched. Worktree diff against dev is zero files.
 **The leftover pm2 daemon (node.exe pid 8832) should be LEFT RUNNING** — it is the documented shared-daemon arrangement this app is designed around, costs nothing, and re-creating it needs the scheduled-task trick. **But note it MASKS NCOW-22's cold-bootstrap path** — precisely the masking that hid the defect on the dev Mac for this whole campaign. Anyone testing a fresh-install scenario on winvm must account for it (stop the app entry, or use a throwaway PM2_HOME) and must never pm2 kill it.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+All three acceptance criteria verified live on a real Windows VM across four waves. AC#1/#2 (real end-to-end auto-update: an installed v0.1.0 detects, downloads, and installs v0.1.1, and the relaunched app reports the new version) were confirmed in wave 5, independently re-derived by an opus reviewer via byte-exact sha512 match against the real published release plus live CDP confirmation. AC#3 (the LiteLLM proxy's defined restart behavior holds across a real update) was confirmed in wave 8.
+
+AC#3 evidence: with the proxy genuinely running under the app's own pm2-orchestrated control (getStatus() -> running pid 7696, pm2 agreeing, /health/liveliness -> 'I am alive!'), update.install() was triggered live over CDP; litellm-nim went waiting -> stopped (pid 0) and only then did the v0.1.1 installer appear; the relaunched app reported 0.1.1 with the proxy stopped, which is the specified behavior (src/main/index.js has no proxy auto-start; it is user/tray-driven); the proxy then started again cleanly (pid 11000, health check passing), proving the app's pm2 control still works after the update, not just before it.
+
+The reviewer re-derived the entire timeline independently from machine-written artifacts the worker never cited — the pm2 daemon's own log (explicit 'Stopping app:litellm-nim' RPC, pid 7696 matching, exactly one stop in the window), pm2's dump records, litellm's own access log (four liveliness 200s bracketing the update), Windows Prefetch (proving the real 0.1.0 downgrade and 0.1.1 relaunch), and NTFS creation times (proving stop-before-install by 113 seconds). It also proved the proxy was under the app's own programmatic control rather than hand-started: the pm2 dump env carries PM2_PROGRAMMATIC=true and, decisively, LACKS PM2_USAGE, which pm2's CLI sets unconditionally — so this was require('pm2') via pm2Control.js. That was the exact thing wave 5 could not achieve.
+
+Ordering nuance recorded honestly: the live polling timeline is corroborative, not the primary proof. The proof is that installUpdateAndRestart() is a straight-line stopStatusPoller() -> await stopProxyForShutdown() -> markShuttingDown() -> quitAndInstall() that returns {ok:true} only after quitAndInstall() returns, plus the observed ~1s stop (a degraded stop would have deferred the quit by the full 15s timeout). markShuttingDown() and stopStatusPoller() were observed only by absence-of-symptom; the reviewer judged this sufficient deliberately, since the before-quit handler sets the latch itself and the poller has no bearing on restart behavior.
+
+Two scope caveats, deliberately preserved rather than glossed: (1) this proves the SHARED-DAEMON path, not the cold-bootstrap path — a pm2 daemon was pre-started by hand because both published builds predate NCOW-22's fix (merged today at e4b517c, dev only), so NCOW-22 remains unverified against a real published build; (2) the config exercised was wave 5's hand-corrected run.js/manifest.json, so this validated the app's pm2 orchestration, not configGen on Windows.
+
+No repo files were changed by this task in waves 5-8 (the only code change it ever produced was the package.json 0.1.0 -> 0.1.1 bump, merged as PR #11 back in wave 3). Both GitHub Releases remain permanently published as authorized.
+<!-- SECTION:FINAL_SUMMARY:END -->
