@@ -30,6 +30,22 @@ test('parseLitellmVersion: extracts a semver-ish version from raw CLI output', (
 // These tests build a fake win32 PATH dir with real (chmod +x, so
 // isExecutableFile() passes on this POSIX test machine) `.exe` files and
 // assert they're actually found when `platform: 'win32'` is simulated.
+//
+// WIN32_PATH_EXT is passed explicitly (lowercase) rather than relying on
+// findExecutable()'s default fallback ('.EXE;.CMD;.BAT', uppercase). Without
+// this, findExecutable() builds its candidate as `name + ext` — e.g.
+// 'litellm' + '.EXE' = 'litellm.EXE' — which only matches the lowercase
+// 'litellm.exe' fixture on disk because macOS's default APFS volume is
+// case-insensitive. On a case-sensitive filesystem (e.g. ubuntu-latest in
+// CI, or an explicitly case-sensitive APFS volume), 'litellm.EXE' !=
+// 'litellm.exe' and the lookup fails, even though the code under test is
+// correct. Passing lowercase pathExt here makes the constructed candidate
+// string ('litellm' + '.exe' = 'litellm.exe') byte-for-byte identical to
+// the fixture filename, so the match no longer depends on the host
+// filesystem's case-sensitivity at all — it's a plain string equality
+// check either way, not a case-fold.
+const WIN32_PATH_EXT = '.exe;.cmd;.bat';
+
 function makeFakeWinPathDir(fileNames) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-prereqs-win-test-'));
   for (const name of fileNames) {
@@ -42,28 +58,28 @@ function makeFakeWinPathDir(fileNames) {
 
 test('checkLitellmOnPath: finds a pip/uv/pipx-installed litellm.exe on simulated win32 (NCOW-20)', () => {
   const dir = makeFakeWinPathDir(['litellm.exe']);
-  const result = checkLitellmOnPath({ platform: 'win32', envPath: dir });
+  const result = checkLitellmOnPath({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.ok, true);
   assert.equal(result.path.toLowerCase(), path.join(dir, 'litellm.exe').toLowerCase());
 });
 
 test('checkLitellmOnPath: still finds a bare litellm.cmd shim on simulated win32 (no regression)', () => {
   const dir = makeFakeWinPathDir(['litellm.cmd']);
-  const result = checkLitellmOnPath({ platform: 'win32', envPath: dir });
+  const result = checkLitellmOnPath({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.ok, true);
   assert.equal(result.path.toLowerCase(), path.join(dir, 'litellm.cmd').toLowerCase());
 });
 
 test('checkLitellmOnPath: fails cleanly when nothing is on the simulated win32 PATH', () => {
   const dir = makeFakeWinPathDir([]);
-  const result = checkLitellmOnPath({ platform: 'win32', envPath: dir });
+  const result = checkLitellmOnPath({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.ok, false);
   assert.equal(result.found, false);
 });
 
 test('checkPython: finds a pip-installed python3.exe on simulated win32 (NCOW-20)', () => {
   const dir = makeFakeWinPathDir(['python3.exe']);
-  const result = checkPython({ platform: 'win32', envPath: dir });
+  const result = checkPython({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.ok, true);
   assert.equal(result.command, 'python3');
   assert.equal(result.path.toLowerCase(), path.join(dir, 'python3.exe').toLowerCase());
@@ -71,21 +87,21 @@ test('checkPython: finds a pip-installed python3.exe on simulated win32 (NCOW-20
 
 test('checkPython: falls through PYTHON_CANDIDATES in order to find py.exe on simulated win32', () => {
   const dir = makeFakeWinPathDir(['py.exe']);
-  const result = checkPython({ platform: 'win32', envPath: dir });
+  const result = checkPython({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.ok, true);
   assert.equal(result.command, 'py');
 });
 
 test('detectInstaller: finds uv.exe on simulated win32 and prefers it over pipx/pip (NCOW-20)', () => {
   const dir = makeFakeWinPathDir(['uv.exe', 'pipx.exe', 'pip.exe']);
-  const result = detectInstaller({ platform: 'win32', envPath: dir });
+  const result = detectInstaller({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.name, 'uv');
   assert.equal(result.path.toLowerCase(), path.join(dir, 'uv.exe').toLowerCase());
 });
 
 test('detectInstaller: falls back to pip.exe when uv/pipx are absent on simulated win32', () => {
   const dir = makeFakeWinPathDir(['pip.exe']);
-  const result = detectInstaller({ platform: 'win32', envPath: dir });
+  const result = detectInstaller({ platform: 'win32', envPath: dir, pathExt: WIN32_PATH_EXT });
   assert.equal(result.name, 'pip');
 });
 
