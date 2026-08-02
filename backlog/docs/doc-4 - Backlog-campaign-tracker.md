@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 09:41'
+updated_date: '2026-08-02 14:13'
 ---
 # Backlog campaign tracker
 
@@ -133,13 +133,12 @@ future restores. Do not re-ask any of this.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 4 settlement (2026-08-02): **NCOW-20 is Done and merged.** NCOW-10.3 is now fully
-ready (both its dependencies, NCOW-10.1/10.2 and now NCOW-20, are Done) — no other task in this
-campaign round is ready (see Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1
-for unrelated reasons). Two small non-blocking findings from NCOW-20's review (an unreachable
-embedded-quote edge case with an already-live-verified one-line fix, and a doc-comment wording
-nit) have NOT been turned into a task yet — pending user approval, per this skill's rule that
-follow-up tasks always need explicit approval.
+As of wave 4 settlement + follow-up (2026-08-02): **NCOW-10.3 is ready now** (both dependencies,
+NCOW-10.1/10.2 and now NCOW-20, are Done) — full re-verification pending, deliberately not
+dispatched this session (user chose to stop after wave 4 given session length). **NCOW-21 is
+also ready now** (no dependencies) — the small follow-up filed from NCOW-20's two non-blocking
+review findings (user approved filing it). No other task in this campaign round is ready (see
+Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
 
 ## Queue (confirmed order)
 
@@ -147,6 +146,7 @@ follow-up tasks always need explicit approval.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
 | 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done) | To Do | | ready now — full re-verification (all deps satisfied, privacy blocker resolved wave 3) |
+| 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
 
 ## Resolved
 
