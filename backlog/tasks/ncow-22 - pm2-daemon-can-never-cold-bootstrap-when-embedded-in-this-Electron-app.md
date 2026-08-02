@@ -4,7 +4,7 @@ title: pm2 daemon can never cold-bootstrap when embedded in this Electron app
 status: In Progress
 assignee: []
 created_date: '2026-08-02 15:05'
-updated_date: '2026-08-02 18:04'
+updated_date: '2026-08-02 18:05'
 labels: []
 dependencies: []
 priority: high
@@ -51,3 +51,31 @@ One candidate remedy -- dropping pm2 in favor of a different process supervisor 
 6. Broaden electron-builder.yml asarUnpack from node_modules/pm2/** to node_modules/** to fix cause #3 in packaged builds without hand-enumerating pm2's transitive closure.
 7. Verify live on all three platforms against genuinely daemon-less environments; add regression tests; npm test.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Wave 6 worker implementation evidence (pre-review, worker self-reported — reviewer to independently re-verify)
+
+Branch fix/NCOW-22-pm2-cold-bootstrap, commits 3e46a2f (core fix + tests) and 043d7dd (asarUnpack), pushed. Files: src/engine/pm2Control.js, src/main/engine-context.js, electron-builder.yml, test/engine/pm2Control.test.js (+399/-8).
+
+**AC#1 Windows (winvm) — claimed PROVEN live.** Confirmed zero pm2/node/electron processes on the VM beforehand (genuinely daemon-less). Fresh source tree + npm install on the VM (real win32 electron/pm2 binaries). node --test test/engine/pm2Control.test.js there: 12 pass / 1 correctly skipped (win32's fixed shared named pipe makes the isolated true-case test self-skip), including a real spawnDaemon() test that launched a real pm2 daemon in 669ms. App launched --dev --remote-debugging-port=9333, port tunnelled back, driven over CDP against wave 5's real existing manifest/ecosystem config. Observed: status BEFORE start 'not-installed' (genuinely cold) -> start() 13013ms -> {ok:true} -> running pid 6116 -> stop -> stopped -> restart() 11010ms -> running with NEW pid -> final stop -> stopped. Exact platform and exact symptom of the original bug (90s+ never-resolving hang) now completing in 13s.
+
+**AC#2 macOS (local dev Mac) — claimed PROVEN live.** Throwaway PM2_HOME (/tmp/ncow22-pm2home) so the Mac's real long-running shared daemon was never touched; confirmed no rpc.sock/pub.sock present beforehand. manifest+config written directly via configGen/manifest engine modules, real NVIDIA key from .env, real litellm 1.94.1 on PATH. Observed: start() 2174ms -> ok; PM2_HOME then contains dump.pm2/pm2.pid/pub.sock/rpc.sock -> running with real pid -> stop -> stopped -> restart -> running new pid -> final stop. Cleanup by SIGTERM to the 2 throwaway daemon PIDs it created — explicitly NOT pm2 kill.
+
+**AC#2 Linux (linuxvm, Ubuntu 26.04 aarch64) — claimed PROVEN live.** No pm2/node/electron running beforehand; ~/.pm2 had only stale sockets, nothing listening. Installed Node 22, Xvfb, python3-pip/venv and a REAL litellm 1.94.1 via pip venv (all wheels available on aarch64 — nothing faked). Fresh npm install, launched under Xvfb with --no-sandbox + --remote-debugging-port, driven over a tunnel via CDP. Observed: status BEFORE 'not-installed' -> start() 4186ms -> running real pid -> stop -> stopped -> restart -> running new pid -> final stop. No Linux platform gap to document — verified, not inferred. Note: the CI-published Linux AppImage is x86_64 and cannot run on any of this user's aarch64 Linux hosts, so this was a from-source run, not a packaged-artifact run.
+
+**AC#3 — claimed proven** via unit test (a fake pm2.connect() that never calls back rejects within the configured timeout; a subsequent call gets a genuinely fresh attempt rather than replaying the rejected promise) plus implicitly in every live run.
+
+**AC#4 — not applicable.** Dropping pm2 was never considered; nothing raised for AGPL sign-off.
+
+**AC#5 — 8 new tests** in test/engine/pm2Control.test.js: bounded-timeout/non-poisoning, probe-then-bootstrap ordering, probe-rejection treated as not-alive, plus 3 against the real non-mocked probeDaemonAlive/spawnDaemon (a real Unix-socket listener, and an actually-spawned-then-torn-down real pm2 daemon under a throwaway PM2_HOME).
+
+**AC#6 — npm test 243/243 passing** on macOS (baseline 235/235 confirmed before the change). Worker explicitly flagged a gap: the FULL suite was NOT run on Windows (only the pm2Control.test.js subset) and was NOT run at all on Linux.
+
+### Worker-declared limitations and out-of-scope findings
+
+- Live verification deliberately bypassed the renderer's apiKey.validateAndSave/config.generate wizard steps, writing manifest+config directly via the engine modules instead (Windows reused wave 5's existing real config read-only). Reason: safeStorage triggers a macOS Keychain prompt that blocks forever with nothing to click — pre-existing and orthogonal to NCOW-22. So the cold-bootstrap path itself is thoroughly exercised, but the full wizard-driven UI flow was not exercised end-to-end on any platform.
+- **NEW BUG NOTICED, NOT FIXED (out of scope, worth filing):** paths.js's resolveConfigDir ignores the homedir override on win32 — it always resolves to the real %APPDATA%, so NIM_PROXY_TEST_HOME does NOT protect the config dir on Windows the way it protects the Electron userData dir. This is a real safety gap in this project's documented safe-manual-testing mechanism. The worker worked around it by never calling config.generate on Windows and modified no real persistent state there.
+- Cleanup: winvm's real v0.1.1 install/litellm/Python left untouched (manifest.json re-checked byte-identical afterward); test checkouts/fake-homes/tarballs removed from both VMs; linuxvm keeps Node/npm/Xvfb/pip/litellm-venv as reusable infra.
+<!-- SECTION:NOTES:END -->
