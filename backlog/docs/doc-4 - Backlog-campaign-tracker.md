@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 02:48'
+updated_date: '2026-08-02 03:25'
 ---
 # Backlog campaign tracker
 
@@ -52,9 +52,9 @@ now vs. dispatch as one large task. User chose **split into subtasks first**. Cr
   behavior (orig. AC#1, #2, #4, #5, #7). No new Backlog dependencies (parent's NCOW-9/NCOW-12
   deps already satisfied). **Done — see Resolved.**
 - **NCOW-10.2** — CI release workflow publishing artifacts + update metadata (orig. AC#6).
-  `--dep NCOW-9` (already Done).
+  `--dep NCOW-9` (already Done). **Done — see Resolved.**
 - **NCOW-10.3** — real end-to-end verification on Windows and/or Linux (orig. AC#3, #8).
-  `--dep NCOW-10.1 --dep NCOW-10.2`.
+  `--dep NCOW-10.1 --dep NCOW-10.2`. **Dispatched wave 3 — see Queue.**
 
 File-conflict note: both NCOW-10.1 and NCOW-10.2 cite `docs/distribution.md` (10.1 as a
 reference for its mechanism-decision doc, 10.2's AC#4 explicitly requires editing it to point at
@@ -64,21 +64,31 @@ diff confirmed it never touched `docs/distribution.md` (put its decision doc in 
 `docs/auto-update.md` instead), so NCOW-10.2 is clear to proceed without inheriting any
 conflict.
 
+## Confirmed at restore 2 / wave 3 dispatch (2026-08-02) — do not re-ask
+
+NCOW-10.3 requires actually installing an older build on Windows and/or Linux and observing a
+live auto-update, which this orchestrator session (running on macOS) cannot do with only its own
+local environment. Presented to the user via AskUserQuestion: they have a VM/machine available,
+specifically a **Windows VM** ("winvm"), reachable over Tailscale SSH via `~/.scripts/winvm.sh`
+(wraps `ssh -i ~/.ssh/id_mesh_mbam5 jdnewhouse@winvm.tail9905f8.ts.net`). Connectivity confirmed
+live (`hostname` → `winvm`, `ver` → Windows 10.0.26200.8894) before dispatch. The wave-3 worker
+is briefed to use this script for every remote command against the VM rather than any other
+access path. Do not re-ask which environment to use for this campaign round.
+
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of restore 1, post-wave-2 settlement (2026-08-02): NCOW-10.1 and NCOW-10.2 are both Done
-and merged to `dev` (6633b4a, 0325e2c). NCOW-10.3 is now ready (both its deps satisfied) --
-real end-to-end auto-update install verification on Windows and/or Linux. This is the last
-remaining task in this campaign round.
+As of restore 2 / wave 3 dispatch (2026-08-02): NCOW-10.1 and NCOW-10.2 are both Done and merged
+to `dev`. NCOW-10.3 is dispatched as a solo wave 3 (no conflicts — last task in this campaign
+round) using the Windows VM described above for live verification.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done) | To Do | | real end-to-end auto-update install verification; now ready, last task in this round |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done) | Dispatched | 3 | real end-to-end auto-update install verification on winvm (Windows), via `~/.scripts/winvm.sh` |
 
 ## Resolved
 
@@ -145,3 +155,8 @@ across 4 waves)*
   dev @ 0325e2c. NCOW-10.3 (real end-to-end install verification) is now unblocked -- last task
   in this campaign round, deliberately not dispatched this session (context-length stopping
   point after a long CI-debugging wave; see handover).
+- 2026-08-02 — wave 3 dispatch (task: NCOW-10.3): restore 2 found zero drift against the wave-2
+  handover (dev clean @ dc28048, both treehouse slots available, no leftover branches/PRs).
+  User confirmed a Windows VM ("winvm") is available over Tailscale SSH via
+  `~/.scripts/winvm.sh`; connectivity verified live before dispatch. NCOW-10.3 marked
+  Dispatched/In Progress; worker being set up in a fresh worktree next.
