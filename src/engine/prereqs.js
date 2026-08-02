@@ -1,7 +1,7 @@
 'use strict';
 
 const net = require('node:net');
-const { findExecutable, resolveCliCommand, execCli } = require('./platform');
+const { findExecutable, execCli } = require('./platform');
 
 // DESIGN.md section 4 Step 1: litellm 1.82.7/1.82.8 on PyPI contained
 // credential-stealing malware (litellm_init.pth, ran on every Python
@@ -29,11 +29,17 @@ function checkNode() {
 }
 
 /**
- * @param {{extraSearchDirs?: string[]}} [opts]
+ * findExecutable() is passed the bare name, not resolveCliCommand()'s
+ * `.cmd`-suffixed one — pip/uv/pipx console-script entry points ship as
+ * `.exe` stubs on Windows, never `.cmd`, so forcing `.cmd` made a real
+ * Windows Python install permanently undiscoverable (NCOW-20). findExecutable's
+ * own PATHEXT loop already walks .EXE/.CMD/.BAT for a bare name correctly.
+ *
+ * @param {{extraSearchDirs?: string[], platform?: string, envPath?: string, pathExt?: string}} [opts]
  */
 function checkPython(opts = {}) {
   for (const candidate of PYTHON_CANDIDATES) {
-    const resolved = findExecutable(resolveCliCommand(candidate), opts.extraSearchDirs ?? []);
+    const resolved = findExecutable(candidate, opts.extraSearchDirs ?? [], opts);
     if (resolved) {
       return ok({ id: 'python', label: 'Python', found: true, command: candidate, path: resolved, critical: false });
     }
@@ -49,21 +55,25 @@ function checkPython(opts = {}) {
 
 /**
  * DESIGN.md section 4 Step 1's preference order: uv (preferred) > pipx > pip.
- * @param {{extraSearchDirs?: string[]}} [opts]
+ * Bare name passed to findExecutable — see checkPython's comment on why
+ * resolveCliCommand()'s `.cmd` suffix must not be used here (NCOW-20).
+ * @param {{extraSearchDirs?: string[], platform?: string, envPath?: string, pathExt?: string}} [opts]
  */
 function detectInstaller(opts = {}) {
   for (const name of INSTALLER_PREFERENCE) {
-    const resolved = findExecutable(resolveCliCommand(name), opts.extraSearchDirs ?? []);
+    const resolved = findExecutable(name, opts.extraSearchDirs ?? [], opts);
     if (resolved) return { name, path: resolved };
   }
   return null;
 }
 
 /**
- * @param {{extraSearchDirs?: string[]}} [opts]
+ * Bare name passed to findExecutable — see checkPython's comment on why
+ * resolveCliCommand()'s `.cmd` suffix must not be used here (NCOW-20).
+ * @param {{extraSearchDirs?: string[], platform?: string, envPath?: string, pathExt?: string}} [opts]
  */
 function checkLitellmOnPath(opts = {}) {
-  const litellmPath = findExecutable(resolveCliCommand('litellm'), opts.extraSearchDirs ?? []);
+  const litellmPath = findExecutable('litellm', opts.extraSearchDirs ?? [], opts);
   if (!litellmPath) {
     return fail({ id: 'litellm', label: 'litellm', found: false, critical: true });
   }
