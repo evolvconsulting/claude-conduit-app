@@ -64,6 +64,42 @@ test('migrateLegacyConfigDir: repairs absolute paths baked into run.js and ecosy
   assert.match(ecosystem, new RegExp(path.join(newDir, 'run.js').replace(/[\\.]/g, '\\$&')));
 });
 
+test('migrateLegacyConfigDir: repairs paths whose JSON.stringify escaping doubles backslashes (win32-style paths)', () => {
+  // configGen.js's renderRunLauncherJs/renderEcosystemConfigCjs embed every
+  // absolute path via JSON.stringify(...) (see those functions' own doc
+  // comments). On a real win32 machine that means the *file text* contains
+  // doubled backslashes (JSON.stringify escapes each `\` to `\\`), not the
+  // raw single-backslash path — a naive content.includes(legacyConfigDir)
+  // (single backslashes) therefore silently finds nothing there, even though
+  // the exact same code correctly matches on POSIX paths (no backslash to
+  // escape). Constructing win32-style paths directly here (independent of
+  // process.platform / path.join's actual separator) reproduces that on any
+  // CI runner, not just a real Windows one.
+  const root = tempRoot();
+  const legacyDir = `${root}\\claude-nim-proxy`;
+  const newDir = `${root}\\claude-conduit`;
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyDir, 'config.yaml'), 'model_list: []\n');
+  fs.writeFileSync(path.join(legacyDir, 'litellm.env'), 'NVIDIA_NIM_API_KEY=nvapi-fake\n');
+  fs.writeFileSync(path.join(legacyDir, 'manifest.json'), JSON.stringify({ port: 4000 }, null, 2));
+  const litellmEnvPath = `${legacyDir}\\litellm.env`;
+  fs.writeFileSync(
+    path.join(legacyDir, 'run.js'),
+    `const env = require(${JSON.stringify(litellmEnvPath)});\n`
+  );
+
+  const result = migrateLegacyConfigDir({ legacyConfigDir: legacyDir, newConfigDir: newDir });
+
+  assert.equal(result.migrated, true);
+  const runJs = fs.readFileSync(path.join(newDir, 'run.js'), 'utf8');
+  assert.doesNotMatch(runJs, /claude-nim-proxy/, 'no stale legacy path left in run.js');
+  assert.match(
+    runJs,
+    new RegExp(JSON.stringify(`${newDir}\\litellm.env`).slice(1, -1).replace(/[\\.]/g, '\\$&')),
+    'run.js now embeds the new dir, still correctly JSON-escaped'
+  );
+});
+
 test('migrateLegacyConfigDir: no-op (fresh install) when neither directory exists', () => {
   const root = tempRoot();
   const result = migrateLegacyConfigDir({
