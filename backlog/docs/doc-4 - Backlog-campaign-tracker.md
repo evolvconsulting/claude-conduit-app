@@ -1,0 +1,91 @@
+---
+id: doc-4
+title: Backlog campaign tracker
+type: other
+created_date: '2026-08-02 00:16'
+updated_date: '2026-08-02 00:16'
+---
+# Backlog campaign tracker
+
+Protocol: restore → compute the ready/conflict graph → mark the wave Dispatched
+→ dispatch (parallel workers + review) → serialize the merge →
+update this tracker once more at settlement → loop until the queue is empty or
+blocked → write handover.
+
+Driven by the `backlog-handover` skill (`.claude/skills/backlog-handover/SKILL.md`). This is a
+new campaign round following the prior one (see `doc-3`, now superseded — NCOW-16/17/18/12/19/9
+all Done there, 4 waves). This round exists specifically because NCOW-9 and NCOW-12 landing
+unblocked NCOW-10, which the prior campaign's inventory had excluded.
+
+## Confirmed at init (2026-08-01) — do not re-ask
+
+Fresh inventory of all 6 open Backlog tasks (`backlog task list --exclude-status Done`) at this
+init: NCOW-7, NCOW-10, NCOW-11, NCOW-13, NCOW-14, NCOW-15. Classification:
+
+- **NCOW-10 is queued.** Its Backlog dependencies (NCOW-9, NCOW-12) are both Done. Its own
+  implementation notes say the app WILL be code-signed before release but "implementation may
+  land ahead of the certificates" — macOS auto-update (Squirrel.Mac) needs real signing and
+  will fall back to notify-only until certs exist, but Windows NSIS and Linux AppImage don't
+  strictly require signing for `electron-updater` to function. Presented to the user via
+  AskUserQuestion (queue now unsigned / defer until certs exist / queue but scope down
+  verification); user chose **queue it now, unsigned** — build the full update mechanism
+  (electron-updater integration, in-app checker, CI release workflow — the latter is exactly
+  NCOW-9's recommended follow-up #1), verify end-to-end on Windows and/or Linux (no signing
+  needed there), document macOS's notify-only fallback as the correct AC#1/#4 answer until
+  certs land. **This will publish real, unsigned GitHub Releases of this app** — that is an
+  explicit, informed choice, not an oversight. Do not re-ask this.
+- **NCOW-7, NCOW-11**: both depend on NCOW-15, unchanged from the prior campaign's
+  classification, still excluded — see Not queued.
+- **NCOW-13**: depends on NCOW-14, unchanged, still excluded — see Not queued.
+- **NCOW-14, NCOW-15**: both still explicitly say in their own descriptions "expect this to
+  want splitting into subtasks when it is picked up" — still too large for a single wave
+  dispatch, still excluded, unchanged from the prior campaign. Scoping them is a separate
+  planning session.
+
+Queue order: NCOW-10 is the only queued task this round, so there is nothing to order between
+tasks — its inclusion itself was the confirmation (AskUserQuestion above). No separate ordering
+question was needed.
+
+## Frontier
+
+The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
+start of every restore/wave — never trust a persisted "next wave" plan.
+As of init (2026-08-01): NCOW-10 is ready now (deps satisfied, no known file conflicts since it
+is the only queued task). Given its size (8 ACs spanning electron-updater integration, an in-app
+checker, a CI release workflow, and real cross-platform install verification) it will very
+likely need to be treated across more than one wave, or split into subtasks once a worker's plan
+reveals its actual shape — that determination happens live at the first restore, not here.
+
+## Queue (confirmed order)
+
+| # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | To Do | | queued unsigned per user decision at init; large, may need mid-flight splitting |
+
+## Resolved
+
+*(none yet this round — see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17,
+12, 19, 9 all Done across 4 waves)*
+
+| # | Task ID | Status/date/wave | Evidence summary |
+| --- | --- | --- | --- |
+
+## Not queued — needs a human / blocked
+
+- NCOW-7: blocked on NCOW-15, which is deliberately excluded from this campaign round (see
+  Confirmed at init). Also explicitly PARKED by a prior-session decision recorded on the task
+  itself — revisit after NCOW-15 is scoped/done separately.
+- NCOW-11: depends on NCOW-15, deliberately excluded from this campaign round (see Confirmed
+  at init). Revisit once NCOW-15 is scoped/done separately.
+- NCOW-13: depends on NCOW-14, deliberately excluded from this campaign round (see Confirmed
+  at init). Revisit once NCOW-14 is scoped/done separately.
+- NCOW-14: too large for a single wave dispatch — the task's own description says "expect this
+  to want splitting into subtasks when it is picked up" (10 ACs spanning nearly every engine
+  module). AC#3/#10 need a live OpenRouter credential of unknown availability. Excluded from
+  this campaign round — needs a separate planning/decomposition session.
+- NCOW-15: same reasoning as NCOW-14 (its own description: "expect to split this into subtasks
+  when it is picked up"), and depends on NCOW-14 besides. Excluded per the same decision.
+
+## Wave log
+
+*(none yet this round)*
