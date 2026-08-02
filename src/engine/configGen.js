@@ -64,6 +64,78 @@ general_settings:
  * `child.kill('SIGTERM')` degrades to a hard TerminateProcess — litellm may
  * drop in-flight requests abruptly on `pm2 stop`/`restart` there.
  *
+ * NCOW-20: a pip/uv/pipx-installed litellm resolves to a native `.exe` stub
+ * on Windows (checkLitellmOnPath() no longer forces a `.cmd` suffix — see
+ * prereqs.js), which needs none of what follows. But Node throws EINVAL
+ * spawning a `.cmd`/`.bat` directly on Windows without `shell:true` (the
+ * post-CVE-2024-27980 hardening), so a shim must still be handled.
+ *
+ * A first attempt here spawned `cmd.exe` with an explicit argv array and
+ * `shell` left false, on the theory that Node's ordinary non-shell argv
+ * quoting would apply to every element. That is broken two ways a live
+ * Windows test caught: (1) any path containing a space (e.g. anything under
+ * `C:\Program Files\` or a spaced username) gets corrupted, because libuv's
+ * own quoting of the array element collides with `cmd.exe /c` re-parsing the
+ * resulting command line as ONE string, not as an argv array CreateProcess
+ * already split for it; and (2) it is not actually injection-safe despite
+ * avoiding `shell:true` — `cmd.exe` re-parses whatever string it receives
+ * after `/c` and acts on its OWN metacharacters (`&`, `|`, `<`, `>`, `^`,
+ * `%`, …) regardless of the quoting libuv already applied, so an
+ * attacker-influenced arg containing e.g. `&echo,INJECTED>marker` (no
+ * whitespace, so libuv's quoting never even triggers) passes straight
+ * through and executes.
+ *
+ * A second attempt fixed the space-corruption bug by building one joined
+ * command string, but kept a belief that quoting alone doesn't stop cmd.exe
+ * treating `& | < > ^ ( ) % !` as control characters, and so additionally
+ * inserted a `^` before every one of them, including inside the double
+ * quotes. A live Windows test disproved this theory outright: inside a
+ * double-quoted cmd.exe command line, `& | < > ( )` are NOT treated as
+ * control characters, and — critically — `^` is NOT an escape character
+ * there either, so it survives as a literal byte instead of escaping
+ * anything. That made the caret pass pure downside: it corrupted
+ * `C:\Program Files (x86)\...\litellm.cmd` outright (a stray caret landed
+ * inside the parenthesized directory name and cmd.exe failed with exit 1,
+ * "path not specified"); it "neutralized" `%USERNAME%` only by mangling the
+ * variable name into garbage, not by any real protection; and a crafted arg
+ * with an embedded quote (e.g. `a"&echo,BREAKOUT>marker&"b`) achieved real
+ * command injection, live-verified by the marker file it created.
+ *
+ * The fix: build ONE string containing the whole command (litellm path +
+ * args), with EVERY piece individually escaped via cmdQuoteArg() below for
+ * Windows argv-quoting rules ONLY (a literal `"` or a trailing run of `\`
+ * needs doubling) and then wrapped in its own pair of quotes. No caret pass
+ * is needed or applied: per-argument double-quoting alone is what neutralizes
+ * cmd.exe's metacharacters, because inside a quoted region `& | < > ( )` do
+ * not act as control characters — and adding carets on top would only
+ * reintroduce the corruption above, since `^` is not an escape character in
+ * that context. Wrap that whole joined string in one more pair of quotes,
+ * invoke it as `cmd.exe /d /s /c "<joined>"`, and pass
+ * `windowsVerbatimArguments: true` so Node/libuv does not ALSO try to quote
+ * the already-fully-escaped string (which would double-escape it). `/s`
+ * tells cmd.exe to unconditionally strip exactly that outer quote pair
+ * before parsing what's left, which is what makes this safe for arbitrarily
+ * quoted/escaped content inside — the alternative (no `/s`) uses a much
+ * fussier stripping rule that breaks as soon as inner quotes are present.
+ *
+ * The one honest residual: `%VAR%`-style environment-variable expansion
+ * still happens inside a quoted cmd.exe command line and cannot be escaped
+ * away by quoting alone — there is no quoting trick that suppresses it.
+ * That's accepted here specifically because of the point below: these args
+ * are app-generated absolute paths, flags, and a numeric port, and never
+ * carry a literal `%` sourced from user/model/API-key input.
+ *
+ * IMPORTANT — why this is safe here specifically, not safe in general: the
+ * args this launcher ever builds are this app's own resolved absolute paths
+ * and a hardcoded numeric port; nothing attacker- or user-influenced ever
+ * flows through this argv (model IDs, the NVIDIA API key, and any custom
+ * base URL travel via config.yaml/litellm.env, never as a CLI arg here). The
+ * escaping below is written to be correct for arbitrary content anyway
+ * (belt-and-braces, and it costs nothing), but the actual safety property in
+ * production rests on these specific inputs being app-generated, not on "the
+ * shell is off" or "Node quotes safely" — cmd.exe's re-parse means neither
+ * of those claims is true in general.
+ *
  * @param {{litellmEnvPath: string, litellmAbsPath: string, configYamlPath: string, port: number}} opts
  */
 function renderRunLauncherJs(opts) {
@@ -81,16 +153,64 @@ function loadEnvFile(path) {
   return out;
 }
 
+// See renderRunLauncherJs's doc comment in configGen.js for the full
+// reasoning. Escapes one argument for safe interpolation into the single
+// command string cmd.exe /c re-parses: Windows argv-quoting rules only (a
+// run of backslashes immediately before a literal quote gets doubled, a
+// trailing run of backslashes before the closing quote gets doubled, then
+// the whole argument is wrapped in quotes). No caret-escaping pass is
+// needed: inside a double-quoted cmd.exe command line, & | < > ( ) are not
+// treated as control characters, and critically ^ is not an escape
+// character there either — inserting carets would only corrupt the value
+// (this is exactly what broke paths like "C:\Program Files (x86)\..." in an
+// earlier version of this function). The one residual, accepted because
+// these args are always app-generated (see the doc comment): %VAR%-style
+// expansion still happens inside quotes and cannot be escaped away.
+function cmdQuoteArg(arg) {
+  let s = String(arg);
+  s = s.replace(/(\\\\*)"/g, '$1$1\\\\"');
+  s = s.replace(/(\\\\*)$/, '$1$1');
+  s = '"' + s + '"';
+  return s;
+}
+
 const env = { ...process.env, ...loadEnvFile(${JSON.stringify(opts.litellmEnvPath)}) };
 
-const child = spawn(
-  ${JSON.stringify(opts.litellmAbsPath)},
-  ['--config', ${JSON.stringify(opts.configYamlPath)}, '--host', '127.0.0.1', '--port', ${JSON.stringify(String(opts.port))}],
-  { env, stdio: 'inherit' }
-);
+const litellmPath = ${JSON.stringify(opts.litellmAbsPath)};
+const litellmArgs = ['--config', ${JSON.stringify(opts.configYamlPath)}, '--host', '127.0.0.1', '--port', ${JSON.stringify(String(opts.port))}];
+
+// See renderRunLauncherJs's doc comment in configGen.js for why this exists
+// and why it deliberately does NOT use shell:true.
+const needsCmdWrapper = process.platform === 'win32' && /\\.(cmd|bat)$/i.test(litellmPath);
+const comSpec = process.env.ComSpec || 'cmd.exe';
+const child = needsCmdWrapper
+  ? spawn(comSpec, ['/d', '/s', '/c', '"' + [litellmPath, ...litellmArgs].map(cmdQuoteArg).join(' ') + '"'], { env, stdio: 'inherit', windowsHide: true, windowsVerbatimArguments: true })
+  : spawn(litellmPath, litellmArgs, { env, stdio: 'inherit' });
+
+// In the wrapper case cmd.exe is only an intermediary — the real litellm
+// process is ITS child, so a plain child.kill() would terminate cmd.exe and
+// leave litellm running as an orphan holding the port. taskkill's /t walks
+// the whole process tree instead.
+function stopChild(sig) {
+  if (needsCmdWrapper) {
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+    // A missing/blocked taskkill binary would otherwise crash this process
+    // via an unhandled 'error' event (see src/engine/prereqs.js's installer
+    // spawn for the same pattern) — fall back to a direct kill instead. That
+    // fallback can't tree-kill, so it may leave litellm running under an
+    // orphaned cmd.exe, but that is strictly better than this launcher
+    // itself crashing and taking the supervised process down uncleanly.
+    killer.on('error', (err) => {
+      console.error('[litellm-nim] taskkill failed (' + err.message + '), falling back to a direct kill');
+      child.kill(sig);
+    });
+  } else {
+    child.kill(sig);
+  }
+}
 
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
-  process.on(sig, () => child.kill(sig));
+  process.on(sig, () => stopChild(sig));
 }
 child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 `;
