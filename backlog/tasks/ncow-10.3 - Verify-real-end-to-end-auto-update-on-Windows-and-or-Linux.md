@@ -4,7 +4,7 @@ title: Verify real end-to-end auto-update on Windows and/or Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-02 01:08'
-updated_date: '2026-08-02 21:20'
+updated_date: '2026-08-02 23:48'
 labels: []
 dependencies:
   - NCOW-20
@@ -103,4 +103,22 @@ Nothing was touched on winvm (never connected), no pm2 daemon was started, no re
 **The plan itself was not invalidated and remains directly executable once winvm is reachable:** pre-start a real pm2 daemon (`npm i -g pm2 && pm2 ping`, creating the \\.\pipe\rpc.sock named pipe) -> reinstall the published v0.1.0 -> get the proxy genuinely running under the app's own control (getStatus() reporting running with a real pid) -> trigger the real update to v0.1.1 -> observe the proxy across it. The daemon pre-start is still required because BOTH published builds (v0.1.0, v0.1.1) predate NCOW-22's cold-bootstrap fix, which merged today at e4b517c — the fix is on dev but not in any published artifact.
 
 Useful spec detail the worker did establish by code trace (worth keeping): NCOW-10.1's defined behavior is installUpdateAndRestart() in src/main/autoUpdate.js calling stopStatusPoller() -> await stopProxyForShutdown() (src/main/shutdown.js, 15s-timeout-bounded, degrades gracefully on hang/error) -> markShuttingDown() (sets the shuttingDown latch) -> autoUpdater.quitAndInstall(). Also confirmed via src/main/index.js that there is NO proxy auto-start on relaunch — it is purely user/tray-driven, which is what AC#3's 'after' state should be judged against.
+
+## Wave 8 (2026-08-02) — AC#3 worker result: implemented (pre-review, reviewer to re-derive independently)
+
+winvm was powered back on by the user; reachability re-confirmed (direct Tailscale connection) before dispatch. No repo files changed, working tree clean, nothing pushed.
+
+**New obstacle found and solved (worth keeping):** a bare `ssh ... "pm2 ping"` spawns the daemon but it dies the instant that SSH session ends (Windows job-object teardown), so no daemon ever survived the invoking command — which is likely part of why earlier waves struggled here. Fixed by launching `pm2 ping` via a **scheduled task** instead (the same escape-hatch pattern prior waves used for GUI interaction). That daemon (node.exe pid 8832) then persisted across every subsequent SSH command. Also noted: `SetForegroundWindow` silently fails for background-launched processes due to Windows' foreground-lock restriction — direct `SendMessage(BM_CLICK)` on enumerated child button HWNDs proved more reliable for driving the NSIS wizard than the technique recorded in earlier waves.
+
+**Observed evidence (live, not inferred):**
+- BEFORE: getStatus() -> {status:'running', pid:7696}; `pm2 list` agreed (pid 7696, online); http://127.0.0.1:4000/health/liveliness -> "I'm alive!"; getVersion() -> "0.1.0". This is the first time the proxy has been genuinely running under the app's own pm2-orchestrated control for this AC — wave 5 could only manage a manual `node run.js` substitute because of the cold-bootstrap hang.
+- Update already downloaded at startup (cached/coalesced check per NCOW-10.1): {currentVersion:'0.1.0', state:'downloaded', latestVersion:'0.1.1'}.
+- TRIGGER, caught mid-flight: update.install() resolved {ok:true}; at t+0.5s `pm2 list` showed litellm-nim transitioning to 'waiting' (pid 0); by t+2.5s it read 'stopped' (pid 0) — **and only THEN did the v0.1.1 NSIS installer process appear (pid 9116)**, confirming the stop-before-quitAndInstall ordering held exactly as coded. The old Electron process took ~15-18s to fully exit and the install briefly stalled at 'Installing' until it did, consistent with file-lock contention rather than a correctness defect, since the proxy stop had already completed independently.
+- AFTER: relaunched app (fresh pids) -> getVersion() -> "0.1.1"; getStatus() -> {status:'stopped', pid:0} — confirming NO auto-start on relaunch, exactly the documented spec (src/main/index.js has no proxy auto-start; it is purely user/tray-driven). Round trip re-confirmed by manually starting the proxy again post-update: getStatus() -> running pid 11000, health check -> "I'm alive!" — so the app's pm2 control still works cleanly AFTER the update, not just before it.
+
+**Worker-declared limits (do not let these be overstated at review):**
+- markShuttingDown()/the shutdown latch: no observable double-stop errors or hang, consistent with the code-level guarantee, but NOT independently instrumented. This app has no file-based logging and main-process console.log is not captured anywhere, so the specific 'quitting regardless'/'proxy stopped' log lines were never captured — only their externally observable effects.
+- stopStatusPoller(): not independently observable (no UI or log signal). Its call is a trivial synchronous no-throw already confirmed by code trace in wave 7, and no adverse symptom of it not firing was observed.
+
+**winvm end state:** v0.1.1 installed (FileVersion confirmed), app not running. %APPDATA%\claude-conduit config (manifest.json, config.yaml, run.js, ecosystem.config.cjs, litellm.env) verified byte-identical to the wave-5 leftover state before and after. pm2: litellm-nim registered, status stopped (the same clean end state as after any normal app quit). **The pre-started pm2 daemon (node.exe pid 8832) was left RUNNING intentionally** — a reusable sanctioned unblocker for any future winvm work, since NCOW-22's fix is not in any published build yet. All worker scratch removed (ncow103/ folder, installer exe, screenshot, log); one pre-existing rustup-gc file left alone. Both GitHub Releases confirmed still published and untouched; no new release, tag, or repo-code change.
 <!-- SECTION:NOTES:END -->
