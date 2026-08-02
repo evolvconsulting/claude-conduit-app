@@ -4,7 +4,7 @@ title: pm2 daemon can never cold-bootstrap when embedded in this Electron app
 status: In Progress
 assignee: []
 created_date: '2026-08-02 15:05'
-updated_date: '2026-08-02 17:21'
+updated_date: '2026-08-02 18:04'
 labels: []
 dependencies: []
 priority: high
@@ -39,3 +39,15 @@ One candidate remedy -- dropping pm2 in favor of a different process supervisor 
 - [ ] #5 Regression tests cover the fix using this project's existing test patterns
 - [ ] #6 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Independently re-confirm all three stacked causes against node_modules/pm2 v7.0.3 rather than trusting the task description: Client.js pingDaemon() registers an 'error' handler but on a generic (non-EACCES) connect failure only console.error()s without ever calling cb(); paths.js unconditionally hardcodes DAEMON_RPC_PORT to \\.\pipe\rpc.sock on win32 AFTER the PM2_HOME-derived value is set (pm2's own @todo acknowledges this); launchDaemon() spawns process.execPath (the Electron binary here); pm2's 'debug' dep is hoisted to top-level node_modules/debug, so asarUnpack of node_modules/pm2/** alone leaves it unreachable.
+2. Do NOT patch pm2 and do NOT rely on pm2's connect-time auto-launch at all — on macOS/Linux that path risks silently spawning a second Electron GUI instance rather than merely hanging.
+3. In pm2Control.js ensureConnected(): raw net.connect liveness probe against the resolved rpc socket/pipe path BEFORE calling pm2.connect(). If nothing is listening, spawn pm2's own unmodified lib/Daemon.js directly with ELECTRON_RUN_AS_NODE + explicit PM2_HOME, wait for its ready IPC message, then call pm2.connect() — which then always takes pingDaemon()'s working 'connect' path because a real daemon is already listening.
+4. Wrap the whole ensureConnected() flow in one bounded timeout (default 30s) that CLEARS the memoized promise on failure/timeout, so a wedged attempt can never permanently poison later calls — independent of whether the bootstrap fix engages (AC#3 stands on its own).
+5. Wire probeDaemonAlive/spawnDaemon as OPTIONAL injected deps (engine-context.js the only real caller) so pre-existing tests keep exercising the old simple direct-connect fallback, still bounded.
+6. Broaden electron-builder.yml asarUnpack from node_modules/pm2/** to node_modules/** to fix cause #3 in packaged builds without hand-enumerating pm2's transitive closure.
+7. Verify live on all three platforms against genuinely daemon-less environments; add regression tests; npm test.
+<!-- SECTION:PLAN:END -->
