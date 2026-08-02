@@ -150,7 +150,12 @@ fields stay; it is not a fix for anything the canonical repo ever got wrong.
 
 ## Release checklist (what a published Release must contain)
 
-Until this is automated (see follow-ups), a release is cut by hand and must include:
+**Recommended path: the CI release workflow (NCOW-10.2, `.github/workflows/release.yml`).**
+Push a version tag (`vX.Y.Z`) and CI does all four items below for you — see "CI release
+workflow" below for exactly how. Cutting a release by hand (the process this checklist
+was originally written for) still works and is documented here as a fallback for when CI
+itself needs debugging, but it is no longer the recommended way to publish. Either way, a
+release must contain:
 
 1. The six artifacts from `npm run dist`.
 2. The update metadata electron-builder emits beside them — `latest.yml`,
@@ -165,8 +170,163 @@ Setup 0.1.0.exe`), but `latest*.yml` records them space-normalized to dashes
 what the README documents. Uploading through GitHub's *web UI* silently rewrites spaces to
 periods (`Claude.Conduit.Setup.0.1.0.exe`), which matches neither. So either publish with
 `electron-builder --publish` / `gh release upload` using the dashed names, or rename
-before uploading. This is exactly the kind of hand-cut-release footgun the release
-workflow follow-up exists to remove.
+before uploading. This is exactly the footgun the CI release workflow below exists to
+remove: it always goes through `electron-builder --publish always`, never the web UI, so
+the space-to-dash mismatch and the space-to-period corruption can't happen.
+
+Verified directly against `node_modules/electron-publish/out/gitHubPublisher.js` and
+`httpPublisher.js` (2026-08-01): `GitHubPublisher` calls its `HttpPublisher` superclass
+constructor with `useSafeArtifactName = true`, so the filename it uploads to GitHub is
+always `task.safeArtifactName` (the dashed form recorded in `latest*.yml`'s `url`/`path`
+fields) rather than `path.basename(task.file)` (the on-disk name with spaces). A real
+`npm run dist:mac` build confirmed the on-disk/yml split directly: `dist/Claude
+Conduit-0.1.0-universal.dmg` on disk, `Claude-Conduit-0.1.0-universal.dmg` as the `path:`
+in `dist/latest-mac.yml`. `electron-builder --publish` (what both the CI workflow and a
+correctly hand-cut release use) reconciles that automatically; `gh release upload` on the
+raw `dist/*` globs, or any web-UI upload, would not.
+
+**Correction found by a real publish, not by reading source alone: the space-to-period
+rewrite is not web-UI-only.** A real run of the CI workflow below uploaded one asset —
+specifically the macOS zip target's `.blockmap` sidecar — as
+`Claude.Conduit-0.0.0-ci-smoketest-universal-mac.zip.blockmap` even though it went through
+`electron-builder --publish always`, never the web UI. Traced to a real bug in
+electron-builder 26.15.3 itself: `app-builder-lib/out/targets/ArchiveTarget.js`'s `build()`
+calls `createBlockmap(artifactPath, this, packager, artifactName)` for the macOS zip
+target, passing the **raw, unsanitized** `artifactName` (the one with a literal space from
+`productName`) as the `safeArtifactName` parameter — not
+`packager.computeSafeArtifactName(...)`, which is what the archive's own
+`emitArtifactBuildCompleted` call three lines later correctly uses for the `.zip` itself.
+`differentialUpdateInfoBuilder.js`'s `createBlockmap()` then just appends `.blockmap` to
+whatever it was handed and reports that as the "safe" name, so `httpPublisher.js`'s
+`useSafeArtifactName` branch uses it as-is, uploads a name that still has a space in it,
+and **GitHub's upload API — not just its web UI — silently turns that space into a period
+on the way in.** So the risk this whole workflow exists to close isn't only "someone
+uploads by hand" — it's also "electron-builder itself hands the API an unsafe name for one
+specific artifact type."
+
+**Practical impact, as of this decision: contained, not zero.** Only the macOS zip
+target's `.blockmap` is affected (verified twice, identically, across two independent real
+runs) — the `.dmg`, its own `.blockmap`, both `.zip`s' actual archives, the Linux and
+Windows artifacts, and critically **all three `latest*.yml` files themselves publish with
+correct, intact names** (this is what AC2 of NCOW-10.2 actually requires, and it holds).
+The corrupted file is also not currently load-bearing: `docs/auto-update.md` documents that
+macOS is notify-only and never invokes `electron-updater`/Squirrel.Mac at all today, so
+nothing currently reads the macOS zip's blockmap. It would matter the moment macOS is
+switched onto the shared `electron-updater` path (tracked as a revisit trigger in both
+docs), so this needs to be re-checked (upgrading electron-builder past whatever version
+fixes this, or patching around it) before that switch — flagged here rather than silently
+carried forward. Fixing electron-builder's own bug is out of scope for NCOW-10.2 (a
+CI/docs task, not a dependency-upgrade task); this section exists so the next person to
+touch this doesn't have to re-discover it by reading a corrupted filename on a real Release.
+
+---
+
+## CI release workflow (NCOW-10.2)
+
+`.github/workflows/release.yml` builds and publishes a Release automatically.
+
+**Trigger:** push a tag matching `v*.*.*` (e.g. `v0.2.0`) to `evolvconsulting/claude-conduit`.
+It also accepts a manual `workflow_dispatch` run against an already-pushed tag, for
+re-running the publish step (e.g. after a transient failure) without cutting a new tag.
+
+**Before tagging: bump `package.json`'s `version` to match the tag.** This is not optional
+bookkeeping — verified the hard way, by a real CI run that did exactly the wrong thing. See
+"The tag must match `package.json`'s version" below.
+
+**What it does:**
+
+1. A `prepare` job resolves the tag being released, fails the whole run immediately if it
+   doesn't match `v<package.json version>`, and pre-creates the draft release itself — see
+   "The tag must match `package.json`'s version" and "Why the release is pre-created, not
+   left to `electron-builder`" below for why both exist.
+2. Three matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`), gated on
+   `prepare`, each check out the tag, run `npm ci && npm test`, then run this repo's own
+   `dist:mac` / `dist:win` / `dist:linux` script with `-- --publish always` appended.
+   electron-builder cannot cross-build a platform's native installer target on another OS
+   in CI the way `npm run dist` does locally from macOS (an NSIS `.exe` needs Windows, a
+   `.dmg`/ad-hoc-signed `.app` needs macOS), so each job publishes only its own platform's
+   artifacts — the same six artifacts `npm run dist` produces locally, split across three
+   runners instead of one. `npm test` runs plain `node --test` with no path argument —
+   Node's own built-in test runner recursively discovers `test/**/*.test.js` itself by
+   default convention, so no shell ever needs to expand a glob. This replaced an earlier
+   `test/**/*.test.js` glob baked directly into the npm script, which depended on
+   whichever shell npm spawned to run it — that shell varies by platform and by npm
+   config (`cmd.exe` by default on Windows, later forced to Git Bash via
+   `script-shell`), and two real CI runs on `windows-latest` failed under different shells
+   before the glob was removed from the script entirely rather than chasing a third shell
+   that might expand it correctly. `node --test`'s own discovery is shell-independent, so
+   it behaves identically on all three runners.
+3. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
+   "Asset names matter" note above for why this matters over any manual alternative). All
+   three jobs target the same tag; because `prepare` already created the draft release for
+   that tag before any of them started, each job's own `getOrCreateRelease()` call finds
+   it and reuses it rather than racing to create it independently (see below — this was
+   not true in an earlier version of this workflow, and a real run proved why it matters).
+4. A `finalize` job (needs `prepare` and all three build jobs) downloads every uploaded
+   asset, computes a `SHA256SUMS` file over all of them (artifacts, `.blockmap`s, and the
+   three `latest*.yml` files), uploads that alongside, sets release notes from
+   `.github/release-notes-template.md` (the unsigned-build warning + README link), and
+   flips the release out of draft. A draft release is invisible to GitHub's
+   `/releases/latest` endpoint, which is what `electron-updater`'s GitHub provider and this
+   app's own macOS notify-only check (`docs/auto-update.md`) both read — so this step is
+   what actually makes a release "live" for auto-update purposes, not just visible on the
+   Releases page.
+5. No signing step exists anywhere in the workflow, matching "Signing reality" above —
+   these are the same unsigned artifacts `npm run dist` already produces locally.
+
+**Permissions:** the workflow requests `contents: write` at the top level so the built-in
+`${{ secrets.GITHUB_TOKEN }}` (passed to electron-builder as `GH_TOKEN`, and to `gh` in the
+finalize job) is sufficient — no separate PAT or repo secret is needed.
+
+### The tag must match `package.json`'s version
+
+Discovered by a real CI run doing the wrong thing, not by reading source first: pushing a
+tag does **not** tell electron-builder's GitHub publisher which release to publish to.
+`node_modules/electron-publish/out/gitHubPublisher.js` sets `this.tag =
+githubTagPrefix(info) + version`, where `version` comes from the packaged app's
+`package.json`, not from `GITHUB_REF` or anything CI-specific. A smoke-test run of this
+workflow tagged `v0.0.0-ci-smoketest` while `package.json` still said `"version": "0.1.0"`
+— the build succeeded on every platform, but electron-builder published every artifact to
+a release it created named `v0.1.0`, not `v0.0.0-ci-smoketest`. That is silent and easy to
+miss: nothing about the build output calls it out as wrong, and if `0.1.0` had already been
+a real published release, this would have quietly attached a fresh, differently-built set
+of assets to it.
+
+The `prepare` job now catches this class of mistake by comparing the pushed (or
+`workflow_dispatch`-supplied) tag against `v<package.json version>` and failing before any
+build/test time is spent if they disagree. The correct release sequence is therefore:
+bump `package.json`'s `version`, commit it, then tag that commit `v<the same version>` and
+push the tag.
+
+### Why the release is pre-created, not left to `electron-builder`
+
+Also discovered by a real run, not by reading source first. `GitHubPublisher`'s
+`getOrCreateRelease()` (`node_modules/electron-publish/out/gitHubPublisher.js`) lists a
+repo's releases, finds one matching the tag, and creates one if none matches — safe within
+a single process, but this workflow deliberately runs three separate `electron-builder
+--publish always` processes (one per platform job) against the *same* tag at the *same*
+time, and GitHub does not enforce uniqueness on a draft release's `tag_name`. A real run of
+an earlier version of this workflow (before the `prepare` job pre-created the release) hit
+exactly that: two of the three jobs' "create" calls raced, producing **two separate draft
+releases both claiming the same tag**. Assets split across them — macOS's `.dmg`/`.zip`/
+`.dmg.blockmap`/`latest-mac.yml` landed on one, Linux's `.AppImage` and macOS's
+`.zip.blockmap` landed on the other. (The stray `.zip.blockmap`'s corrupted
+`Claude.Conduit-…` filename is a *separate* bug, not caused by this race — it happened
+because electron-builder's own macOS zip target passes an unsanitized artifact name to its
+blockmap builder even under `--publish always`; see "Correction found by a real publish"
+above. The race just meant the corrupted asset landed on whichever of the two duplicate
+releases won, making it one asset harder to find during cleanup.) Cleanup
+was its own trap: `gh release delete <tag>` and `gh release list` only ever surfaced *one*
+of the two duplicates — the second was found only by querying
+`GET /repos/{owner}/{repo}/releases` directly and filtering on `tag_name`, which is the
+reliable way to check for this class of leftover if it's ever suspected again.
+
+The fix is the `prepare` job's "Pre-create the draft release" step: it creates the release
+for the tag once, before any build job starts (or reuses one that already exists, so a
+`workflow_dispatch` re-run against a tag that already has a draft doesn't fail or
+duplicate). Every build job's own `getOrCreateRelease()` then only ever exercises the
+race-free "get" half — list releases, find the matching tag, reuse it — because the release
+it's looking for is already there.
 
 ---
 
@@ -199,10 +359,11 @@ Not done (and not doable from a dev machine):
 
 ## Follow-ups this decision implies
 
-Proposed, not yet created — see NCOW-9's report:
+See NCOW-9's report:
 
-1. A GitHub Actions release workflow (tag → build all three platforms → publish the
-   Release with correct asset names, `latest*.yml` and `SHA256SUMS`).
+1. ~~A GitHub Actions release workflow (tag → build all three platforms → publish the
+   Release with correct asset names, `latest*.yml` and `SHA256SUMS`).~~ **Done — NCOW-10.2,
+   see "CI release workflow" above.**
 2. Code signing and notarization (Apple Developer ID + Windows Authenticode), which is
    what lets most of the README's Install section be deleted.
 3. A Homebrew cask (and possibly a `winget` manifest), gated on #2.

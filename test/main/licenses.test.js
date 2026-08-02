@@ -8,6 +8,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const { CHANNELS } = require('../../src/main/ipc-channels');
 const { buildMenuTemplate } = require('../../src/main/menu');
+const { resolveCliCommand } = require('../../src/engine/platform');
 
 const licenses = require('../../src/assets/licenses.json');
 const pkg = require('../../package.json');
@@ -137,14 +138,16 @@ function nameOfDir(dir) {
 
 function installedProductionDirs() {
   const { execFileSync } = require('node:child_process');
-  return execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
+  return execFileSync(resolveCliCommand('npm'), ['ls', '--omit=dev', '--all', '--parseable'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    // Same win32 batch-file rationale as scripts/generate-licenses.js.
+    shell: true,
   })
     .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && l !== ROOT);
+    .map((l) => l.trim().replace(/\\/g, '/'))
+    .filter((l) => l && l !== ROOT.replace(/\\/g, '/'));
 }
 
 test('licenses: the generated list covers the whole production tree', () => {

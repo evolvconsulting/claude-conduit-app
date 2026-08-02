@@ -19,7 +19,13 @@ test('safeTimestampForFilename: strips characters invalid in Windows filenames',
 test('findExecutable: locates a real binary on this machine (node itself) via PATH walk', () => {
   const dir = require('node:path').dirname(process.execPath);
   const found = findExecutable('node', [], { envPath: dir, platform: process.platform });
-  assert.equal(found, require('node:path').join(dir, 'node'));
+  if (process.platform === 'win32') {
+    // win32's PATHEXT branch appends an extension (.EXE by default) — the
+    // real binary on disk is node.exe, not a bare "node".
+    assert.equal(found?.toLowerCase(), require('node:path').join(dir, 'node.exe').toLowerCase());
+  } else {
+    assert.equal(found, require('node:path').join(dir, 'node'));
+  }
 });
 
 test('findExecutable: returns null when nothing matches', () => {

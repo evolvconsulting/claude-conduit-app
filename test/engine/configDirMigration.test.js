@@ -11,6 +11,17 @@ function tempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'nim-configdir-migration-test-'));
 }
 
+/**
+ * Generated files embed absolute paths via JSON.stringify (see configGen.js),
+ * which doubles path-separator backslashes on win32 — a regex built from the
+ * raw path (single backslashes) never matches that on-disk text. Builds a
+ * regex pattern from the same JSON.stringify-escaped form the file actually
+ * contains, then regex-escapes *that* for use in `new RegExp(...)`.
+ */
+function escapedPathPattern(p) {
+  return JSON.stringify(p).slice(1, -1).replace(/[\\.]/g, '\\$&');
+}
+
 /** Mimics a real pre-NCOW-12 install: config.yaml, litellm.env, manifest.json,
  * plus the two generated files that embed the OLD directory's absolute path. */
 function seedLegacyInstall(legacyDir) {
@@ -60,8 +71,44 @@ test('migrateLegacyConfigDir: repairs absolute paths baked into run.js and ecosy
   const ecosystem = fs.readFileSync(path.join(newDir, 'ecosystem.config.cjs'), 'utf8');
   assert.doesNotMatch(runJs, /claude-nim-proxy/, 'no stale legacy path left in run.js');
   assert.doesNotMatch(ecosystem, /claude-nim-proxy/, 'no stale legacy path left in ecosystem.config.cjs');
-  assert.match(runJs, new RegExp(path.join(newDir, 'litellm.env').replace(/[\\.]/g, '\\$&')));
-  assert.match(ecosystem, new RegExp(path.join(newDir, 'run.js').replace(/[\\.]/g, '\\$&')));
+  assert.match(runJs, new RegExp(escapedPathPattern(path.join(newDir, 'litellm.env'))));
+  assert.match(ecosystem, new RegExp(escapedPathPattern(path.join(newDir, 'run.js'))));
+});
+
+test('migrateLegacyConfigDir: repairs paths whose JSON.stringify escaping doubles backslashes (win32-style paths)', () => {
+  // configGen.js's renderRunLauncherJs/renderEcosystemConfigCjs embed every
+  // absolute path via JSON.stringify(...) (see those functions' own doc
+  // comments). On a real win32 machine that means the *file text* contains
+  // doubled backslashes (JSON.stringify escapes each `\` to `\\`), not the
+  // raw single-backslash path — a naive content.includes(legacyConfigDir)
+  // (single backslashes) therefore silently finds nothing there, even though
+  // the exact same code correctly matches on POSIX paths (no backslash to
+  // escape). Constructing win32-style paths directly here (independent of
+  // process.platform / path.join's actual separator) reproduces that on any
+  // CI runner, not just a real Windows one.
+  const root = tempRoot();
+  const legacyDir = `${root}\\claude-nim-proxy`;
+  const newDir = `${root}\\claude-conduit`;
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyDir, 'config.yaml'), 'model_list: []\n');
+  fs.writeFileSync(path.join(legacyDir, 'litellm.env'), 'NVIDIA_NIM_API_KEY=nvapi-fake\n');
+  fs.writeFileSync(path.join(legacyDir, 'manifest.json'), JSON.stringify({ port: 4000 }, null, 2));
+  const litellmEnvPath = `${legacyDir}\\litellm.env`;
+  fs.writeFileSync(
+    path.join(legacyDir, 'run.js'),
+    `const env = require(${JSON.stringify(litellmEnvPath)});\n`
+  );
+
+  const result = migrateLegacyConfigDir({ legacyConfigDir: legacyDir, newConfigDir: newDir });
+
+  assert.equal(result.migrated, true);
+  const runJs = fs.readFileSync(path.join(newDir, 'run.js'), 'utf8');
+  assert.doesNotMatch(runJs, /claude-nim-proxy/, 'no stale legacy path left in run.js');
+  assert.match(
+    runJs,
+    new RegExp(escapedPathPattern(`${newDir}\\litellm.env`)),
+    'run.js now embeds the new dir, still correctly JSON-escaped'
+  );
 });
 
 test('migrateLegacyConfigDir: no-op (fresh install) when neither directory exists', () => {

@@ -27,6 +27,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { resolveCliCommand } = require('../src/engine/platform');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'src', 'assets', 'licenses.json');
@@ -99,10 +100,16 @@ function describe(dir) {
 }
 
 function productionDependencyDirs() {
-  const output = execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
+  const output = execFileSync(resolveCliCommand('npm'), ['ls', '--omit=dev', '--all', '--parseable'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    // npm.cmd on win32 is a batch file, not a real PE binary -- CreateProcess
+    // can't launch it directly without shell interpretation. Safe here: fixed
+    // literal flags, no secrets/user input (unlike execCli's own no-shell
+    // policy in src/engine/platform.js, which exists for callers passing
+    // secrets or model IDs as args).
+    shell: true,
   });
   return output
     .split('\n')

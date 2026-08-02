@@ -44,6 +44,17 @@ function migrateLegacyConfigDir(opts) {
     fs.rmSync(legacyConfigDir, { recursive: true, force: true });
   }
 
+  // configGen.js's renderRunLauncherJs/renderEcosystemConfigCjs embed every
+  // absolute path via JSON.stringify(...), never as a raw string (see those
+  // functions' own doc comments) — on win32 that escapes each path separator
+  // backslash to a doubled backslash in the generated file's text. Matching
+  // against the raw legacyConfigDir string (single backslashes) therefore
+  // silently finds nothing on win32; matching against JSON.stringify's own
+  // escaped form is what the file actually contains on every platform (a
+  // no-op transform on POSIX, where there's no backslash to escape).
+  const legacyEscaped = JSON.stringify(legacyConfigDir).slice(1, -1);
+  const newEscaped = JSON.stringify(newConfigDir).slice(1, -1);
+
   for (const generatedFile of ['run.js', 'ecosystem.config.cjs']) {
     const filePath = path.join(newConfigDir, generatedFile);
     let content;
@@ -52,8 +63,8 @@ function migrateLegacyConfigDir(opts) {
     } catch {
       continue; // Not generated yet (e.g. a directory with only litellm.env) — nothing to patch.
     }
-    if (content.includes(legacyConfigDir)) {
-      fs.writeFileSync(filePath, content.split(legacyConfigDir).join(newConfigDir), 'utf8');
+    if (content.includes(legacyEscaped)) {
+      fs.writeFileSync(filePath, content.split(legacyEscaped).join(newEscaped), 'utf8');
     }
   }
 
