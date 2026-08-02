@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 17:21'
+updated_date: '2026-08-02 19:07'
 ---
 # Backlog campaign tracker
 
@@ -133,25 +133,23 @@ future restores. Do not re-ask any of this.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 5 settlement (2026-08-02): **NCOW-10.3 is partially done** — AC1/AC2 fully verified
-and checked, AC3 needs one more retry (ready now, with a specific unblocker recorded in its Queue
-note and full notes). **NCOW-21 and NCOW-22 are both also ready** (no dependencies) — all three
-of NCOW-10.3/21/22 want live `winvm` access at some point, so this skill's Shared Machine State
-rule (an always-conflicting resource regardless of file overlap) still limits any future wave to
-one of them at a time; NCOW-21's AC1 specifically requires live verification, NCOW-22 almost
-certainly will too once implemented. **Wave 6 (2026-08-02) dispatched NCOW-22 solo** per the
-user's explicit sequencing choice; NCOW-10.3 (AC3) and NCOW-21 remain ready but gated behind it
-by Shared Machine State. No other task in this campaign round is ready (see Not
-queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
+As of wave 6 settlement (2026-08-02): **NCOW-22 is Done** (merged, PR #13 -> e4b517c). Two tasks
+remain ready: **NCOW-10.3's AC3 retry** (AC1/AC2 already fully verified and checked in wave 5 --
+do not re-verify them) and **NCOW-21** (cmd.exe embedded-quote escaping hardening). Both still
+want live `winvm` access, so this skill's Shared Machine State rule (an always-conflicting
+resource regardless of file overlap) continues to limit any wave to one of them at a time.
+NCOW-10.3's AC3 should now be a normal run rather than needing wave 5's manual pre-start-a-daemon
+workaround, since NCOW-22 fixed the underlying defect and proved real start/stop/restart on a
+daemon-less winvm. No other task in this campaign round is ready (see Not queued for
+NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done) | Partial (AC1/AC2 done) | 5 | AC3 retry ready now — pre-start a real pm2 daemon on winvm (`npm i -g pm2 && pm2 ping`) before testing, per reviewer's unblocker |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done), NCOW-22 (done) | Partial (AC1/AC2 done) | 5 | AC3 retry ready now. **The wave-5 unblocker (manually pre-starting a pm2 daemon on winvm) should now be unnecessary** — NCOW-22 fixed the cold-bootstrap defect and proved real start/stop/restart on a daemon-less winvm. Retry AC3 as a normal run, and treat any need for the workaround as a regression |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
-| 4 | NCOW-22 | release | none | Dispatched | 6 | pm2 cold-bootstrap defect; user chose it BEFORE NCOW-10.3's AC3 retry (a real fix likely makes the retry's daemon-pre-start workaround unnecessary). Linux host for AC#2: `linuxvm` (Ubuntu 26.04 aarch64, no pm2 daemon) |
 
 ## Resolved
 
@@ -160,6 +158,7 @@ queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated r
 | 1 | NCOW-10.1 | Done, 2026-08-02, wave 1 | electron-updater + GitHub Releases feed, documented in new docs/auto-update.md (docs/distribution.md untouched). In-app checker via new update:* IPC channels + non-blocking renderer banner. macOS notify-only (pending signing certs) per campaign decision; Windows/Linux get electron-updater's silent path. Proxy-restart reuses the single existing stop-proxy call site (poller stop -> proxy stop -> shutdown latch -> quitAndInstall). Two opus review passes: pass 1 request_changes (startup-broadcast-vs-late-subscriber race that could silently drop the macOS notification, AC3; plus 3 minor items) -- fixed via status caching/coalescing so a late subscriber gets an accurate replay without a second real check; pass 2 approve, all 5 ACs independently confirmed. 219/219 tests passing. Squash-merged PR #9 -> dev @ 6633b4a. Real E2E install verification deferred to NCOW-10.3 by design. |
 | 2 | NCOW-10.2 | Done, 2026-08-02, wave 2 | GitHub Actions release workflow (.github/workflows/release.yml): 3-platform matrix, npm test gate, electron-builder --publish always on a tag push, publishes latest.yml/latest-mac.yml/latest-linux.yml. docs/distribution.md updated. Verified via a real smoke-test tag (v0.0.0-ci-smoketest) against the live repo -- surfaced and fixed 6 real bugs: a genuine Windows production bug in configDirMigration.js's path-rewrite (JSON.stringify backslash-escaping mismatch, would have left real Windows upgraders with a broken pm2 launcher), a broken npm run licenses on Windows (ENOENT then EINVAL, fixed via resolveCliCommand + shell:true), two Windows-only test bugs (hardcoded forward-slash path parsing, hardcoded bare 'node' expectation), and two CI-workflow races (tag/version mismatch, concurrent duplicate-release creation). Also documented a real upstream electron-builder 26.15.3 bug (macOS zip blockmap gets an unsanitized name even through --publish always) as non-load-bearing today. One opus review pass: approve, all 4 ACs independently re-verified against fresh observed output (re-ran npm test, re-checked the real CI run's actual asset listing, reproduced the Windows bug against pre-fix dev code to confirm it was genuine). Test release + tag cleaned up, package.json version reverted. 220/220 tests passing. Squash-merged PR #10 -> dev @ 0325e2c. Note: a concurrency incident occurred mid-implementation -- an earlier worker instance that was told to stand down kept running silently in the background and briefly clobbered a second worker's uncommitted fix-pass edits in the same worktree; caught via direct CI-log inspection by the orchestrator, resolved by force-killing the stale instance via TaskStop, no data lost (fixes were fully re-described and reapplied). |
 | 3 | NCOW-20 | Done, 2026-08-02, wave 4 | Fixed two independent, compounding Windows bugs found during NCOW-10.3's E2E verification: (1) resolveCliCommand() no longer wraps litellm/python/installer names in .cmd before findExecutable() -- real pip/uv/pipx .exe stubs are now correctly discovered. (2) configGen.js's generated run.js launcher routes .cmd/.bat paths through cmd.exe with a properly double-quoted, fully escaped command string (windowsVerbatimArguments:true) instead of a direct spawn (which threw EINVAL) -- deliberately not shell:true. Took 3 review passes (all opus, all with LIVE Windows VM verification via a real recording litellm.cmd shim, not just code reading): pass 1 found a CI-breaking case-sensitive test bug plus a flawed early escaping approach that broke paths like "Program Files (x86)" and wasn't even injection-safe (live-proven); fix pass 1 fixed the tests, replaced the escaping with a different but still-flawed caret-based construction; pass 2 live-reproduced that the new escaping STILL broke "Program Files (x86)" and was still injectable via an embedded-quote case, root-caused to cmd.exe not treating metacharacters as control characters inside a quoted region (making the caret pass actively harmful, not protective); fix pass 2 removed the caret-escaping entirely since proper double-quoting alone is correct; pass 3 (final, would have auto-escalated on another request_changes per the 2-retry cap) approved after full live re-verification confirmed all 4 ACs, including a live before/after proof of AC1 (python/litellm genuinely undiscoverable pre-fix, found post-fix on real Windows) and that "Program Files (x86)" now round-trips correctly. 235/235 tests passing (232 baseline + 3 net new). Squash-merged PR #12 -> dev @ 11eacfa. Two small non-blocking findings flagged for a possible fast-follow (an unreachable embedded-quote-plus-metachar edge case with an already-live-verified one-line fix, and a doc-comment wording nit) -- not addressed in this task, pending user decision on whether to file a follow-up. Operational note: mid-review-pass-2, the reviewer's own test-volume cleanup accidentally ran `diskutil unmountDisk force` on the whole disk container, briefly unmounting and FileVault-locking this repo's own disk (/Volumes/_data) -- no data lost, user unlocked it, orchestrator confirmed repo/worktree integrity before continuing; all subsequent passes were explicitly warned off local diskutil operations. |
+| 4 | NCOW-22 | Done, 2026-08-02, wave 6 | Fixed the pm2 cold-bootstrap hang that made proxy start/stop/restart permanently unusable on any genuinely fresh install. ensureConnected() now raw-probes the resolved rpc socket/pipe with net.connect before calling pm2.connect(), and spawns pm2's own unmodified lib/Daemon.js via ELECTRON_RUN_AS_NODE + explicit PM2_HOME when nothing is listening, so pingDaemon() always takes its working path; the whole flow is bounded by a 30s timeout that clears the memoized promise on failure (AC#3 stands independently). Verified live on genuinely daemon-less machines, start->stop->restart with real new pids: Windows (not-installed -> start 13212ms -> pid 3664 -> stop 589ms -> restart 13243ms -> pid 7100), macOS from a REAL PACKAGED artifact under a throwaway PM2_HOME, Linux (linuxvm, Ubuntu 26.04 aarch64) daemon bootstrap + full suite. Full suite independently run by the reviewer on all three platforms. AC1/2/3/5/6 checked; AC4 left unchecked as not-applicable (pm2 never dropped, so its AGPL sign-off was never triggered) on both reviewers' explicit recommendation. TWO significant review findings: pass 1 caught a real regression the implementation introduced (spawnDaemon() never killed the child on its reject paths -- an unbounded leak of one Electron-weight daemon per retry against a 5s poller, reproduced live as 3 simultaneous orphans) and DISPROVED cause #3 of the task's own description (the asarUnpack/'debug' gap does not reproduce against shipped code, since require.resolve returns the app.asar path and Electron's asar shim stays active in ELECTRON_RUN_AS_NODE children) -- so the broadened asarUnpack was reverted to the original narrow pattern, leaving electron-builder.yml byte-identical to base dev, and the wrong rationale comments were corrected in both files. Pass 2 independently reconstructed the leak repro rather than trusting the fix (pre-fix 3 orphans, post-fix 0, counted two independent ways) and approved. Also verified empirically that asarUnpack cannot pack .env (zero matches across 3097 asar entries), preserving CLAUDE.md's allowlist guarantee. Squash-merged PR #13 -> dev @ e4b517c, 244/244 tests passing (235 baseline + 9). |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -323,3 +322,44 @@ across 4 waves)*
   nothing to merge, purely a verification wave. NCOW-21 and NCOW-22 are both ready for a future
   wave; the Shared Machine State conflict (all three want live winvm access at some point) will
   still gate them to one at a time.
+
+- 2026-08-02 — wave 6 (task: NCOW-22): dispatched solo. All three ready tasks (NCOW-10.3's AC3
+  retry, NCOW-21, NCOW-22) need live winvm access, so Shared Machine State capped the wave at
+  one; the user was asked to choose the sequencing (deliberately left undecided by wave 5) and
+  picked NCOW-22 first, on the reasoning that fixing the real defect likely makes NCOW-10.3's
+  AC3 retry pass without any manual pre-start-a-daemon workaround. The user also chose real
+  Linux verification for AC#2 over documenting a gap, and named `linuxvm` as the host. Host
+  selection surfaced two facts worth keeping: `jetson` is unusable for cold-bootstrap testing
+  (it has a live PM2 v7.0.3 God Daemon supervising real processes), and **every one of this
+  user's Linux hosts is aarch64 while CI publishes an x86_64 AppImage**, so a packaged Linux run
+  requires an arm64 build produced on the host — the published Linux artifact cannot be tested
+  on any machine they own.
+
+  Outcome: merged, PR #13 -> dev @ e4b517c, 244/244. Two opus review passes, both of which
+  earned their keep. Pass 1 (request_changes) found a real regression the implementation had
+  introduced — spawnDaemon() never killed the child on its reject paths, an unbounded leak of
+  one Electron-weight daemon per retry against a 5s poller, which it reproduced live as 3
+  simultaneous orphans — and it DISPROVED cause #3 of NCOW-22's own description by repacking
+  with the original narrow asarUnpack and watching a packaged build cold-bootstrap successfully
+  anyway. The broadened asarUnpack was therefore reverted (electron-builder.yml ends up
+  byte-identical to base dev) and the factually-wrong rationale comments corrected in two files.
+  Pass 1 also closed coverage holes both the worker and the orchestrator had flagged: it ran the
+  full suite on all three platforms and tested the PACKAGED artifact, which nobody had done —
+  significant because cause #3 only ever lived in packaged builds. Pass 2 (approve) refused to
+  trust the fix pass's before/after and independently reconstructed the leak repro from
+  extracted pre/post copies of the module, counting orphans two independent ways (pre-fix 3,
+  post-fix 0), then verified child.kill() reaches a detached child, no-ops safely after exit,
+  and never fires on the success path.
+
+  Process note: both subagents in this wave went idle WITHOUT returning their structured result
+  the first time; each returned it correctly when asked directly. Neither had actually failed —
+  the work and commits were real and complete in both cases. Worth expecting on future waves:
+  check the branch state before assuming an idle agent failed, and just ask for the result.
+
+  Three follow-up candidates were surfaced to the user rather than filed unilaterally: (1) the
+  win32 NIM_PROXY_TEST_HOME hole (paths.js resolveConfigDir ignores the injected homedir because
+  APPDATA is always set — confirmed live, a real hole in this project's documented safe-testing
+  mechanism); (2) the bootstrapped daemon outliving the app while holding the app's own binary,
+  which on Windows locks a running image and may interfere with NCOW-10 auto-update / NSIS
+  uninstall replacing the exe; (3) the x86_64-only Linux release vs this user's all-aarch64
+  Linux fleet.
