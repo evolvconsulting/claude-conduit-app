@@ -3,9 +3,10 @@ id: NCOW-10.1
 title: >-
   Implement auto-update mechanism: in-app checker, proxy-restart handling,
   graceful degradation
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 01:07'
+updated_date: '2026-08-02 01:09'
 labels: []
 dependencies: []
 references:

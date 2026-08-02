@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 00:16'
+updated_date: '2026-08-02 01:09'
 ---
 # Backlog campaign tracker
 
@@ -42,25 +42,42 @@ init: NCOW-7, NCOW-10, NCOW-11, NCOW-13, NCOW-14, NCOW-15. Classification:
   dispatch, still excluded, unchanged from the prior campaign. Scoping them is a separate
   planning session.
 
-Queue order: NCOW-10 is the only queued task this round, so there is nothing to order between
-tasks — its inclusion itself was the confirmation (AskUserQuestion above). No separate ordering
-question was needed.
+## Confirmed at restore 1 (2026-08-02) — do not re-ask
+
+NCOW-10 (8 ACs spanning code, CI infra, and real cross-platform install verification) was judged
+too large for one wave member. Presented to the user via AskUserQuestion: split into subtasks
+now vs. dispatch as one large task. User chose **split into subtasks first**. Created:
+
+- **NCOW-10.1** — mechanism decision + in-app checker + graceful degradation + proxy-restart
+  behavior (orig. AC#1, #2, #4, #5, #7). No new Backlog dependencies (parent's NCOW-9/NCOW-12
+  deps already satisfied).
+- **NCOW-10.2** — CI release workflow publishing artifacts + update metadata (orig. AC#6).
+  `--dep NCOW-9` (already Done).
+- **NCOW-10.3** — real end-to-end verification on Windows and/or Linux (orig. AC#3, #8).
+  `--dep NCOW-10.1 --dep NCOW-10.2`.
+
+File-conflict note: both NCOW-10.1 and NCOW-10.2 cite `docs/distribution.md` (10.1 as a
+reference for its mechanism-decision doc, 10.2's AC#4 explicitly requires editing it to point at
+the new CI workflow) — treated as a real shared-file conflict per this skill's conflict-graph
+rule, not dispatched in the same wave. NCOW-10.1 goes first (more foundational, no dependency on
+CI); NCOW-10.2 is expected to be wave 2, rebased on top of NCOW-10.1's merged doc edits.
 
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of init (2026-08-01): NCOW-10 is ready now (deps satisfied, no known file conflicts since it
-is the only queued task). Given its size (8 ACs spanning electron-updater integration, an in-app
-checker, a CI release workflow, and real cross-platform install verification) it will very
-likely need to be treated across more than one wave, or split into subtasks once a worker's plan
-reveals its actual shape — that determination happens live at the first restore, not here.
+As of restore 1, wave 1 (2026-08-02): NCOW-10.1 dispatched alone (file-conflict with NCOW-10.2
+on docs/distribution.md — see above). NCOW-10.2 is otherwise ready now (dep NCOW-9 satisfied) and
+expected to be wave 2. NCOW-10.3 blocked on both.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | To Do | | queued unsigned per user decision at init; large, may need mid-flight splitting |
+| 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1, see above |
+| 2 | NCOW-10.1 | release | (none — parent's deps already satisfied) | Dispatched | 1 | mechanism + in-app checker + proxy-restart |
+| 3 | NCOW-10.2 | release | NCOW-9 (done) | To Do | | CI release workflow; conflicts with 10.1 on docs/distribution.md, deferred to wave 2 |
+| 4 | NCOW-10.3 | release | NCOW-10.1, NCOW-10.2 | To Do | | real end-to-end verification; blocked until both land |
 
 ## Resolved
 
@@ -88,4 +105,5 @@ reveals its actual shape — that determination happens live at the first restor
 
 ## Wave log
 
-*(none yet this round)*
+- 2026-08-02 — wave 1 setup (task: NCOW-10.1): NCOW-10 split into NCOW-10.1/10.2/10.3 per user
+  decision at restore. NCOW-10.1 marked Dispatched, In Progress; worker dispatch follows.
