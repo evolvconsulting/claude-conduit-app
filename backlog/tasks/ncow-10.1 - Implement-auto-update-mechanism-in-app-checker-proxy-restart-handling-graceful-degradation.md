@@ -3,10 +3,10 @@ id: NCOW-10.1
 title: >-
   Implement auto-update mechanism: in-app checker, proxy-restart handling,
   graceful degradation
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 01:07'
-updated_date: '2026-08-02 01:45'
+updated_date: '2026-08-02 01:46'
 labels: []
 dependencies: []
 references:
@@ -29,11 +29,11 @@ Update check failures (offline, rate-limited, GitHub API error, no release found
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Update mechanism chosen and documented (electron-updater + GitHub Releases feed), including a per-platform support matrix and known limitations — explicitly stating macOS is notify-only pending code-signing certificates
-- [ ] #2 In-app update check exists and tells the user when a newer version is available
-- [ ] #3 On platforms where silent/auto-update is not available (macOS, until signed), the app notifies the user with a link to the GitHub Release instead of failing silently or doing nothing
-- [ ] #4 Update check failures (offline, rate-limited, no release found, API error) degrade gracefully and never block or delay app startup
-- [ ] #5 Behaviour of the running LiteLLM proxy across an app update/restart is defined and implemented
+- [x] #1 Update mechanism chosen and documented (electron-updater + GitHub Releases feed), including a per-platform support matrix and known limitations — explicitly stating macOS is notify-only pending code-signing certificates
+- [x] #2 In-app update check exists and tells the user when a newer version is available
+- [x] #3 On platforms where silent/auto-update is not available (macOS, until signed), the app notifies the user with a link to the GitHub Release instead of failing silently or doing nothing
+- [x] #4 Update check failures (offline, rate-limited, no release found, API error) degrade gracefully and never block or delay app startup
+- [x] #5 Behaviour of the running LiteLLM proxy across an app update/restart is defined and implemented
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -53,3 +53,9 @@ FIX PASS 1 (fresh worker): addressed reviewer's blocking finding + minor finding
 
 REVIEW PASS 2 (opus): approve. Confirmed AC indices: [1, 2, 3, 4, 5] -- all five now independently verified. Traced the fix directly: renderer subscribes then checks (correct order), preload registers ipcRenderer.on synchronously before the invoke leaves the renderer, autoUpdate.js's emit() writes lastStatus on every broadcast so the replay pushes real current state, pendingCheck is assigned synchronously before any await so no real call site can double-check. Independently verified the claimed electron-updater cache-corruption risk against vendored source (AppUpdater.js) -- accurate, not hand-waving. hasChecked confirmed sound against the real library (checking-for-update always emitted first), not just the test fake. update-banner.js {once:true} removal and rejection-path test both verified real, not just claimed. AC5 ordering unchanged. Reviewer independently re-ran npm test: 219/219 passing. Minor findings only (non-blocking, informational for a future pass): ipc-channels.js:111-113 comment about update:check being for 'a future manual re-check button' is now stale since hasChecked caches for process lifetime -- fine per current ACs, worth a comment fix if a real Check-for-Updates button is ever added; docs/auto-update.md 404/no-release case actually resolves to state:error not not-available (pre-existing doc nit, not introduced by this pass, still gracefully degrades so AC4 holds); win32 replay test doesn't exercise the re-broadcast path (macOS replay test does, which is the platform AC3 actually names); theoretical unreachable coalescing edge case noted, not actionable; floating promise on renderer's update.check() call, very low risk. Reviewer's caveat: could not live-verify since update checks are hard-skipped when !app.isPackaged -- real E2E is NCOW-10.3's job by design, not a gap in this task. APPROVED for merge.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented and merged (PR #9, squash-merged as 6633b4a on dev). electron-updater + GitHub Releases feed chosen and documented in docs/auto-update.md (new file; docs/distribution.md deliberately untouched, reserved for NCOW-10.2). In-app update checker wired via new update:* IPC channels with a small dismissible non-blocking renderer banner. macOS path is notify-only (links to the GitHub Release) pending code-signing certs, per the campaign's confirmed 'queue unsigned' decision -- this supersedes an earlier, now-stale implementation note on the parent task about a fully signed macOS path. Windows/Linux get electron-updater's real silent-update path. Update-status caching/coalescing (added during a review-driven fix pass) guarantees a late-subscribing renderer still receives an accurate status without a second real network/electron-updater check, closing a real race that could have silently dropped the macOS notification. Proxy-restart behavior reuses the app's single existing stop-proxy call site (stop status poller -> stop proxy -> shutdown latch -> quitAndInstall), consistent with the existing before-quit handler. Two independent opus review passes (pass 1: request_changes on the race condition + 3 minor items, all fixed; pass 2: approve, all 5 ACs independently confirmed). 219/219 tests passing post-merge on dev (after npm install to pick up the new electron-updater dependency). Real end-to-end install verification is explicitly out of scope here -- tracked as NCOW-10.3, which depends on this task and NCOW-10.2.
+<!-- SECTION:FINAL_SUMMARY:END -->
