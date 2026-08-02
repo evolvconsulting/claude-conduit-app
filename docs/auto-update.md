@@ -69,17 +69,32 @@ opportunistically" — it is the correct behavior for an unsigned build.
 
 ## In-app update checker
 
-- **Automatic check:** fires once, a few seconds after launch, from `src/main/index.js` — see
-  `Promise.resolve().then(() => autoUpdate.checkForUpdates())`, deliberately never `await`ed
-  so it cannot delay the window showing or anything else in startup (AC#4). Skipped entirely
-  in unpackaged/`--dev` runs (`app.isPackaged` false) — there is no installed artifact for
-  electron-updater to diff against, and no `app-update.yml` is even packed outside a real
-  build.
+- **Automatic check:** fires on the very next microtask after `app.whenReady()`, from
+  `src/main/index.js` — see `Promise.resolve().then(() => autoUpdate.checkForUpdates())`,
+  deliberately never `await`ed so it cannot delay the window showing or anything else in
+  startup (AC#4). Skipped entirely in unpackaged/`--dev` runs (`app.isPackaged` false) — there
+  is no installed artifact for electron-updater to diff against, and no `app-update.yml` is
+  even packed outside a real build.
+- **Renderer re-sync:** that automatic check can — and on a fast macOS GitHub Releases check
+  against a cold pm2 daemon, regularly does — broadcast its result before the renderer has even
+  subscribed to `update:status-changed` (subscribing happens only after three awaited startup
+  IPC calls, including `proxy.getStatus`, which can take 1s+ to connect to pm2 on its first
+  launch). A push sent before anyone is listening is silently dropped. To recover from that,
+  `src/renderer/app.js` calls `window.nimProxy.update.check()` again immediately after it
+  subscribes. This is safe and cheap, not a second real check: `autoUpdate.js`'s
+  `checkForUpdates()` caches the last broadcast status and coalesces overlapping calls, so a
+  call landing after the first check already finished just replays the cached result, and a
+  call landing while one is still in flight joins it — neither case re-hits GitHub or
+  electron-updater. (Re-hitting electron-updater's `checkForUpdates()` concurrently is not just
+  wasteful — it can start a second download against the same pending-update cache directory
+  mid-download and corrupt whichever one loses the race.)
 - **Manual re-check / renderer surface:** `window.nimProxy.update.check()` (IPC channel
-  `update:check`) re-runs the same logic. Status is pushed to the renderer over
-  `update:status-changed` (`window.nimProxy.update.onStatusChanged(...)`) — the renderer's CSP
-  sets `connect-src 'none'`, so it could never poll GitHub itself; every network call this
-  feature makes happens in the main/engine layer only, exactly like `licenses.json`.
+  `update:check`) is the same entry point described above — it re-runs the check only if none
+  has completed yet or one is already in flight; otherwise it replays the last known status.
+  Status is pushed to the renderer over `update:status-changed`
+  (`window.nimProxy.update.onStatusChanged(...)`) — the renderer's CSP sets `connect-src
+  'none'`, so it could never poll GitHub itself; every network call this feature makes happens
+  in the main/engine layer only, exactly like `licenses.json`.
 - **UI:** `src/renderer/components/update-banner.js` — a small, dismissible, non-auto-expiring
   banner (not a `window.confirm/alert`, which freezes the whole renderer — see CLAUDE.md).
   Only two states render anything: `downloaded` (Windows/Linux — "Restart to install") and

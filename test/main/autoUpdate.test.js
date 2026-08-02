@@ -157,6 +157,75 @@ test('checkForUpdates: a rejecting checkForUpdates() degrades gracefully instead
   assert.equal(deps.statuses.at(-1).state, 'error');
 });
 
+// NCOW-10.1 fix pass: the startup check in main/index.js can broadcast
+// before the renderer has subscribed to update:status-changed — nothing
+// recovered that lost broadcast. The fix is for the renderer to call
+// checkForUpdates() again right after it subscribes; these tests cover what
+// makes that safe: a late call replays the cached status instead of hitting
+// the network/electron-updater a second time, and a concurrent call joins
+// the in-flight check instead of racing it.
+
+test('checkForUpdates: a call after the first has already finished replays the cached status instead of checking again', async () => {
+  let checkCalls = 0;
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: async () => {
+        checkCalls += 1;
+        return { ok: true, updateAvailable: true, latestVersion: '0.2.0', releaseUrl: 'https://x/release' };
+      },
+    },
+  });
+  const auto = createAutoUpdate(deps);
+
+  await auto.checkForUpdates(); // simulates the startup check
+  const statusesAfterFirst = deps.statuses.length;
+
+  const result = await auto.checkForUpdates(); // simulates the renderer's late re-sync
+  assert.equal(checkCalls, 1, 'must not hit the GitHub Releases check a second time');
+  assert.deepEqual(result, { ok: true, replayed: true });
+  assert.equal(deps.statuses.length, statusesAfterFirst + 1, 'must still broadcast once more, so a listener attached in between gets the status');
+  assert.deepEqual(deps.statuses.at(-1), deps.statuses.at(-2), 'the replayed broadcast is identical to the original result');
+});
+
+test('checkForUpdates: a call that lands while a check is still in flight joins it rather than starting a second one', async () => {
+  let checkCalls = 0;
+  let releaseCheck;
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: async () => {
+        checkCalls += 1;
+        await new Promise((resolve) => {
+          releaseCheck = resolve;
+        });
+        return { ok: true, updateAvailable: false, latestVersion: '0.1.0' };
+      },
+    },
+  });
+  const auto = createAutoUpdate(deps);
+
+  const first = auto.checkForUpdates();
+  const second = auto.checkForUpdates(); // "renderer subscribed mid-flight"
+  releaseCheck();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(checkCalls, 1, 'the second caller must join the in-flight check, not start its own');
+  assert.deepEqual(firstResult, secondResult);
+});
+
+test('checkForUpdates: on windows/linux, a replayed re-sync never calls electron-updater a second time', async () => {
+  const { autoUpdater, calls } = fakeAutoUpdater();
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+  const auto = createAutoUpdate(deps);
+
+  await auto.checkForUpdates();
+  assert.equal(calls.checkForUpdates, 1);
+
+  await auto.checkForUpdates();
+  assert.equal(calls.checkForUpdates, 1, 'a second concurrent electron-updater checkForUpdates() call could race a download against the pending-update cache');
+});
+
 test('installUpdateAndRestart: stops the proxy via the shared shutdown path before installing', async () => {
   const order = [];
   const { autoUpdater } = fakeAutoUpdater();

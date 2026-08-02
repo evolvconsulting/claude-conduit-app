@@ -57,8 +57,19 @@ function createAutoUpdate(deps) {
   let installInProgress = false;
   let eventsWired = false;
 
+  // Last status broadcast, and the in-flight check promise (if any). Together
+  // these make checkForUpdates() safe to call more than once — see its own
+  // doc comment for why that matters (NCOW-10.1 fix pass: the renderer calls
+  // this again right after it subscribes to update:status-changed, to
+  // recover from the startup check's broadcast racing ahead of that
+  // subscription).
+  let lastStatus = null;
+  let hasChecked = false;
+  let pendingCheck = null;
+
   function emit(status) {
-    deps.broadcast({ currentVersion: deps.currentVersion, ...status });
+    lastStatus = { currentVersion: deps.currentVersion, ...status };
+    deps.broadcast(lastStatus);
   }
 
   // Only ever attached on the Windows/Linux (electron-updater) path — macOS
@@ -93,14 +104,15 @@ function createAutoUpdate(deps) {
   }
 
   /**
-   * Kicks off exactly one update check for the current platform. Always
-   * resolves — every failure mode (offline, rate-limited, GitHub error, no
-   * release published, a dev/unpackaged build with nothing to compare
-   * against) degrades to a status broadcast rather than a rejection, so a
-   * caller can fire this from app startup without an enclosing try/catch
-   * and without ever delaying the window from showing.
+   * Does the actual platform-specific check. Always resolves — every failure
+   * mode (offline, rate-limited, GitHub error, no release published, a
+   * dev/unpackaged build with nothing to compare against) degrades to a
+   * status broadcast rather than a rejection, so a caller can fire this from
+   * app startup without an enclosing try/catch and without ever delaying the
+   * window from showing. Not exported directly — see checkForUpdates below,
+   * which wraps this with caching/coalescing.
    */
-  async function checkForUpdates() {
+  async function performCheck() {
     // --dev / unpackaged runs have no installed artifact for electron-updater
     // to diff against or install over, and no `latest*.yml`/app-update.yml
     // is even packed outside a real build. Every `npm run dev` hitting the
@@ -142,6 +154,55 @@ function createAutoUpdate(deps) {
       log(`checkForUpdates() rejected, degrading gracefully: ${err.message}`);
       emit({ state: 'error', message: err.message });
       return { ok: false, error: { code: 'CHECK_FAILED', message: err.message } };
+    }
+  }
+
+  /**
+   * Public entry point. Wraps performCheck() with caching/coalescing so it is
+   * safe to call more than once — which matters for a specific race
+   * (NCOW-10.1 fix pass): the startup check in main/index.js fires on the
+   * very next microtask after whenReady, while the renderer doesn't
+   * subscribe to update:status-changed until after three awaited IPC round
+   * trips (including proxy.getStatus, which can take 1s+ to connect to a
+   * cold pm2 daemon). The GitHub Releases check itself typically finishes in
+   * ~150ms, so the startup broadcast is very likely sent — and silently
+   * dropped — before anyone is listening, with nothing to recover it. The
+   * renderer's fix is to call this again immediately after it subscribes;
+   * this wrapper is what makes that safe and cheap:
+   *
+   *  - a call that lands while a check is already in flight joins that same
+   *    promise instead of starting a second one;
+   *  - a call that lands after the last check has already finished just
+   *    replays its cached status instead of hitting the network (or
+   *    electron-updater) again.
+   *
+   * That second case isn't just politeness: calling electron-updater's
+   * checkForUpdates() a second time while a download from the first call is
+   * still in flight can start a second concurrent download against the same
+   * pending-update cache directory (electron-updater clears that directory
+   * at the start of each new download), corrupting whichever download loses
+   * the race. Replaying the cached status instead avoids that entirely.
+   *
+   * The "has a check already completed" gate is `hasChecked`, not merely
+   * `lastStatus` being non-null: on the Windows/Linux path, `lastStatus` is
+   * only ever populated by an `au.on(...)` event actually firing (see
+   * wireAutoUpdaterEvents above), not directly by performCheck() itself —
+   * in real electron-updater that always happens ('checking-for-update' is
+   * the first thing it emits), but nothing here should *require* it in
+   * order to avoid re-triggering a real check.
+   */
+  async function checkForUpdates() {
+    if (pendingCheck) return pendingCheck;
+    if (hasChecked) {
+      if (lastStatus) deps.broadcast(lastStatus);
+      return { ok: true, replayed: true };
+    }
+    pendingCheck = performCheck();
+    try {
+      return await pendingCheck;
+    } finally {
+      hasChecked = true;
+      pendingCheck = null;
     }
   }
 
