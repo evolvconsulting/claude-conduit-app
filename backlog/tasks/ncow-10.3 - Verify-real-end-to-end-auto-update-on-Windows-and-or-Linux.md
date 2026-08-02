@@ -1,9 +1,10 @@
 ---
 id: NCOW-10.3
 title: Verify real end-to-end auto-update on Windows and/or Linux
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 01:08'
+updated_date: '2026-08-02 03:24'
 labels: []
 dependencies:
   - NCOW-10.1
