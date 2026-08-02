@@ -1,10 +1,10 @@
 ---
 id: NCOW-20
 title: 'Fix Windows litellm launch: .cmd-only discovery and missing shell:true spawn'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 04:37'
-updated_date: '2026-08-02 09:39'
+updated_date: '2026-08-02 09:40'
 labels: []
 dependencies: []
 priority: high
@@ -26,10 +26,10 @@ Both bugs were confirmed via direct code trace against platform.js, prereqs.js, 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 checkLitellmOnPath() and checkPython() (src/engine/prereqs.js) correctly find a real pip/uv/pipx-installed litellm and python on Windows (not just an artificially-created .cmd shim)
-- [ ] #2 The generated run.js launcher (configGen.js) can actually spawn litellm on Windows without throwing EINVAL
-- [ ] #3 Regression tests cover both fixes on a simulated Windows platform (this project's existing tests already inject process.platform per test/engine/platform.test.js's pattern)
-- [ ] #4 npm test passes
+- [x] #1 checkLitellmOnPath() and checkPython() (src/engine/prereqs.js) correctly find a real pip/uv/pipx-installed litellm and python on Windows (not just an artificially-created .cmd shim)
+- [x] #2 The generated run.js launcher (configGen.js) can actually spawn litellm on Windows without throwing EINVAL
+- [x] #3 Regression tests cover both fixes on a simulated Windows platform (this project's existing tests already inject process.platform per test/engine/platform.test.js's pattern)
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -113,3 +113,9 @@ Security assessment: sound for this codebase's actual reachable inputs (Windows 
 
 RECOMMENDATION: approve and merge. Suggest a single small follow-up task later covering: the one-line embedded-quote escape fix + a regression test for it, the doc-comment wording softening, and (if convenient) the carried-forward execCli/installLitellm EINVAL item.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed two independent, compounding Windows bugs discovered during NCOW-10.3's real E2E auto-update verification. (1) resolveCliCommand() no longer wraps litellm/python/installer names in .cmd before findExecutable() -- checkLitellmOnPath()/checkPython()/detectInstaller() now pass bare names, letting findExecutable()'s own PATHEXT walk correctly resolve real pip/uv/pipx .exe stubs. (2) configGen.js's generated run.js launcher no longer spawns .cmd/.bat paths directly (EINVAL) -- routes through cmd.exe with a properly double-quoted, fully escaped command string (windowsVerbatimArguments:true), deliberately not shell:true. Went through 3 review passes (all opus, all with live Windows VM verification via a real recording litellm.cmd shim): pass 1 found a CI-breaking case-sensitive test bug plus a flawed early escaping approach that broke paths like 'Program Files (x86)' and wasn't even injection-safe; fix pass 1 addressed both, replacing the escaping with a different but still-flawed construction; pass 2 live-reproduced that the new escaping still broke 'Program Files (x86)' and was still injectable via an embedded-quote case, root-caused to cmd.exe not treating metacharacters as control chars inside quotes (so caret-escaping was actively harmful); fix pass 2 removed the caret-escaping entirely, since proper double-quoting alone is correct; pass 3 (final) approved after full live re-verification confirmed all 4 ACs including a live before/after proof that AC1's discovery fix genuinely works on real Windows (python/litellm undiscoverable pre-fix, found post-fix) and that 'Program Files (x86)' now round-trips correctly. 235/235 tests passing (232 baseline + 3 net new). Squash-merged PR #12 -> dev @ 11eacfa. Two small non-blocking findings noted for a possible future fast-follow (an unreachable embedded-quote-plus-metachar edge case with an already-live-verified one-line fix, and a doc-comment wording nit) -- not merged as part of this task, flagged separately for the user.
+<!-- SECTION:FINAL_SUMMARY:END -->
