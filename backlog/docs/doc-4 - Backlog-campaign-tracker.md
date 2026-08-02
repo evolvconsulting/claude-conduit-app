@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 14:15'
+updated_date: '2026-08-02 15:06'
 ---
 # Backlog campaign tracker
 
@@ -133,20 +133,23 @@ future restores. Do not re-ask any of this.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 5 dispatch (2026-08-02): **NCOW-10.3 dispatched, wave 5, solo.** NCOW-21 is also ready
-(no dependencies) but held to the next wave — both tasks' ACs call for live verification on the
-Windows VM (`winvm`), which this skill's Shared Machine State rule treats as an
-always-conflicting resource regardless of file overlap, so at most one may run at a time. No
-other task in this campaign round is ready (see Not queued for NCOW-7/11/13/14/15, all excluded
-since init/restore-1 for unrelated reasons).
+As of wave 5 settlement (2026-08-02): **NCOW-10.3 is partially done** — AC1/AC2 fully verified
+and checked, AC3 needs one more retry (ready now, with a specific unblocker recorded in its Queue
+note and full notes). **NCOW-21 and NCOW-22 are both also ready** (no dependencies) — all three
+of NCOW-10.3/21/22 want live `winvm` access at some point, so this skill's Shared Machine State
+rule (an always-conflicting resource regardless of file overlap) still limits any future wave to
+one of them at a time; NCOW-21's AC1 specifically requires live verification, NCOW-22 almost
+certainly will too once implemented. No other task in this campaign round is ready (see Not
+queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done) | Dispatched | 5 | full re-verification; NCOW-21 held to next wave (Shared Machine State conflict, both need live winvm access) |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done) | Partial (AC1/AC2 done) | 5 | AC3 retry ready now — pre-start a real pm2 daemon on winvm (`npm i -g pm2 && pm2 ping`) before testing, per reviewer's unblocker |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
+| 4 | NCOW-22 | release | none | To Do | | pm2 cold-bootstrap defect found during NCOW-10.3 wave 5; ready now, no deps |
 
 ## Resolved
 
@@ -272,3 +275,49 @@ across 4 waves)*
   pending a user decision on whether to file a follow-up task. NCOW-10.3 is now fully ready
   (both dependencies Done) for its full re-verification pass, deferred to the next wave pending
   user input on whether to continue this session or stop here given its length so far.
+- 2026-08-02 — wave 5 (task: NCOW-10.3, retry): dispatched solo once wave 4 (NCOW-20) merged,
+  since NCOW-10.3 and NCOW-21 both need live winvm access (Shared Machine State conflict) and
+  NCOW-10.3 came first in confirmed queue order. Major result: AC#1 and AC#2 (real update
+  download+install+relaunch, observed live) are now FULLY VERIFIED and PASSED — the worker
+  relaunched the already-installed v0.1.0 app on winvm, drove it live via CDP over an
+  SSH-tunneled --remote-debugging-port, watched it detect and auto-download the now-reachable
+  v0.1.1 (repo is public since the wave-4 resolution), scripted through the real non-silent NSIS
+  installer wizard (SetForegroundWindow + BM_CLICK via a scheduled-task-launched helper, since
+  plain SSH can't see/click windows in the interactive desktop session), and confirmed the
+  relaunched app reports v0.1.1 live. An independent opus review re-derived this from first
+  principles rather than trusting the worker: matched the downloaded installer's sha512/size
+  byte-for-byte against the real v0.1.1 latest.yml, confirmed electron-updater's own
+  post-verification update-info.json, matched installed FileVersion/registry/file-timestamps
+  against the real CI build, and independently drove the app live via CDP itself
+  (app.getVersion() -> "0.1.1"). AC#1/#2 checked off on the task.
+
+  AC#3 (LiteLLM proxy restart behavior across the update) hit a NEW, previously-unknown bug,
+  distinct from anything NCOW-20 already fixed: pm2's connect attempt hangs forever when no pm2
+  daemon already exists on the machine (window.nimProxy.proxy.getStatus() and by extension
+  start/stop/restart never resolve). This was never caught before because this development
+  Mac's own long-running global pm2 daemon has always been present during every prior live test
+  in this campaign, masking the cold-bootstrap path entirely. The reviewer traced this further
+  than the worker did, live on winvm: THREE stacked causes (pm2's own pingDaemon() never calling
+  back on a missing Windows named pipe -- the actual proximate cause of the hang;
+  launchDaemon()'s use of process.execPath, which is the Electron binary itself in a packaged
+  app, not plain Node -- the worker's original finding, confirmed; and a third the worker
+  missed, that even the obvious ELECTRON_RUN_AS_NODE=1 fix for that doesn't work either, since
+  electron-builder.yml's asarUnpack covers pm2 itself but not pm2's hoisted dependency closure
+  like `debug`). Verdict: request_changes, not escalate -- no product decision blocks a retry,
+  just a specific unblocker (pre-start a real pm2 daemon on winvm before testing, which is
+  explicitly within this app's own documented design assumption of sharing the user's daemon,
+  not a workaround). AC#3 remains open, ready for a fresh worker attempt with that unblocker
+  spelled out. Worth noting: NCOW-10.1's shutdown path already absorbs this hang gracefully (a
+  15s timeout + proceed-anyway), which is exactly why the real update was still able to install
+  despite this bug -- the degradation branch of AC3 is effectively proven, only the "genuinely
+  running proxy restarts cleanly" branch remains unverified.
+
+  User approved filing NCOW-22 for the pm2 cold-bootstrap defect itself (all 3 stacked causes +
+  the pre-existing ensureConnected() no-timeout gap), flagged by the reviewer as likely
+  cross-platform (unconfirmed on macOS/Linux, since this Mac's own daemon has masked the same
+  path there too) and a likely shipping-blocker for any genuinely fresh install. User chose to
+  stop the session here rather than immediately retry AC3 with the identified unblocker.
+  NCOW-10.3's wave-5 worktree/branch (no code changes, zero commits) released without merging --
+  nothing to merge, purely a verification wave. NCOW-21 and NCOW-22 are both ready for a future
+  wave; the Shared Machine State conflict (all three want live winvm access at some point) will
+  still gate them to one at a time.
