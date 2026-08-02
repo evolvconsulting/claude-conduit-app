@@ -27,6 +27,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { resolveCliCommand } = require('../src/engine/platform');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'src', 'assets', 'licenses.json');
@@ -99,7 +100,7 @@ function describe(dir) {
 }
 
 function productionDependencyDirs() {
-  const output = execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
+  const output = execFileSync(resolveCliCommand('npm'), ['ls', '--omit=dev', '--all', '--parseable'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,

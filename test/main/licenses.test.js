@@ -8,6 +8,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const { CHANNELS } = require('../../src/main/ipc-channels');
 const { buildMenuTemplate } = require('../../src/main/menu');
+const { resolveCliCommand } = require('../../src/engine/platform');
 
 const licenses = require('../../src/assets/licenses.json');
 const pkg = require('../../package.json');
@@ -137,7 +138,7 @@ function nameOfDir(dir) {
 
 function installedProductionDirs() {
   const { execFileSync } = require('node:child_process');
-  return execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
+  return execFileSync(resolveCliCommand('npm'), ['ls', '--omit=dev', '--all', '--parseable'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
