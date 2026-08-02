@@ -146,8 +146,8 @@ function installedProductionDirs() {
     shell: true,
   })
     .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && l !== ROOT);
+    .map((l) => l.trim().replace(/\\/g, '/'))
+    .filter((l) => l && l !== ROOT.replace(/\\/g, '/'));
 }
 
 test('licenses: the generated list covers the whole production tree', () => {
