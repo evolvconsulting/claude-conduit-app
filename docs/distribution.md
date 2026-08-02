@@ -195,35 +195,66 @@ raw `dist/*` globs, or any web-UI upload, would not.
 It also accepts a manual `workflow_dispatch` run against an already-pushed tag, for
 re-running the publish step (e.g. after a transient failure) without cutting a new tag.
 
+**Before tagging: bump `package.json`'s `version` to match the tag.** This is not optional
+bookkeeping — verified the hard way, by a real CI run that did exactly the wrong thing. See
+"The tag must match `package.json`'s version" below.
+
 **What it does:**
 
-1. Three matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`) each check out the
-   tag, run `npm ci && npm test`, then run this repo's own `dist:mac` / `dist:win` /
-   `dist:linux` script with `-- --publish always` appended. electron-builder cannot
-   cross-build a platform's native installer target on another OS in CI the way `npm run
-   dist` does locally from macOS (an NSIS `.exe` needs Windows, a `.dmg`/ad-hoc-signed
-   `.app` needs macOS), so each job publishes only its own platform's artifacts — the same
-   six artifacts `npm run dist` produces locally, split across three runners instead of one.
-2. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
+1. A `prepare` job resolves the tag being released and fails the whole run immediately if
+   it doesn't match `v<package.json version>` — see below for why this check exists.
+2. Three matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`), gated on
+   `prepare`, each check out the tag, run `npm ci && npm test`, then run this repo's own
+   `dist:mac` / `dist:win` / `dist:linux` script with `-- --publish always` appended.
+   electron-builder cannot cross-build a platform's native installer target on another OS
+   in CI the way `npm run dist` does locally from macOS (an NSIS `.exe` needs Windows, a
+   `.dmg`/ad-hoc-signed `.app` needs macOS), so each job publishes only its own platform's
+   artifacts — the same six artifacts `npm run dist` produces locally, split across three
+   runners instead of one. All three `run:` steps set `shell: bash` explicitly — the
+   default shell for `run:` steps on `windows-latest` is PowerShell, which does not expand
+   the `test/**/*.test.js` glob `npm test` depends on the way bash does, and a real CI run
+   failed on exactly that before this line was added (Git Bash, which `windows-latest`
+   ships, expands it identically to macOS/Linux).
+3. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
    "Asset names matter" note above for why this matters over any manual alternative). All
    three jobs target the same tag, so electron-builder finds-or-creates a single release
    and all three jobs' assets land on it. A release electron-builder creates defaults to a
    **draft**.
-3. A `finalize` job (needs all three build jobs) downloads every uploaded asset, computes a
-   `SHA256SUMS` file over all of them (artifacts, `.blockmap`s, and the three `latest*.yml`
-   files), uploads that alongside, sets release notes from
+4. A `finalize` job (needs `prepare` and all three build jobs) downloads every uploaded
+   asset, computes a `SHA256SUMS` file over all of them (artifacts, `.blockmap`s, and the
+   three `latest*.yml` files), uploads that alongside, sets release notes from
    `.github/release-notes-template.md` (the unsigned-build warning + README link), and
    flips the release out of draft. A draft release is invisible to GitHub's
    `/releases/latest` endpoint, which is what `electron-updater`'s GitHub provider and this
    app's own macOS notify-only check (`docs/auto-update.md`) both read — so this step is
    what actually makes a release "live" for auto-update purposes, not just visible on the
    Releases page.
-4. No signing step exists anywhere in the workflow, matching "Signing reality" above —
+5. No signing step exists anywhere in the workflow, matching "Signing reality" above —
    these are the same unsigned artifacts `npm run dist` already produces locally.
 
 **Permissions:** the workflow requests `contents: write` at the top level so the built-in
 `${{ secrets.GITHUB_TOKEN }}` (passed to electron-builder as `GH_TOKEN`, and to `gh` in the
 finalize job) is sufficient — no separate PAT or repo secret is needed.
+
+### The tag must match `package.json`'s version
+
+Discovered by a real CI run doing the wrong thing, not by reading source first: pushing a
+tag does **not** tell electron-builder's GitHub publisher which release to publish to.
+`node_modules/electron-publish/out/gitHubPublisher.js` sets `this.tag =
+githubTagPrefix(info) + version`, where `version` comes from the packaged app's
+`package.json`, not from `GITHUB_REF` or anything CI-specific. A smoke-test run of this
+workflow tagged `v0.0.0-ci-smoketest` while `package.json` still said `"version": "0.1.0"`
+— the build succeeded on every platform, but electron-builder published every artifact to
+a release it created named `v0.1.0`, not `v0.0.0-ci-smoketest`. That is silent and easy to
+miss: nothing about the build output calls it out as wrong, and if `0.1.0` had already been
+a real published release, this would have quietly attached a fresh, differently-built set
+of assets to it.
+
+The `prepare` job now catches this class of mistake by comparing the pushed (or
+`workflow_dispatch`-supplied) tag against `v<package.json version>` and failing before any
+build/test time is spent if they disagree. The correct release sequence is therefore:
+bump `package.json`'s `version`, commit it, then tag that commit `v<the same version>` and
+push the tag.
 
 ---
 

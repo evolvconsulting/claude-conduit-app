@@ -40,7 +40,45 @@ permissions:
   contents: write
 
 jobs:
+  # electron-builder's GitHub publisher does NOT target the git tag that
+  # triggered the build — verified directly against a real run of this
+  # workflow (electron-publish/out/gitHubPublisher.js: `this.tag =
+  # githubTagPrefix(info) + version`, where `version` is read from
+  # package.json). It always targets a release named "v<package.json
+  # version>". Push a tag that doesn't match package.json's current version
+  # and the build still succeeds, but silently publishes to a DIFFERENT
+  # release than the one just tagged — worse, if package.json's version is
+  # still the last real release's version, that's exactly the real release
+  # it'll land on. This job fails the whole run fast, before any build/test
+  # time is spent, if the two don't match.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve and verify tag matches package.json version
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED="v${PKG_VERSION}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "::error::Tag '$TAG' does not match package.json's version '$PKG_VERSION' (expected tag '$EXPECTED'). electron-builder's GitHub publisher always targets a release named after package.json's version, not the git tag that triggered the build, so this mismatch would silently publish to the wrong release. Bump package.json's version to match before tagging."
+            exit 1
+          fi
+          echo "Tag $TAG matches package.json version $PKG_VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -57,7 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
@@ -66,9 +104,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        shell: bash
 
       - name: Run tests
+        # Explicit bash (Git Bash on windows-latest, native on macOS/Linux):
+        # `npm test` runs `node --test test/**/*.test.js`, and that glob is
+        # expanded by the shell before node ever sees it. The default `run:`
+        # shell on Windows runners is PowerShell, which does not expand it —
+        # node then receives the literal string "test/**/*.test.js" and fails
+        # with "Could not find ...". Verified by a real failing CI run of
+        # this workflow on windows-latest before this line was added.
         run: npm test
+        shell: bash
 
       - name: Build and publish (${{ matrix.os }})
         # Reuses this repo's own dist:mac/dist:win/dist:linux scripts (see
@@ -80,32 +127,24 @@ jobs:
         # (which has spaces) — the same mechanism the release checklist in
         # docs/distribution.md recommends instead of a manual/web upload.
         run: npm run ${{ matrix.build_script }} -- --publish always
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   finalize:
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Resolve tag
-        id: tag
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Download release assets
         run: |
           mkdir -p release-assets
-          gh release download "${{ steps.tag.outputs.tag }}" \
+          gh release download "${{ needs.prepare.outputs.tag }}" \
             --repo "${{ github.repository }}" \
             --dir release-assets
 
@@ -118,7 +157,7 @@ jobs:
 
       - name: Upload SHA256SUMS
         run: |
-          gh release upload "${{ steps.tag.outputs.tag }}" \
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
             release-assets/SHA256SUMS \
             --repo "${{ github.repository }}" \
             --clobber
@@ -128,7 +167,7 @@ jobs:
         # rather than inline here, so it's easy to review/edit without fighting
         # YAML block-scalar indentation.
         run: |
-          gh release edit "${{ steps.tag.outputs.tag }}" \
+          gh release edit "${{ needs.prepare.outputs.tag }}" \
             --repo "${{ github.repository }}" \
             --draft=false \
             --notes-file .github/release-notes-template.md
