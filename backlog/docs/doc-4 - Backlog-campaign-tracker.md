@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 06:53'
+updated_date: '2026-08-02 06:56'
 ---
 # Backlog campaign tracker
 
@@ -133,18 +133,18 @@ future restores. Do not re-ask any of this.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 3 settlement + resolution (2026-08-02): **NCOW-20 is ready now** (no dependencies) —
-fix the two Windows litellm-launch bugs. NCOW-10.3 is blocked-by-dependency on NCOW-20 (not
-human_needed anymore — that part is resolved) and should be re-attempted as one full pass once
-NCOW-20 is Done. No other task in this campaign round is ready (see Not queued for
-NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
+As of wave 4 dispatch (2026-08-02): **NCOW-20 dispatched, wave 4, solo (no conflicts).** NCOW-10.3
+remains blocked-by-dependency on it (not human_needed anymore — that part is resolved) and
+should be re-attempted as one full pass once NCOW-20 is Done. No other task in this campaign
+round is ready (see Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for
+unrelated reasons).
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-20 | release | none | To Do | | Windows litellm-launch bugs (.cmd-only discovery, missing shell:true); ready now |
+| 2 | NCOW-20 | release | none | Dispatched | 4 | Windows litellm-launch bugs (.cmd-only discovery, missing shell:true) |
 | 3 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (to do) | Blocked | | full re-verification once NCOW-20 lands; privacy blocker already resolved |
 
 ## Resolved
