@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 15:06'
+updated_date: '2026-08-02 17:21'
 ---
 # Backlog campaign tracker
 
@@ -139,7 +139,9 @@ note and full notes). **NCOW-21 and NCOW-22 are both also ready** (no dependenci
 of NCOW-10.3/21/22 want live `winvm` access at some point, so this skill's Shared Machine State
 rule (an always-conflicting resource regardless of file overlap) still limits any future wave to
 one of them at a time; NCOW-21's AC1 specifically requires live verification, NCOW-22 almost
-certainly will too once implemented. No other task in this campaign round is ready (see Not
+certainly will too once implemented. **Wave 6 (2026-08-02) dispatched NCOW-22 solo** per the
+user's explicit sequencing choice; NCOW-10.3 (AC3) and NCOW-21 remain ready but gated behind it
+by Shared Machine State. No other task in this campaign round is ready (see Not
 queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
 
 ## Queue (confirmed order)
@@ -149,7 +151,7 @@ queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated r
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
 | 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done) | Partial (AC1/AC2 done) | 5 | AC3 retry ready now — pre-start a real pm2 daemon on winvm (`npm i -g pm2 && pm2 ping`) before testing, per reviewer's unblocker |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
-| 4 | NCOW-22 | release | none | To Do | | pm2 cold-bootstrap defect found during NCOW-10.3 wave 5; ready now, no deps |
+| 4 | NCOW-22 | release | none | Dispatched | 6 | pm2 cold-bootstrap defect; user chose it BEFORE NCOW-10.3's AC3 retry (a real fix likely makes the retry's daemon-pre-start workaround unnecessary). Linux host for AC#2: `linuxvm` (Ubuntu 26.04 aarch64, no pm2 daemon) |
 
 ## Resolved
 
