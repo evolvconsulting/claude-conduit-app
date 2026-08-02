@@ -3,6 +3,7 @@ import { registerRoute, setNavGuard, initRouter, navigate } from './router.js';
 import { renderStatusPill } from './components/status-pill.js';
 import { showAboutDialog } from './components/about-dialog.js';
 import { showLicensesDialog } from './components/licenses-dialog.js';
+import { renderUpdateStatus } from './components/update-banner.js';
 
 import * as setupView from './views/setup-view.js';
 import * as dashboardView from './views/dashboard-view.js';
@@ -48,6 +49,10 @@ async function main() {
   subscribe((state) => renderStatusPill(pill, state.proxyStatus));
 
   window.nimProxy.proxy.onStatusChanged((status) => setState({ proxyStatus: status }));
+  // NCOW-10.1: fired once automatically shortly after launch (see
+  // main/index.js) and again on any manual re-check — never awaited here,
+  // never blocks anything, purely a notification.
+  window.nimProxy.update.onStatusChanged((status) => renderUpdateStatus({ nimProxy: window.nimProxy }, status));
   window.nimProxy.app.onNavigate((route) => navigate(route));
   window.nimProxy.app.onShowAbout(() => showAboutDialog(window.nimProxy));
   window.nimProxy.app.onShowLicenses(() => showLicensesDialog(window.nimProxy));

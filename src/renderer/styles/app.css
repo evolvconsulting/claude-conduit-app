@@ -227,6 +227,50 @@ th, td {
 .toast-error { background: var(--danger); color: white; }
 .toast-success { background: var(--ok); color: #06210f; }
 
+/* Persistent, dismissible "an update exists" notice — unlike toasts this
+   doesn't auto-expire, since "restart to install"/"view release" are actions
+   worth leaving on screen. Fixed/overlaid rather than laid into #shell's grid
+   so it never perturbs the app's own 100vh layout. */
+.update-banner {
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem 0.5rem 0.9rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.8rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  max-width: min(90vw, 480px);
+}
+.update-banner[hidden] { display: none; }
+.update-banner-text { flex: 1; }
+.update-banner-action,
+.update-banner-dismiss {
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.update-banner-action {
+  background: white;
+  color: var(--accent);
+  padding: 0.3rem 0.6rem;
+  font-weight: 600;
+}
+.update-banner-dismiss {
+  background: transparent;
+  color: white;
+  padding: 0.1rem 0.4rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
 /* In-app replacement for window.confirm(), which blocks the whole renderer. */
 .confirm-dialog {
   border: 1px solid var(--border);
