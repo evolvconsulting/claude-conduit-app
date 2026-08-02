@@ -85,20 +85,45 @@ general_settings:
  * whitespace, so libuv's quoting never even triggers) passes straight
  * through and executes.
  *
+ * A second attempt fixed the space-corruption bug by building one joined
+ * command string, but kept a belief that quoting alone doesn't stop cmd.exe
+ * treating `& | < > ^ ( ) % !` as control characters, and so additionally
+ * inserted a `^` before every one of them, including inside the double
+ * quotes. A live Windows test disproved this theory outright: inside a
+ * double-quoted cmd.exe command line, `& | < > ( )` are NOT treated as
+ * control characters, and — critically — `^` is NOT an escape character
+ * there either, so it survives as a literal byte instead of escaping
+ * anything. That made the caret pass pure downside: it corrupted
+ * `C:\Program Files (x86)\...\litellm.cmd` outright (a stray caret landed
+ * inside the parenthesized directory name and cmd.exe failed with exit 1,
+ * "path not specified"); it "neutralized" `%USERNAME%` only by mangling the
+ * variable name into garbage, not by any real protection; and a crafted arg
+ * with an embedded quote (e.g. `a"&echo,BREAKOUT>marker&"b`) achieved real
+ * command injection, live-verified by the marker file it created.
+ *
  * The fix: build ONE string containing the whole command (litellm path +
  * args), with EVERY piece individually escaped via cmdQuoteArg() below for
- * both Windows argv-quoting rules (a literal `"` or a trailing run of `\`
- * needs doubling) and cmd.exe's metacharacter rules (each of `& | < > ^ ( )
- * % !` needs a `^` in front of it even though it's inside quotes — quoting
- * alone only stops argv splitting, it does not stop cmd.exe treating those
- * characters as control characters). Wrap that whole joined string in one
- * more pair of quotes, invoke it as `cmd.exe /d /s /c "<joined>"`, and pass
+ * Windows argv-quoting rules ONLY (a literal `"` or a trailing run of `\`
+ * needs doubling) and then wrapped in its own pair of quotes. No caret pass
+ * is needed or applied: per-argument double-quoting alone is what neutralizes
+ * cmd.exe's metacharacters, because inside a quoted region `& | < > ( )` do
+ * not act as control characters — and adding carets on top would only
+ * reintroduce the corruption above, since `^` is not an escape character in
+ * that context. Wrap that whole joined string in one more pair of quotes,
+ * invoke it as `cmd.exe /d /s /c "<joined>"`, and pass
  * `windowsVerbatimArguments: true` so Node/libuv does not ALSO try to quote
  * the already-fully-escaped string (which would double-escape it). `/s`
  * tells cmd.exe to unconditionally strip exactly that outer quote pair
  * before parsing what's left, which is what makes this safe for arbitrarily
  * quoted/escaped content inside — the alternative (no `/s`) uses a much
  * fussier stripping rule that breaks as soon as inner quotes are present.
+ *
+ * The one honest residual: `%VAR%`-style environment-variable expansion
+ * still happens inside a quoted cmd.exe command line and cannot be escaped
+ * away by quoting alone — there is no quoting trick that suppresses it.
+ * That's accepted here specifically because of the point below: these args
+ * are app-generated absolute paths, flags, and a numeric port, and never
+ * carry a literal `%` sourced from user/model/API-key input.
  *
  * IMPORTANT — why this is safe here specifically, not safe in general: the
  * args this launcher ever builds are this app's own resolved absolute paths
@@ -130,18 +155,22 @@ function loadEnvFile(path) {
 
 // See renderRunLauncherJs's doc comment in configGen.js for the full
 // reasoning. Escapes one argument for safe interpolation into the single
-// command string cmd.exe /c re-parses: Windows argv-quoting rules (doubling
-// a run of backslashes immediately before a literal quote, then wrapping
-// the whole argument in quotes) PLUS cmd.exe's own metacharacter rules
-// (each of & | < > ^ ( ) % ! still needs a ^ in front of it even inside a
-// quoted string — quoting alone only stops argv splitting, it does not
-// stop cmd.exe treating those characters as control characters).
+// command string cmd.exe /c re-parses: Windows argv-quoting rules only (a
+// run of backslashes immediately before a literal quote gets doubled, a
+// trailing run of backslashes before the closing quote gets doubled, then
+// the whole argument is wrapped in quotes). No caret-escaping pass is
+// needed: inside a double-quoted cmd.exe command line, & | < > ( ) are not
+// treated as control characters, and critically ^ is not an escape
+// character there either — inserting carets would only corrupt the value
+// (this is exactly what broke paths like "C:\Program Files (x86)\..." in an
+// earlier version of this function). The one residual, accepted because
+// these args are always app-generated (see the doc comment): %VAR%-style
+// expansion still happens inside quotes and cannot be escaped away.
 function cmdQuoteArg(arg) {
   let s = String(arg);
   s = s.replace(/(\\\\*)"/g, '$1$1\\\\"');
   s = s.replace(/(\\\\*)$/, '$1$1');
   s = '"' + s + '"';
-  s = s.replace(/([&|<>^()%!])/g, '^$1');
   return s;
 }
 

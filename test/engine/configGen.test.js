@@ -57,17 +57,28 @@ test('renderRunLauncherJs: is syntactically valid JS (roundtrips through the Fun
 // merely space-joined. An earlier fix attempt routed a .cmd/.bat launch
 // through cmd.exe as the spawned program with an argv array and shell left
 // off — that broke on any path containing a space (libuv's own argv
-// quoting collides with cmd.exe re-parsing the whole line as one string)
-// and was not actually injection-safe (cmd.exe acts on & | < > ^ % even
-// inside quotes, regardless of libuv's quoting). The real fix builds ONE
-// fully-escaped command string (see cmdQuoteArg in renderRunLauncherJs's
-// template) and passes windowsVerbatimArguments so nothing double-quotes
-// it. These tests execute the actual generated launcher code (via the
+// quoting collides with cmd.exe re-parsing the whole line as one string),
+// and was not injection-safe either: whether libuv quotes a given array
+// element at all depends on whether it contains whitespace, so a metachar
+// arg with no whitespace (e.g. `&echo,INJECTED>marker`) sailed through
+// completely unquoted and cmd.exe acted on it as real control characters. A
+// second attempt fixed the space-corruption bug with one joined,
+// per-argument-quoted command string, but ALSO inserted a `^` before every
+// metacharacter even inside the quotes, on the theory that quoting alone
+// doesn't stop cmd.exe treating them as control characters. A live Windows
+// test disproved that: inside a double-quoted region cmd.exe does not treat
+// `& | < > ( )` as control characters, and `^` is not an escape character
+// there either, so the caret survived as a literal byte and corrupted
+// values instead (e.g. shredding `C:\Program Files (x86)\...`). The real
+// fix builds ONE command string with EVERY argument individually
+// double-quoted via cmdQuoteArg (Windows argv-quoting rules only — no
+// caret pass) and passes windowsVerbatimArguments so nothing double-quotes
+// it again. These tests execute the actual generated launcher code (via the
 // Function constructor, with fake require()/process) and assert on what it
-// tells node:child_process's spawn() to do — including, for the two cases
-// the live-Windows review specifically caught, decoding the escaped command
+// tells node:child_process's spawn() to do — including, for the cases the
+// live-Windows review specifically caught, decoding the escaped command
 // string back with a reference cmd.exe-shaped parser to prove it round-trips
-// to the exact original argv with no unescaped metacharacter surviving.
+// to the exact original argv, verbatim, inside its quoted region.
 function runGeneratedLauncher(js, { platform, comSpec } = {}) {
   const spawnCalls = [];
   const signalHandlers = {};
@@ -121,13 +132,16 @@ test('renderRunLauncherJs: spawns a resolved .exe directly on win32, no cmd.exe 
 // Reference decoder: simulates enough of cmd.exe's own parsing to prove the
 // joined, escaped command string renderRunLauncherJs builds round-trips back
 // to the exact original argv. Mirrors, in reverse, exactly what the
-// generated cmdQuoteArg() does: undoes the /s outer-quote strip, tokenizes
-// on whitespace while respecting per-argument quotes, then un-escapes the
-// ^X -> X metacharacter escaping. This is the strongest verification
-// available without a real Windows machine — the specific construction
-// (cmd.exe /d /s /c "<joined>" with windowsVerbatimArguments) was verified
-// live on Windows by the NCOW-20 reviewer; what these tests confirm is that
-// THIS implementation of it is self-consistent and injection-safe.
+// generated cmdQuoteArg() does: undoes the /s outer-quote strip, then
+// tokenizes on whitespace while respecting per-argument quotes. There is no
+// metacharacter un-escaping step, because post-fix cmdQuoteArg no longer
+// inserts any — per-argument double-quoting alone is what neutralizes
+// cmd.exe's metacharacters, so each token must come back byte-for-byte
+// identical to what went in. This is the strongest verification available
+// without a real Windows machine — the specific construction (cmd.exe /d
+// /s /c "<joined>" with windowsVerbatimArguments) was verified live on
+// Windows by the NCOW-20 reviewer; what these tests confirm is that THIS
+// implementation of it is self-consistent and injection-safe.
 function decodeCmdLine(joined) {
   assert.equal(joined[0], '"', 'expected the whole command to be wrapped in an outer quote pair (for /s to strip)');
   assert.equal(joined[joined.length - 1], '"', 'expected the whole command to be wrapped in an outer quote pair (for /s to strip)');
@@ -152,7 +166,7 @@ function decodeCmdLine(joined) {
   return tokens.map((tok) => {
     assert.equal(tok[0], '"', `expected each argument to be individually quoted, got: ${tok}`);
     assert.equal(tok[tok.length - 1], '"', `expected each argument to be individually quoted, got: ${tok}`);
-    return tok.slice(1, -1).replace(/\^([&|<>^()%!])/g, '$1');
+    return tok.slice(1, -1);
   });
 }
 
@@ -213,13 +227,59 @@ test('renderRunLauncherJs: a .cmd shim under a spaced path (Program Files, space
   ]);
 });
 
+// Reviewer-verified-live bug (this is the exact live-Windows regression fix
+// pass 1 introduced and fix pass 2 addresses): a litellm path under
+// "C:\Program Files (x86)\..." — the realistic production trigger, since
+// pip/uv/pipx installs commonly land there on 32-bit-named installs — used
+// to FAIL OUTRIGHT (cmd.exe exit 1, "path not specified") once the launcher
+// caret-escaped every `(` and `)`, because a stray `^` landed inside the
+// parenthesized directory name and cmd.exe is not able to strip it (`^` is
+// not an escape character inside a quoted region). Per-argument
+// double-quoting alone — with no caret pass — must let this path round-trip
+// verbatim.
+test('renderRunLauncherJs: a .cmd shim under "Program Files (x86)" (parens in a spaced path) survives the cmd.exe wrapper intact', () => {
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: 'C:\\Program Files (x86)\\nc20\\litellm.cmd',
+    configYamlPath: 'C:\\Users\\Jeremy Newhouse\\.claude-conduit\\config.yaml',
+    port: 4000,
+  });
+  const { spawnCalls } = runGeneratedLauncher(js, { platform: 'win32', comSpec: 'C:\\Windows\\System32\\cmd.exe' });
+
+  assert.equal(spawnCalls.length, 1);
+  const [, args] = spawnCalls[0].args;
+  const joined = args[3];
+
+  assert.deepEqual(decodeCmdLine(joined), [
+    'C:\\Program Files (x86)\\nc20\\litellm.cmd',
+    '--config',
+    'C:\\Users\\Jeremy Newhouse\\.claude-conduit\\config.yaml',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '4000',
+  ]);
+
+  // No caret must ever appear next to the parens — that's precisely the
+  // corruption that broke this path in fix pass 1.
+  assert.ok(joined.includes('"C:\\Program Files (x86)\\nc20\\litellm.cmd"'),
+    `expected the litellm path to appear verbatim, quoted, with no caret inserted near its parens, in: ${joined}`);
+  assert.doesNotMatch(joined, /\^[()]/, `expected no caret immediately before a paren, in: ${joined}`);
+});
+
 // Reviewer-verified-live bug: an arg containing a cmd.exe metacharacter with
 // NO whitespace (so libuv's own quoting never even triggers) used to pass
-// straight through the old cmd.exe-wrapper and execute, despite never using
-// shell:true. Proves both that the metacharacter round-trips back to its
-// literal, inert form AND that the raw string cmd.exe would actually scan
-// contains no bare (unescaped) metacharacter anywhere.
-test('renderRunLauncherJs: an arg containing cmd.exe metacharacters is neutralized, not executed, by the wrapper (injection fix)', () => {
+// straight through the old argv-array wrapper and execute, despite never
+// using shell:true. A later attempt "fixed" this by inserting a `^` before
+// every metacharacter even inside the per-argument quotes — that was itself
+// live-disproven on Windows: `^` is not an escape character inside a
+// double-quoted cmd.exe command line, so it survived as a literal byte and
+// corrupted values (e.g. shredding `Program Files (x86)`) instead of
+// protecting anything. The correct fix is quoting alone: inside a quoted
+// region cmd.exe does not treat `& | < > ( )` as control characters, so the
+// argument must round-trip back byte-for-byte unchanged, with no caret
+// inserted anywhere near it.
+test('renderRunLauncherJs: an arg containing cmd.exe metacharacters round-trips verbatim inside its quotes — quoting alone neutralizes them, no caret-escaping', () => {
   const js = renderRunLauncherJs({
     litellmEnvPath: '/cfg/litellm.env',
     litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
@@ -242,13 +302,17 @@ test('renderRunLauncherJs: an arg containing cmd.exe metacharacters is neutraliz
     '4000',
   ]);
 
-  // Every metacharacter cmd.exe would otherwise act on must be immediately
-  // preceded by a literal ^ in the raw string it actually re-parses.
+  // The argument must appear verbatim, quoted, with nothing inserted around
+  // its metacharacters.
+  assert.ok(
+    joined.includes('"C:\\cfg\\config.yaml&echo,INJECTED>marker&set"'),
+    `expected the arg to appear verbatim inside its own quotes, in: ${joined}`
+  );
   for (const meta of ['&', '>']) {
     const positions = [...joined.matchAll(new RegExp(`\\${meta}`, 'g'))].map((m) => m.index);
     assert.ok(positions.length > 0, `expected at least one ${meta} in the joined command`);
     for (const idx of positions) {
-      assert.equal(joined[idx - 1], '^', `expected ${meta} at index ${idx} to be preceded by an escaping ^, in: ${joined}`);
+      assert.notEqual(joined[idx - 1], '^', `expected ${meta} at index ${idx} to be unescaped (no caret inserted), in: ${joined}`);
     }
   }
 });
