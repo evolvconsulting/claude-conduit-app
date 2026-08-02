@@ -32,6 +32,7 @@
     "pack": "electron-builder --dir"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "pm2": "^7.0.3"
   },
   "devDependencies": {

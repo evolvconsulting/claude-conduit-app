@@ -10,7 +10,9 @@ const { startStatusPoller } = require('./status-poller');
 const { createTray } = require('./tray');
 const { getAppIcon } = require('./app-icon');
 const { createProxyShutdown } = require('./shutdown');
+const { createAutoUpdate } = require('./autoUpdate');
 const paths = require('../engine/paths');
+const updateCheck = require('../engine/updateCheck');
 
 /**
  * NCOW-12 safety net: Electron's userData directory (which holds the
@@ -67,6 +69,40 @@ if (!gotSingleInstanceLock) {
       broadcast: (channel, payload) => getMainWindow()?.webContents.send(channel, payload),
     });
 
+    // Created before registerIpcHandlers (and before autoUpdate below) so
+    // both the sidebar Quit path and the update-install path can reuse the
+    // exact same proxy-stop primitive shutdown.js's 'before-quit' handler
+    // uses further down — see NCOW-10.1 and docs/auto-update.md.
+    stopProxyForShutdown = createProxyShutdown({ pm2Control });
+
+    // NCOW-10.1: electron-updater's `autoUpdater` singleton touches
+    // electron.app at module-load time (AppUpdater's constructor calls
+    // app.getVersion()), so it can only ever be required here, after
+    // app.whenReady() — requiring it at module scope breaks every test that
+    // imports anything from this file under plain `node --test`, matching
+    // why `pm2` and `electron` itself are required lazily elsewhere in this
+    // codebase. autoUpdate.js never requires it itself for the same reason;
+    // it only accepts it as an injected dependency.
+    const { autoUpdater } = require('electron-updater');
+    const autoUpdate = createAutoUpdate({
+      autoUpdater,
+      platform: process.platform,
+      currentVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      updateCheck,
+      broadcast: (status) => getMainWindow()?.webContents.send('update:status-changed', status),
+      // Read through wrapper functions rather than passed by value: these
+      // `let`s below (stopStatusPoller) and the `shuttingDown` latch are not
+      // assigned/flipped until later in this same whenReady() callback, so
+      // autoUpdate must see their *current* value whenever it actually calls
+      // them, not whatever they held at construction time.
+      stopProxyForShutdown: () => stopProxyForShutdown(),
+      stopStatusPoller: () => stopStatusPoller?.(),
+      markShuttingDown: () => {
+        shuttingDown = true;
+      },
+    });
+
     // Every exit route funnels into app.quit() so 'before-quit' below stays the
     // single place shutdown work happens. The renderer's Quit button gets its
     // own channel because the sidebar has no other way to reach the app object;
@@ -80,6 +116,10 @@ if (!gotSingleInstanceLock) {
           setImmediate(() => app.quit());
           return { ok: true };
         },
+      },
+      update: {
+        check: () => autoUpdate.checkForUpdates(),
+        install: () => autoUpdate.installUpdateAndRestart(),
       },
     });
     createMainWindow();
@@ -108,8 +148,6 @@ if (!gotSingleInstanceLock) {
       onRestart: () => handlers.proxy.restart(),
     });
 
-    stopProxyForShutdown = createProxyShutdown({ pm2Control });
-
     stopStatusPoller = startStatusPoller({
       pm2Control,
       onStatus: (status) => {
@@ -119,6 +157,16 @@ if (!gotSingleInstanceLock) {
     });
 
     app.on('activate', () => showMainWindow());
+
+    // Fire-and-forget: never awaited, so it can never delay the window
+    // showing or anything else in this startup sequence (AC#4). Every
+    // failure mode checkForUpdates() can hit already resolves to a status
+    // broadcast rather than a rejection (see autoUpdate.js/updateCheck.js) —
+    // this catch is only a backstop against a genuinely unexpected
+    // synchronous throw.
+    Promise.resolve()
+      .then(() => autoUpdate.checkForUpdates())
+      .catch((err) => console.warn('[auto-update] startup check failed unexpectedly:', err.message));
   });
 
   // The one shutdown choke point. Every exit route — the menu's Quit/Exit item,
