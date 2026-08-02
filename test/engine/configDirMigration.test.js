@@ -11,6 +11,17 @@ function tempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'nim-configdir-migration-test-'));
 }
 
+/**
+ * Generated files embed absolute paths via JSON.stringify (see configGen.js),
+ * which doubles path-separator backslashes on win32 — a regex built from the
+ * raw path (single backslashes) never matches that on-disk text. Builds a
+ * regex pattern from the same JSON.stringify-escaped form the file actually
+ * contains, then regex-escapes *that* for use in `new RegExp(...)`.
+ */
+function escapedPathPattern(p) {
+  return JSON.stringify(p).slice(1, -1).replace(/[\\.]/g, '\\$&');
+}
+
 /** Mimics a real pre-NCOW-12 install: config.yaml, litellm.env, manifest.json,
  * plus the two generated files that embed the OLD directory's absolute path. */
 function seedLegacyInstall(legacyDir) {
@@ -60,8 +71,8 @@ test('migrateLegacyConfigDir: repairs absolute paths baked into run.js and ecosy
   const ecosystem = fs.readFileSync(path.join(newDir, 'ecosystem.config.cjs'), 'utf8');
   assert.doesNotMatch(runJs, /claude-nim-proxy/, 'no stale legacy path left in run.js');
   assert.doesNotMatch(ecosystem, /claude-nim-proxy/, 'no stale legacy path left in ecosystem.config.cjs');
-  assert.match(runJs, new RegExp(path.join(newDir, 'litellm.env').replace(/[\\.]/g, '\\$&')));
-  assert.match(ecosystem, new RegExp(path.join(newDir, 'run.js').replace(/[\\.]/g, '\\$&')));
+  assert.match(runJs, new RegExp(escapedPathPattern(path.join(newDir, 'litellm.env'))));
+  assert.match(ecosystem, new RegExp(escapedPathPattern(path.join(newDir, 'run.js'))));
 });
 
 test('migrateLegacyConfigDir: repairs paths whose JSON.stringify escaping doubles backslashes (win32-style paths)', () => {
@@ -95,7 +106,7 @@ test('migrateLegacyConfigDir: repairs paths whose JSON.stringify escaping double
   assert.doesNotMatch(runJs, /claude-nim-proxy/, 'no stale legacy path left in run.js');
   assert.match(
     runJs,
-    new RegExp(JSON.stringify(`${newDir}\\litellm.env`).slice(1, -1).replace(/[\\.]/g, '\\$&')),
+    new RegExp(escapedPathPattern(`${newDir}\\litellm.env`)),
     'run.js now embeds the new dir, still correctly JSON-escaped'
   );
 });
