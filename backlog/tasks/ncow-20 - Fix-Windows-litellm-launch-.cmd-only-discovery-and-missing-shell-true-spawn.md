@@ -4,7 +4,7 @@ title: 'Fix Windows litellm launch: .cmd-only discovery and missing shell:true s
 status: In Progress
 assignee: []
 created_date: '2026-08-02 04:37'
-updated_date: '2026-08-02 06:55'
+updated_date: '2026-08-02 07:05'
 labels: []
 dependencies: []
 priority: high
@@ -31,3 +31,25 @@ Both bugs were confirmed via direct code trace against platform.js, prereqs.js, 
 - [ ] #3 Regression tests cover both fixes on a simulated Windows platform (this project's existing tests already inject process.platform per test/engine/platform.test.js's pattern)
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Two independent fixes matching the two bugs: (1) stop wrapping litellm/python/installer names in resolveCliCommand() before findExecutable() in prereqs.js -- that PATHEXT loop already resolves Windows extensions correctly for bare names. (2) In configGen.js's generated run.js, detect when the resolved litellm path ends in .cmd/.bat on win32 and route the spawn through cmd.exe as the target program (shell left OFF, explicit argv array) instead of a removed direct spawn -- avoids both the EINVAL crash and the shell-injection risk that naive shell:true + args would introduce (user-influenced args like model IDs/API keys flow into this launcher).
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+WORKER RESULT: status=implemented, branch fix/NCOW-20-windows-litellm-launch pushed (2 commits: 33e831f prereqs fix, c138564 configGen fix). npm test: 232/232 passing (baseline 220, +13 new regression tests, 0 failing).
+
+AC1: checkLitellmOnPath()/checkPython()/detectInstaller() now pass the bare name to findExecutable(name, extraSearchDirs, opts), forwarding platform/envPath/pathExt through opts instead of pre-wrapping via resolveCliCommand(). 7 new tests in test/engine/prereqs.test.js build a fake win32 PATH dir with .exe files and confirm litellm.exe/python3.exe/py.exe/uv.exe/pip.exe are all found, plus a non-regression check that a bare litellm.cmd shim is still found.
+
+AC2: renderRunLauncherJs() in configGen.js branches on needsCmdWrapper = win32 && /\.(cmd|bat)$/i.test(litellmPath). When true: spawns process.env.ComSpec||'cmd.exe' with ['/d','/s','/c', litellmPath, ...args], shell left undefined/never true -- deliberately avoids the shell-injection risk that naive shell:true + an args array carrying user-chosen model IDs/API keys would introduce. When false (the common real-world .exe case): spawns litellmPath directly, unchanged from before. Also added stopChild() so the wrapper case kills the process tree via taskkill /pid <pid> /t /f instead of a plain child.kill(), since cmd.exe is only an intermediary and killing it alone would orphan the real litellm process. 6 new tests in test/engine/configGen.test.js execute the generated launcher code via a Function-constructor harness with a fake require()/process capturing spawn() calls, asserting both branches' spawn shape and stop behavior.
+
+AC3: 13 new regression tests total, all using the same process.platform-injection/opts pattern as the existing test/engine/platform.test.js style.
+
+AC4: npm test 232/232 passing, confirmed baseline was 220 by stashing and re-running.
+
+OPEN QUESTION flagged by worker (not acted on, out of this task's stated scope): src/engine/prereqs.js's installLitellm() also does a direct spawn(installer.path, args, ...) with no shell handling -- same theoretical EINVAL exposure if an installer (uv/pipx/pip) ever resolved to a .cmd/.bat instead of .exe. In practice these are native/console-script .exe stubs on Windows just like litellm, and this call site wasn't named in NCOW-20's ACs, so left untouched. Worth a follow-up task if it becomes relevant.
+<!-- SECTION:NOTES:END -->
