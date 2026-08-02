@@ -201,8 +201,10 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
 
 **What it does:**
 
-1. A `prepare` job resolves the tag being released and fails the whole run immediately if
-   it doesn't match `v<package.json version>` — see below for why this check exists.
+1. A `prepare` job resolves the tag being released, fails the whole run immediately if it
+   doesn't match `v<package.json version>`, and pre-creates the draft release itself — see
+   "The tag must match `package.json`'s version" and "Why the release is pre-created, not
+   left to `electron-builder`" below for why both exist.
 2. Three matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`), gated on
    `prepare`, each check out the tag, run `npm ci && npm test`, then run this repo's own
    `dist:mac` / `dist:win` / `dist:linux` script with `-- --publish always` appended.
@@ -222,9 +224,10 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
    it behaves identically on all three runners.
 3. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
    "Asset names matter" note above for why this matters over any manual alternative). All
-   three jobs target the same tag, so electron-builder finds-or-creates a single release
-   and all three jobs' assets land on it. A release electron-builder creates defaults to a
-   **draft**.
+   three jobs target the same tag; because `prepare` already created the draft release for
+   that tag before any of them started, each job's own `getOrCreateRelease()` call finds
+   it and reuses it rather than racing to create it independently (see below — this was
+   not true in an earlier version of this workflow, and a real run proved why it matters).
 4. A `finalize` job (needs `prepare` and all three build jobs) downloads every uploaded
    asset, computes a `SHA256SUMS` file over all of them (artifacts, `.blockmap`s, and the
    three `latest*.yml` files), uploads that alongside, sets release notes from
@@ -260,6 +263,35 @@ The `prepare` job now catches this class of mistake by comparing the pushed (or
 build/test time is spent if they disagree. The correct release sequence is therefore:
 bump `package.json`'s `version`, commit it, then tag that commit `v<the same version>` and
 push the tag.
+
+### Why the release is pre-created, not left to `electron-builder`
+
+Also discovered by a real run, not by reading source first. `GitHubPublisher`'s
+`getOrCreateRelease()` (`node_modules/electron-publish/out/gitHubPublisher.js`) lists a
+repo's releases, finds one matching the tag, and creates one if none matches — safe within
+a single process, but this workflow deliberately runs three separate `electron-builder
+--publish always` processes (one per platform job) against the *same* tag at the *same*
+time, and GitHub does not enforce uniqueness on a draft release's `tag_name`. A real run of
+an earlier version of this workflow (before the `prepare` job pre-created the release) hit
+exactly that: two of the three jobs' "create" calls raced, producing **two separate draft
+releases both claiming the same tag**. Assets split across them — macOS's `.dmg`/`.zip`/
+`.dmg.blockmap`/`latest-mac.yml` landed on one, Linux's `.AppImage` and macOS's
+`.zip.blockmap` landed on the other. Worse, that stray `.zip.blockmap` was uploaded under
+its raw on-disk filename (`Claude Conduit-…zip.blockmap`, with a space) rather than the
+safe dashed name, and GitHub's upload API silently rewrote the space to a period
+(`Claude.Conduit-…zip.blockmap`) — the exact asset-naming footgun this whole workflow
+exists to prevent, reached by a different road than the manual-upload case above. Cleanup
+was its own trap: `gh release delete <tag>` and `gh release list` only ever surfaced *one*
+of the two duplicates — the second was found only by querying
+`GET /repos/{owner}/{repo}/releases` directly and filtering on `tag_name`, which is the
+reliable way to check for this class of leftover if it's ever suspected again.
+
+The fix is the `prepare` job's "Pre-create the draft release" step: it creates the release
+for the tag once, before any build job starts (or reuses one that already exists, so a
+`workflow_dispatch` re-run against a tag that already has a draft doesn't fail or
+duplicate). Every build job's own `getOrCreateRelease()` then only ever exercises the
+race-free "get" half — list releases, find the matching tag, reuse it — because the release
+it's looking for is already there.
 
 ---
 

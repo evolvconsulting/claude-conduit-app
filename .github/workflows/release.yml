@@ -55,6 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,6 +78,36 @@ jobs:
           fi
           echo "Tag $TAG matches package.json version $PKG_VERSION"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Pre-create the draft release (avoids a real, observed race)
+        # electron-builder's GitHub publisher does getOrCreateRelease() per
+        # process, and its "or-create" half is not safe across concurrent
+        # processes: a real run of this workflow, before this step existed,
+        # had all three matrix jobs call it around the same time for the
+        # same tag and ended up creating TWO separate draft release objects
+        # for that one tag instead of one — GitHub does not enforce
+        # uniqueness on a draft's tag_name. Assets split across the two
+        # (observed: macOS's dmg/zip/blockmap/latest-mac.yml landed on one,
+        # Linux's AppImage and macOS's zip.blockmap on the other), and the
+        # zip.blockmap that landed on the "wrong" one was uploaded under its
+        # raw on-disk name (with a space) instead of the safe dashed name,
+        # which GitHub's own upload API then silently mangled to a period —
+        # the exact asset-naming footgun this whole workflow exists to
+        # avoid, just reached by a different road (a publish race, not a
+        # manual/web upload). Creating the release once, here, before any
+        # build job starts, means every build job's getOrCreateRelease()
+        # finds this one already-existing draft and reuses it — the "get"
+        # half of that function is a simple, race-free list-and-match.
+        run: |
+          if gh release view "${{ steps.resolve.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${{ steps.resolve.outputs.tag }} already exists, reusing it."
+          else
+            gh release create "${{ steps.resolve.outputs.tag }}" \
+              --repo "${{ github.repository }}" \
+              --draft \
+              --title "${{ steps.resolve.outputs.tag }}" \
+              --notes "Building…"
+          fi
 
   build:
     needs: prepare
