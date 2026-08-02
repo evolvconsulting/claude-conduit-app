@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 06:56'
+updated_date: '2026-08-02 09:41'
 ---
 # Backlog campaign tracker
 
@@ -133,19 +133,20 @@ future restores. Do not re-ask any of this.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 4 dispatch (2026-08-02): **NCOW-20 dispatched, wave 4, solo (no conflicts).** NCOW-10.3
-remains blocked-by-dependency on it (not human_needed anymore — that part is resolved) and
-should be re-attempted as one full pass once NCOW-20 is Done. No other task in this campaign
-round is ready (see Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for
-unrelated reasons).
+As of wave 4 settlement (2026-08-02): **NCOW-20 is Done and merged.** NCOW-10.3 is now fully
+ready (both its dependencies, NCOW-10.1/10.2 and now NCOW-20, are Done) — no other task in this
+campaign round is ready (see Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1
+for unrelated reasons). Two small non-blocking findings from NCOW-20's review (an unreachable
+embedded-quote edge case with an already-live-verified one-line fix, and a doc-comment wording
+nit) have NOT been turned into a task yet — pending user approval, per this skill's rule that
+follow-up tasks always need explicit approval.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-20 | release | none | Dispatched | 4 | Windows litellm-launch bugs (.cmd-only discovery, missing shell:true) |
-| 3 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (to do) | Blocked | | full re-verification once NCOW-20 lands; privacy blocker already resolved |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done) | To Do | | ready now — full re-verification (all deps satisfied, privacy blocker resolved wave 3) |
 
 ## Resolved
 
@@ -153,6 +154,7 @@ unrelated reasons).
 | --- | --- | --- | --- |
 | 1 | NCOW-10.1 | Done, 2026-08-02, wave 1 | electron-updater + GitHub Releases feed, documented in new docs/auto-update.md (docs/distribution.md untouched). In-app checker via new update:* IPC channels + non-blocking renderer banner. macOS notify-only (pending signing certs) per campaign decision; Windows/Linux get electron-updater's silent path. Proxy-restart reuses the single existing stop-proxy call site (poller stop -> proxy stop -> shutdown latch -> quitAndInstall). Two opus review passes: pass 1 request_changes (startup-broadcast-vs-late-subscriber race that could silently drop the macOS notification, AC3; plus 3 minor items) -- fixed via status caching/coalescing so a late subscriber gets an accurate replay without a second real check; pass 2 approve, all 5 ACs independently confirmed. 219/219 tests passing. Squash-merged PR #9 -> dev @ 6633b4a. Real E2E install verification deferred to NCOW-10.3 by design. |
 | 2 | NCOW-10.2 | Done, 2026-08-02, wave 2 | GitHub Actions release workflow (.github/workflows/release.yml): 3-platform matrix, npm test gate, electron-builder --publish always on a tag push, publishes latest.yml/latest-mac.yml/latest-linux.yml. docs/distribution.md updated. Verified via a real smoke-test tag (v0.0.0-ci-smoketest) against the live repo -- surfaced and fixed 6 real bugs: a genuine Windows production bug in configDirMigration.js's path-rewrite (JSON.stringify backslash-escaping mismatch, would have left real Windows upgraders with a broken pm2 launcher), a broken npm run licenses on Windows (ENOENT then EINVAL, fixed via resolveCliCommand + shell:true), two Windows-only test bugs (hardcoded forward-slash path parsing, hardcoded bare 'node' expectation), and two CI-workflow races (tag/version mismatch, concurrent duplicate-release creation). Also documented a real upstream electron-builder 26.15.3 bug (macOS zip blockmap gets an unsanitized name even through --publish always) as non-load-bearing today. One opus review pass: approve, all 4 ACs independently re-verified against fresh observed output (re-ran npm test, re-checked the real CI run's actual asset listing, reproduced the Windows bug against pre-fix dev code to confirm it was genuine). Test release + tag cleaned up, package.json version reverted. 220/220 tests passing. Squash-merged PR #10 -> dev @ 0325e2c. Note: a concurrency incident occurred mid-implementation -- an earlier worker instance that was told to stand down kept running silently in the background and briefly clobbered a second worker's uncommitted fix-pass edits in the same worktree; caught via direct CI-log inspection by the orchestrator, resolved by force-killing the stale instance via TaskStop, no data lost (fixes were fully re-described and reapplied). |
+| 3 | NCOW-20 | Done, 2026-08-02, wave 4 | Fixed two independent, compounding Windows bugs found during NCOW-10.3's E2E verification: (1) resolveCliCommand() no longer wraps litellm/python/installer names in .cmd before findExecutable() -- real pip/uv/pipx .exe stubs are now correctly discovered. (2) configGen.js's generated run.js launcher routes .cmd/.bat paths through cmd.exe with a properly double-quoted, fully escaped command string (windowsVerbatimArguments:true) instead of a direct spawn (which threw EINVAL) -- deliberately not shell:true. Took 3 review passes (all opus, all with LIVE Windows VM verification via a real recording litellm.cmd shim, not just code reading): pass 1 found a CI-breaking case-sensitive test bug plus a flawed early escaping approach that broke paths like "Program Files (x86)" and wasn't even injection-safe (live-proven); fix pass 1 fixed the tests, replaced the escaping with a different but still-flawed caret-based construction; pass 2 live-reproduced that the new escaping STILL broke "Program Files (x86)" and was still injectable via an embedded-quote case, root-caused to cmd.exe not treating metacharacters as control characters inside a quoted region (making the caret pass actively harmful, not protective); fix pass 2 removed the caret-escaping entirely since proper double-quoting alone is correct; pass 3 (final, would have auto-escalated on another request_changes per the 2-retry cap) approved after full live re-verification confirmed all 4 ACs, including a live before/after proof of AC1 (python/litellm genuinely undiscoverable pre-fix, found post-fix on real Windows) and that "Program Files (x86)" now round-trips correctly. 235/235 tests passing (232 baseline + 3 net new). Squash-merged PR #12 -> dev @ 11eacfa. Two small non-blocking findings flagged for a possible fast-follow (an unreachable embedded-quote-plus-metachar edge case with an already-live-verified one-line fix, and a doc-comment wording nit) -- not addressed in this task, pending user decision on whether to file a follow-up. Operational note: mid-review-pass-2, the reviewer's own test-volume cleanup accidentally ran `diskutil unmountDisk force` on the whole disk container, briefly unmounting and FileVault-locking this repo's own disk (/Volumes/_data) -- no data lost, user unlocked it, orchestrator confirmed repo/worktree integrity before continuing; all subsequent passes were explicitly warned off local diskutil operations. |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -254,3 +256,19 @@ across 4 waves)*
   restart) can't be exercised until NCOW-20's fixes land — NCOW-10.3 given a real `--dep NCOW-20`
   to formalize this for future restores. Session ends here; next restore's ready set will
   correctly surface NCOW-20 as the next wave.
+- 2026-08-02 — wave 4 (task: NCOW-20): dispatched solo (only ready task, no conflicts) once the
+  human_needed escalation from wave 3 was resolved. Unlike NCOW-10.3, this was a normal
+  code-fix task -- no live VM access needed to implement (existing test/engine/platform.test.js
+  pattern already injects process.platform), though the reviewer used the same winvm access
+  established in wave 3 to verify every review pass live rather than by code reading alone,
+  which is exactly what caught two real, non-obvious defects a code-only review would have
+  missed (the case-sensitive test bug, and the cmd.exe-quoting model being subtly wrong not
+  once but twice). 3 review passes total (the maximum before auto-escalation): pass 1
+  request_changes (CI-breaking case-sensitive tests + a flawed escaping approach), fix pass 1,
+  pass 2 request_changes (the fixed escaping still broken for "Program Files (x86)" and still
+  injectable, live-proven), fix pass 2 (removed the flawed caret-escaping entirely), pass 3
+  approve (full live re-verification, all 4 ACs confirmed). Squash-merged PR #12 -> dev @
+  11eacfa, 235/235 tests passing. Two small non-blocking findings from the final review are
+  pending a user decision on whether to file a follow-up task. NCOW-10.3 is now fully ready
+  (both dependencies Done) for its full re-verification pass, deferred to the next wave pending
+  user input on whether to continue this session or stop here given its length so far.
