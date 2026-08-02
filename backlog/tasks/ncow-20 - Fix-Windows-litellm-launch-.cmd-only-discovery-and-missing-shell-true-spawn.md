@@ -4,7 +4,7 @@ title: 'Fix Windows litellm launch: .cmd-only discovery and missing shell:true s
 status: In Progress
 assignee: []
 created_date: '2026-08-02 04:37'
-updated_date: '2026-08-02 07:05'
+updated_date: '2026-08-02 07:15'
 labels: []
 dependencies: []
 priority: high
@@ -52,4 +52,18 @@ AC3: 13 new regression tests total, all using the same process.platform-injectio
 AC4: npm test 232/232 passing, confirmed baseline was 220 by stashing and re-running.
 
 OPEN QUESTION flagged by worker (not acted on, out of this task's stated scope): src/engine/prereqs.js's installLitellm() also does a direct spawn(installer.path, args, ...) with no shell handling -- same theoretical EINVAL exposure if an installer (uv/pipx/pip) ever resolved to a .cmd/.bat instead of .exe. In practice these are native/console-script .exe stubs on Windows just like litellm, and this call site wasn't named in NCOW-20's ACs, so left untouched. Worth a follow-up task if it becomes relevant.
+
+REVIEW (opus): request_changes. Confirmed AC indices: [1, 4] (AC2 partially, AC3 not confirmed). All findings independently verified LIVE on winvm (Windows VM), not just code-read.
+
+AC1 (discovery fix): CONFIRMED. Bare names now reach findExecutable() correctly; traced platform.js's PATHEXT loop directly. resolveCliCommand() correctly retained for its other legitimate uses (pm2/claude/npm). This half is genuinely correct.
+
+AC2 (launch fix): PARTIALLY CONFIRMED, real defect found. Direct .exe spawn path (the common real-world case after AC1's fix) is correct and injection-free. BUT the new cmd.exe /d /s /c wrapper for .cmd/.bat paths is BROKEN for any path containing a space (verified live: libuv quotes the spaced path, cmd.exe's /s rule strips only the outer quotes, shredding the command -- reproduced with and without /s). This project's own paths regularly contain spaces (e.g. "C:\Program Files\...", "C:\Users\Jeremy Newhouse\..."). Reachable in practice: engine-context.js's config.generate only checks checkLitellmOnPath().ok, not gated on a working version check, so a .cmd shim does reach the launcher -- would silently pm2-restart-loop instead of erroring cleanly.
+
+SECURITY FINDING (important): the worker's stated rationale for why the cmd.exe wrapper avoids shell-injection risk is WRONG, empirically disproven on real Windows. cmd.exe re-parses the command line libuv produces; libuv's quoting only escapes whitespace/quotes, never cmd metacharacters (&, |, <, >, ^, %, etc). Reviewer proved live: an arg containing `&echo,INJECTED>marker` with no whitespace passes through unescaped and executes via the new wrapper (marker file created) -- identical result to naive shell:true+args, i.e. the new form is NOT meaningfully safer against injection, only marginally better for whitespace-only args. Also %USERNAME%-style env-var args get expanded through the wrapper. VERDICT: not currently exploitable in practice (args here are the app's own resolved paths + a hardcoded port; model IDs/keys/base URLs travel via config.yaml/litellm.env, never reach this argv) -- so request_changes, not escalate -- but the doc comment's safety claim is false and load-bearing for future maintainers, must be corrected to state the real reason (these specific args are app-generated, not "shell is off").
+
+AC3 (tests): NOT CONFIRMED -- CI-BREAKING BUG. 6 of 7 new prereqs.test.js tests are filesystem-case-dependent: fixtures created as lowercase "litellm.exe" only match the default pathExt fallback ('.EXE;.CMD;.BAT') because macOS APFS is case-insensitive. Reviewer proved by mounting a case-sensitive volume: 6/13 fail. release.yml's CI matrix runs npm test on ubuntu-latest (case-sensitive) -- this branch as-is WOULD BREAK THE RELEASE PIPELINE. Minimal fix: pass explicit lowercase pathExt ('.exe;.cmd;.bat') in test opts, or match fixture case to the real default.
+
+Additional findings (lower severity): taskkill spawn has no 'error' listener (a missing taskkill binary would crash via unhandled error event); runAllPrereqChecks()'s execCli(path,['--version']) on a .cmd shim still throws EINVAL (swallowed, reported as a critical "unparseable version" failure) -- same EINVAL class, unaddressed, arguably closer to the stated ACs than the installLitellm() item the worker already flagged as out-of-scope (that one is confirmed accurate and low-risk, real installers ship .exe).
+
+RECOMMENDATION (priority order): (1) fix the case-dependent tests -- CI-breaking, must fix regardless of anything else; (2) either properly fix the cmd.exe wrapper with metacharacter-aware quoting (not just whitespace) plus windowsVerbatimArguments and a regression test covering a spaced path + a metacharacter-bearing arg, OR remove the wrapper branch entirely and rely on the .exe path (defensible since finding on the version-check gate means a .cmd shim doesn't cleanly reach the launcher today anyway) -- worker's call, with justification; (3) correct the doc comment's safety rationale; (4) add the missing taskkill 'error' listener. AC1's fix is solid and should not be touched by the fix pass.
 <!-- SECTION:NOTES:END -->
