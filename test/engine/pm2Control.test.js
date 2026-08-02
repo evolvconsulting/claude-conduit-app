@@ -2,7 +2,11 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createPm2Control } = require('../../src/engine/pm2Control');
+const net = require('node:net');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createPm2Control, probeDaemonAlive, spawnDaemon } = require('../../src/engine/pm2Control');
 
 function fakePm2({ apps = [] } = {}) {
   const calls = [];
@@ -76,5 +80,157 @@ test('getBootPersistenceGuidance: is print-only text, never something the app ru
     assert.match(guidance, /pm2/i);
     assert.match(guidance, /never/i);
     assert.match(guidance, /run/i);
+  }
+});
+
+// --- NCOW-22 regressions -----------------------------------------------
+//
+// pm2's own Client.pingDaemon() can hang forever (Windows, no daemon
+// listening) or, on any platform, react to "no daemon" by spawning
+// process.execPath — this app's own Electron binary — instead of a real
+// pm2 daemon. ensureConnected() must (a) never be wedged permanently by a
+// connect attempt that never settles, regardless of the cause, and (b)
+// when given a way to detect/bootstrap a missing daemon, use it instead of
+// ever handing control to pm2's own connect-time auto-launch.
+
+function hangingPm2() {
+  const calls = [];
+  return {
+    calls,
+    connect: () => {
+      calls.push('connect');
+      // Never calls back — simulates pm2's own pingDaemon() hang (NCOW-22
+      // cause #1) or any other wedged connect attempt.
+    },
+  };
+}
+
+test('ensureConnected: a connect attempt that never calls back rejects within the bounded timeout, and does not permanently poison later attempts', async () => {
+  const pm2 = hangingPm2();
+  const ctl = createPm2Control(pm2, { ensureConnectedTimeoutMs: 30 });
+
+  await assert.rejects(ctl.ensureConnected(), /timed out/i);
+
+  // A second, well-behaved connect() must be given a fresh attempt rather
+  // than replaying the same permanently-rejected memoized promise (AC#3).
+  pm2.connect = (cb) => {
+    pm2.calls.push('connect');
+    cb(null);
+  };
+  await ctl.ensureConnected();
+  assert.equal(pm2.calls.filter((c) => c === 'connect').length, 2);
+});
+
+test('ensureConnected: without probeDaemonAlive/spawnDaemon deps, falls back to calling pm2.connect() directly (pre-NCOW-22 behaviour)', async () => {
+  const pm2 = fakePm2();
+  const ctl = createPm2Control(pm2);
+  await ctl.ensureConnected();
+  assert.deepEqual(pm2.calls, ['connect']);
+});
+
+test('ensureConnected: when a daemon is already alive, never spawns one before connecting', async () => {
+  const pm2 = fakePm2();
+  let spawnCalled = false;
+  const ctl = createPm2Control(pm2, {
+    probeDaemonAlive: async () => true,
+    spawnDaemon: async () => {
+      spawnCalled = true;
+    },
+  });
+  await ctl.ensureConnected();
+  assert.equal(spawnCalled, false);
+  assert.deepEqual(pm2.calls, ['connect']);
+});
+
+test('ensureConnected: when no daemon is alive, bootstraps one before ever calling pm2.connect()', async () => {
+  const pm2 = fakePm2();
+  const order = [];
+  const ctl = createPm2Control(pm2, {
+    probeDaemonAlive: async () => false,
+    spawnDaemon: async () => {
+      order.push('spawn');
+    },
+  });
+  const originalConnect = pm2.connect;
+  pm2.connect = (cb) => {
+    order.push('connect');
+    originalConnect(cb);
+  };
+  await ctl.ensureConnected();
+  assert.deepEqual(order, ['spawn', 'connect']);
+});
+
+test('ensureConnected: a probeDaemonAlive rejection is treated as "not alive" rather than failing the whole connect', async () => {
+  const pm2 = fakePm2();
+  let spawnCalled = false;
+  const ctl = createPm2Control(pm2, {
+    probeDaemonAlive: async () => {
+      throw new Error('probe blew up');
+    },
+    spawnDaemon: async () => {
+      spawnCalled = true;
+    },
+  });
+  await ctl.ensureConnected();
+  assert.equal(spawnCalled, true);
+});
+
+// --- probeDaemonAlive/spawnDaemon: real sockets and a real spawned daemon ---
+//
+// These exercise the actual exported implementations (not fakes) against a
+// throwaway PM2_HOME, matching this project's preference for live evidence
+// over pure mocking. The daemon we spawn is our own, under a temp PM2_HOME
+// nothing else references, and is torn down with a plain SIGTERM at the end
+// — never `pm2 kill`, and never touching any shared/pre-existing daemon.
+
+test('probeDaemonAlive: false when nothing is listening on the rpc socket path', async () => {
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-probe-'));
+  try {
+    assert.equal(await probeDaemonAlive({ pm2Home, timeoutMs: 300 }), false);
+  } finally {
+    fs.rmSync(pm2Home, { recursive: true, force: true });
+  }
+});
+
+test('probeDaemonAlive: true when something is actually listening on the resolved socket path', async (t) => {
+  // Skipped on win32: resolveRpcSocketPath() hardcodes a shared named pipe
+  // there (mirroring pm2 itself), so this can't be pointed at a private
+  // per-test path the way the Unix-domain-socket case below can.
+  if (process.platform === 'win32') {
+    t.skip('rpc socket path is a fixed, shared named pipe on win32');
+    return;
+  }
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-probe-'));
+  const server = net.createServer();
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(path.join(pm2Home, 'rpc.sock'), resolve);
+    });
+    assert.equal(await probeDaemonAlive({ pm2Home, timeoutMs: 300 }), true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(pm2Home, { recursive: true, force: true });
+  }
+});
+
+test('spawnDaemon: actually launches a real pm2 daemon that starts listening, under a throwaway PM2_HOME', async () => {
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-spawn-'));
+  let pid;
+  try {
+    assert.equal(await probeDaemonAlive({ pm2Home, timeoutMs: 300 }), false);
+    const result = await spawnDaemon({ pm2Home, timeoutMs: 20_000 });
+    pid = result.pid;
+    assert.ok(Number.isInteger(pid) && pid > 0);
+    assert.equal(await probeDaemonAlive({ pm2Home, timeoutMs: 2000 }), true);
+  } finally {
+    if (pid) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already exited.
+      }
+    }
+    fs.rmSync(pm2Home, { recursive: true, force: true });
   }
 });

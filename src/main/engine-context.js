@@ -10,7 +10,7 @@ const nvidiaKey = require('../engine/nvidiaKey');
 const { createSecretStore } = require('../engine/secretStore');
 const modelCatalog = require('../engine/modelCatalog');
 const configGen = require('../engine/configGen');
-const { createPm2Control } = require('../engine/pm2Control');
+const { createPm2Control, probeDaemonAlive, spawnDaemon } = require('../engine/pm2Control');
 const claudeCodeConfig = require('../engine/claudeCodeConfig');
 const claudeDesktopConfig = require('../engine/claudeDesktopConfig');
 const diagnostics = require('../engine/diagnostics');
@@ -72,7 +72,12 @@ function createEngineContext(deps) {
   });
 
   const secretStore = createSecretStore(deps.safeStorage, path.join(deps.userDataDir, 'nim-key.enc'));
-  const pm2Control = createPm2Control(require('pm2'));
+  // NCOW-22: probeDaemonAlive/spawnDaemon let ensureConnected() bootstrap a
+  // missing pm2 daemon itself on a genuinely fresh machine, instead of
+  // relying on pm2's own connect-time auto-launch (which hangs forever on
+  // Windows, and elsewhere spawns a second copy of this app's own Electron
+  // binary rather than the daemon — see pm2Control.js for the full trace).
+  const pm2Control = createPm2Control(require('pm2'), { probeDaemonAlive, spawnDaemon });
 
   let logTailUnsubscribe = null;
   // NCOW-17 AC#3: tracks the AbortController for whichever diagnostics run
