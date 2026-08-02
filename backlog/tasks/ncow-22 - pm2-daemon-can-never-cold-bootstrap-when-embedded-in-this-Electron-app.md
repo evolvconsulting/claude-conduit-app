@@ -4,7 +4,7 @@ title: pm2 daemon can never cold-bootstrap when embedded in this Electron app
 status: In Progress
 assignee: []
 created_date: '2026-08-02 15:05'
-updated_date: '2026-08-02 18:42'
+updated_date: '2026-08-02 18:56'
 labels: []
 dependencies: []
 priority: high
@@ -110,4 +110,21 @@ probe->spawn->connect races (single-instance lock at index.js:46 + synchronous m
 
 ### Confirmed independently: the win32 NIM_PROXY_TEST_HOME hole is REAL
 src/main/engine-context.js:53 calls paths.resolveConfigDir({ homedir }) passing only homedir; src/engine/paths.js:41 resolves opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...) — and APPDATA is always set on Windows, so the injected homedir is never reached. Corroborated live: a --dev + NIM_PROXY_TEST_HOME run on winvm read the real %APPDATA%\claude-conduit. Genuine hole in the documented safe-manual-testing mechanism; deserves its own task. Reviewer respected it (never called config.generate on Windows; re-hashed all five real config files before/after — all SHA-256s byte-identical, only logs/ grew).
+
+## Wave 6 fix pass 1 (commit 2d635a6) — addresses both blocking findings
+
+**Blocking #1 (daemon leak) fixed** — src/engine/pm2Control.js:149-163: best-effort try { child.kill(); } catch {} added inside spawnDaemon()'s finish() helper, guarded by `if (fn === reject)`, so every reject path (timeout, onError, onExit) kills the already-spawned child before rejecting; the success (onMessage) path is untouched. Regression test at test/engine/pm2Control.test.js:271-300 reproduces the reviewer's exact scenario (non-socket file at rpc.sock, 3 sequential rejecting spawnDaemon() calls) and asserts zero leaked children via ps.
+Before/after repro observed: a throwaway copy of the PRE-fix spawnDaemon left 3 live 'PM2 v7.0.3: God Daemon' orphans after 3 calls (matching the reviewer's repro exactly); the fixed version left zero. Useful gotcha recorded by the fixer: the daemon renames its own process title to `PM2 vX: God Daemon (<PM2_HOME>)`, so filtering ps on the literal string 'Daemon.js' gives a FALSE NEGATIVE — the committed test filters on 'God Daemon'.
+
+**Blocking #2 (asarUnpack) fixed** — electron-builder.yml reverted to the narrow `**/node_modules/pm2/**` with the original pre-broadening comment restored verbatim. Additionally corrected spawnDaemon()'s own doc comment (src/engine/pm2Control.js:107-114), which had repeated the same now-disproved 'disjoint trees' claim; it now states the real reason (Electron's asar fs shim stays active in ELECTRON_RUN_AS_NODE children, so hoisted deps resolve straight out of app.asar; only pm2's own executable script needs unpacking).
+Verified: `npm run pack` succeeded with the narrow pattern and app.asar.unpacked contains exactly 482 files, matching the reviewer's figure. Packaged cold-bootstrap re-confirmed by launching the real packaged Claude Conduit.app binary with ELECTRON_RUN_AS_NODE=1, requiring pm2Control.js straight out of app.asar, and calling spawnDaemon() against a fresh throwaway PM2_HOME: probe before false -> spawnDaemon resolved with pid -> probe after true -> cleanly SIGTERMed. This exercises exactly the require.resolve('pm2/package.json') + ELECTRON_RUN_AS_NODE spawn path the revert depends on.
+
+**Non-blocking #4 fixed** — test/engine/pm2Control.test.js:218-228 now skips the real-spawnDaemon test on win32 with the same rationale as its probeDaemonAlive sibling (shared named pipe is not isolated by a throwaway PM2_HOME).
+**Nit #6 fixed** — src/engine/pm2Control.js:27-35 resolveRpcSocketPath now honors PM2_DAEMON_RPC_PORT on non-win32, matching pm2/paths.js:71-78's env-override loop (win32's hardcoded pipe still wins, matching pm2 itself).
+
+**npm test: 244/244** (was 243; net +1 — one new regression test, one existing test only gained a skip guard).
+Deliberately left alone per scope: non-blocking #3 (daemon outliving the app), non-blocking #5 (stdio/cwd divergence from pm2's launchDaemon), and the win32 paths.js/NIM_PROXY_TEST_HOME hole. Fixer reported no disagreement with either blocking finding — both reproduced exactly as described.
+Local pm2 safety re-confirmed: ps before/after showed only the pre-existing real user daemon (pid 1479, ~/.pm2) remaining; no orphans; no pm2 kill ever used.
+
+**Correction to this task's own description:** cause #3 as originally written (asarUnpack missing pm2's hoisted dependency closure, e.g. `debug`) does NOT reproduce against the shipped code — see review pass 1 notes. The original 'Cannot find module debug' observation came from a hand-run experiment pointed at the app.asar.unpacked copy of Daemon.js, which this app never does. Causes #1 and #2 stand as described.
 <!-- SECTION:NOTES:END -->
