@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 21:08'
+updated_date: '2026-08-02 21:20'
 ---
 # Backlog campaign tracker
 
@@ -133,22 +133,24 @@ future restores. Do not re-ask any of this.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 6 settlement (2026-08-02): **NCOW-22 is Done** (merged, PR #13 -> e4b517c). Two tasks
-remain ready: **NCOW-10.3's AC3 retry** (AC1/AC2 already fully verified and checked in wave 5 --
-do not re-verify them) and **NCOW-21** (cmd.exe embedded-quote escaping hardening). Both still
-want live `winvm` access, so this skill's Shared Machine State rule (an always-conflicting
-resource regardless of file overlap) continues to limit any wave to one of them at a time.
-NCOW-10.3's AC3 should now be a normal run rather than needing wave 5's manual pre-start-a-daemon
-workaround, since NCOW-22 fixed the underlying defect and proved real start/stop/restart on a
-daemon-less winvm. No other task in this campaign round is ready (see Not queued for
-NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
+As of wave 7 (2026-08-02): **NCOW-22 is Done** (merged, PR #13 -> e4b517c). and wave 7's NCOW-10.3
+AC3 retry was **blocked by winvm being offline**, not by anything in the code.
+
+**CHECK winvm REACHABILITY FIRST at the next restore** (`~/.scripts/winvm.sh "hostname"`), because
+it gates most of the ready set. Tasks needing live Windows: NCOW-10.3 (AC3), NCOW-21, NCOW-23,
+NCOW-24. Tasks that do NOT need winvm and are runnable regardless: **NCOW-26** (pm2 timeout
+adopt-slow-daemon fix — pure code + tests) and **NCOW-25** (Linux arm64 release; `linuxvm` was
+reachable and is now provisioned with Node 22/Xvfb/pip/a litellm venv). Shared Machine State
+still limits any wave to one live-Windows task at a time. No other task in this campaign round is
+ready (see Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated
+reasons).
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done), NCOW-22 (done) | Dispatched (AC3 only) | 7 | AC3 retry ready now. **The wave-5 unblocker (manually pre-starting a pm2 daemon on winvm) should now be unnecessary** — NCOW-22 fixed the cold-bootstrap defect and proved real start/stop/restart on a daemon-less winvm. Retry AC3 as a normal run, and treat any need for the workaround as a regression |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done), NCOW-22 (done) | Partial (AC1/AC2 done); AC3 blocked on env | 7 | AC3 attempted wave 7, blocked: **winvm was offline** (Tailscale-layer, corroborated by the orchestrator). **The wave-5 unblocker IS still needed** — both published builds (v0.1.0/v0.1.1) predate NCOW-22's fix, which is on dev but in no published artifact. Plan unchanged and directly executable once winvm is reachable |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
 | 5 | NCOW-23 | safety | none | To Do | | win32 NIM_PROXY_TEST_HOME does not protect the config dir; filed wave 6 |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6 |
@@ -367,3 +369,28 @@ across 4 waves)*
   which on Windows locks a running image and may interfere with NCOW-10 auto-update / NSIS
   uninstall replacing the exe; (3) the x86_64-only Linux release vs this user's all-aarch64
   Linux fleet.
+
+- 2026-08-02 — wave 7 (task: NCOW-10.3, AC#3 only): dispatched solo at the user's explicit choice
+  after wave 6 settled. **Blocked on environment availability, not on the mechanism** — winvm was
+  offline for the entire wave at the Tailscale layer (ssh timed out; `tailscale ping` timed out;
+  status showed 'offline, last seen 19m ago' with rx stuck at 0; ~7 minutes of bounded polling
+  never connected; every other tailnet peer was normal). winvm HAD been reachable at the start of
+  this session and was used successfully by NCOW-22's reviewer earlier the same session, so it
+  dropped mid-session. The worker also checked for a way to power it on indirectly from mbam5 and
+  found none (no prlctl/VBoxManage/vmrun, no Parallels install).
+
+  Deliberately NOT routed through an opus reviewer despite the worker self-reporting `blocked`:
+  the escalation policy exists so an uncorroborated 'unfinishable' is never trusted, and the
+  orchestrator corroborated it directly with two independent probes. A reviewer cannot power on a
+  VM, and nothing about the mechanism was in question. Nothing was touched on winvm, no pm2
+  daemon started, no repo files changed, worktree released and branch deleted with zero commits.
+
+  Correction recorded for future waves: the assumption that NCOW-22's fix makes wave 5's
+  pre-start-a-daemon unblocker unnecessary is WRONG for this test, because both published builds
+  (v0.1.0 and v0.1.1) predate the fix — it is on dev but in no published artifact. The unblocker
+  is still required unless a new release is published (deliberately not done; the campaign
+  authorized exactly two permanent releases and both exist). One useful spec detail was still
+  established by code trace: NCOW-10.1's defined behavior is stopStatusPoller() ->
+  stopProxyForShutdown() (15s-bounded, degrades gracefully) -> markShuttingDown() ->
+  quitAndInstall(), with NO proxy auto-start on relaunch (purely user/tray-driven) — that is what
+  AC#3's 'after' state should be judged against.
