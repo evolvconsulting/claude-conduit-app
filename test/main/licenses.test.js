@@ -142,6 +142,8 @@ function installedProductionDirs() {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    // Same win32 batch-file rationale as scripts/generate-licenses.js.
+    shell: true,
   })
     .split('\n')
     .map((l) => l.trim())

@@ -104,6 +104,12 @@ function productionDependencyDirs() {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    // npm.cmd on win32 is a batch file, not a real PE binary -- CreateProcess
+    // can't launch it directly without shell interpretation. Safe here: fixed
+    // literal flags, no secrets/user input (unlike execCli's own no-shell
+    // policy in src/engine/platform.js, which exists for callers passing
+    // secrets or model IDs as args).
+    shell: true,
   });
   return output
     .split('\n')
