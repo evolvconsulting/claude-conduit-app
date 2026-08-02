@@ -64,6 +64,22 @@ general_settings:
  * `child.kill('SIGTERM')` degrades to a hard TerminateProcess — litellm may
  * drop in-flight requests abruptly on `pm2 stop`/`restart` there.
  *
+ * NCOW-20: a pip/uv/pipx-installed litellm resolves to a native `.exe` stub
+ * on Windows (checkLitellmOnPath() no longer forces a `.cmd` suffix — see
+ * prereqs.js), which needs none of what follows. But Node throws EINVAL
+ * spawning a `.cmd`/`.bat` directly on Windows without `shell:true` (the
+ * post-CVE-2024-27980 hardening), so a shim must still be handled. Passing
+ * `shell:true` alongside a separate args array leaves every argument
+ * unescaped-concatenated rather than quoted (this is exactly what Node's own
+ * DEP0190 deprecation now warns about) — real injection risk if any arg were
+ * attacker-influenced. None of these args are (they're this app's own
+ * generated paths, static flags, and a numeric port), but the safer
+ * construction costs nothing: spawn `cmd.exe` itself as the target program
+ * with an explicit argv array and `shell` left false, so Node applies its
+ * ordinary non-shell argv quoting to every element, exactly as it would for
+ * any other spawn() call — one of the two approaches Node's own docs
+ * recommend for invoking `.bat`/`.cmd` files.
+ *
  * @param {{litellmEnvPath: string, litellmAbsPath: string, configYamlPath: string, port: number}} opts
  */
 function renderRunLauncherJs(opts) {
@@ -83,14 +99,30 @@ function loadEnvFile(path) {
 
 const env = { ...process.env, ...loadEnvFile(${JSON.stringify(opts.litellmEnvPath)}) };
 
-const child = spawn(
-  ${JSON.stringify(opts.litellmAbsPath)},
-  ['--config', ${JSON.stringify(opts.configYamlPath)}, '--host', '127.0.0.1', '--port', ${JSON.stringify(String(opts.port))}],
-  { env, stdio: 'inherit' }
-);
+const litellmPath = ${JSON.stringify(opts.litellmAbsPath)};
+const litellmArgs = ['--config', ${JSON.stringify(opts.configYamlPath)}, '--host', '127.0.0.1', '--port', ${JSON.stringify(String(opts.port))}];
+
+// See renderRunLauncherJs's doc comment in configGen.js for why this exists
+// and why it deliberately does NOT use shell:true.
+const needsCmdWrapper = process.platform === 'win32' && /\\.(cmd|bat)$/i.test(litellmPath);
+const child = needsCmdWrapper
+  ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', litellmPath, ...litellmArgs], { env, stdio: 'inherit', windowsHide: true })
+  : spawn(litellmPath, litellmArgs, { env, stdio: 'inherit' });
+
+// In the wrapper case cmd.exe is only an intermediary — the real litellm
+// process is ITS child, so a plain child.kill() would terminate cmd.exe and
+// leave litellm running as an orphan holding the port. taskkill's /t walks
+// the whole process tree instead.
+function stopChild(sig) {
+  if (needsCmdWrapper) {
+    spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+  } else {
+    child.kill(sig);
+  }
+}
 
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
-  process.on(sig, () => child.kill(sig));
+  process.on(sig, () => stopChild(sig));
 }
 child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 `;

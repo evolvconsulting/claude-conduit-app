@@ -51,6 +51,138 @@ test('renderRunLauncherJs: is syntactically valid JS (roundtrips through the Fun
   assert.doesNotThrow(() => new Function('require', 'process', js));
 });
 
+// NCOW-20 regression coverage for bug 2: modern Node throws EINVAL spawning a
+// .cmd/.bat directly on Windows without shell:true, but shell:true plus a
+// separate args array (Node's own DEP0190) leaves arguments unescaped and
+// merely space-joined. The fix routes a .cmd/.bat launch through cmd.exe as
+// the spawned program with shell left OFF, so Node's ordinary non-shell argv
+// quoting applies. These tests execute the actual generated launcher code
+// (via the Function constructor, with fake require()/process) and assert on
+// what it tells node:child_process's spawn() to do.
+function runGeneratedLauncher(js, { platform, comSpec } = {}) {
+  const spawnCalls = [];
+  const signalHandlers = {};
+  const fakeChild = {
+    pid: 4321,
+    kill(sig) {
+      spawnCalls.push({ target: 'child.kill', sig });
+    },
+    on() {},
+  };
+  const fakeChildProcess = {
+    spawn(...args) {
+      spawnCalls.push({ target: 'spawn', args });
+      return fakeChild;
+    },
+  };
+  const fakeFs = { readFileSync: () => '' };
+  const fakeRequire = (name) => {
+    if (name === 'node:child_process') return fakeChildProcess;
+    if (name === 'node:fs') return fakeFs;
+    throw new Error(`unexpected require: ${name}`);
+  };
+  const fakeProcess = {
+    platform,
+    env: comSpec ? { ComSpec: comSpec } : {},
+    on(sig, cb) {
+      signalHandlers[sig] = cb;
+    },
+    exit() {},
+  };
+
+  new Function('require', 'process', js)(fakeRequire, fakeProcess);
+  return { spawnCalls, signalHandlers, fakeChild };
+}
+
+test('renderRunLauncherJs: spawns a resolved .exe directly on win32, no cmd.exe wrapper', () => {
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.exe',
+    configYamlPath: 'C:\\cfg\\config.yaml',
+    port: 4000,
+  });
+  const { spawnCalls } = runGeneratedLauncher(js, { platform: 'win32' });
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].target, 'spawn');
+  assert.equal(spawnCalls[0].args[0], 'C:\\Users\\jeremy\\.local\\bin\\litellm.exe');
+  assert.deepEqual(spawnCalls[0].args[1], ['--config', 'C:\\cfg\\config.yaml', '--host', '127.0.0.1', '--port', '4000']);
+});
+
+test('renderRunLauncherJs: wraps a .cmd shim via cmd.exe with shell left off on win32 (avoids both EINVAL and DEP0190)', () => {
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+    configYamlPath: 'C:\\cfg\\config.yaml',
+    port: 4000,
+  });
+  const { spawnCalls } = runGeneratedLauncher(js, { platform: 'win32', comSpec: 'C:\\Windows\\System32\\cmd.exe' });
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].target, 'spawn');
+  const [command, args, options] = spawnCalls[0].args;
+  assert.equal(command, 'C:\\Windows\\System32\\cmd.exe');
+  assert.deepEqual(args, [
+    '/d',
+    '/s',
+    '/c',
+    'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+    '--config',
+    'C:\\cfg\\config.yaml',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '4000',
+  ]);
+  assert.equal(options.shell, undefined);
+});
+
+test('renderRunLauncherJs: never wraps with cmd.exe off win32, even for a .cmd-suffixed path', () => {
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: '/usr/local/bin/litellm',
+    configYamlPath: '/cfg/config.yaml',
+    port: 4000,
+  });
+  const { spawnCalls } = runGeneratedLauncher(js, { platform: 'darwin' });
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].args[0], '/usr/local/bin/litellm');
+});
+
+test('renderRunLauncherJs: stopping a wrapped .cmd on win32 kills the whole process tree via taskkill, not just cmd.exe', () => {
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+    configYamlPath: 'C:\\cfg\\config.yaml',
+    port: 4000,
+  });
+  const { spawnCalls, signalHandlers } = runGeneratedLauncher(js, { platform: 'win32' });
+
+  signalHandlers.SIGTERM('SIGTERM');
+
+  assert.equal(spawnCalls.length, 2);
+  assert.equal(spawnCalls[1].target, 'spawn');
+  assert.equal(spawnCalls[1].args[0], 'taskkill');
+  assert.deepEqual(spawnCalls[1].args[1], ['/pid', '4321', '/t', '/f']);
+});
+
+test('renderRunLauncherJs: stopping a direct .exe spawn on win32 signals the child directly, no taskkill', () => {
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.exe',
+    configYamlPath: 'C:\\cfg\\config.yaml',
+    port: 4000,
+  });
+  const { spawnCalls, signalHandlers } = runGeneratedLauncher(js, { platform: 'win32' });
+
+  signalHandlers.SIGTERM('SIGTERM');
+
+  assert.equal(spawnCalls.length, 2);
+  assert.equal(spawnCalls[1].target, 'child.kill');
+  assert.equal(spawnCalls[1].sig, 'SIGTERM');
+});
+
 test('renderEcosystemConfigCjs: no secret ever appears, and paths with spaces/backslashes survive via JSON.stringify escaping', () => {
   const cjs = renderEcosystemConfigCjs({
     runLauncherPath: 'C:\\Users\\Jeremy Newhouse\\claude-conduit\\run.js',
