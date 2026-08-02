@@ -92,6 +92,22 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # `npm test` runs `node --test test/**/*.test.js`, and that glob is expanded
+    # by whatever shell npm spawns to run the script — NOT the shell that ran the
+    # `npm test` command itself. npm's script-shell defaults to cmd.exe on Windows
+    # regardless of the invoking shell (see npm's own docs: "on Windows, it
+    # defaults to cmd.exe... customize ... by setting the script-shell
+    # configuration option"), and cmd.exe does not expand the glob, so node
+    # receives the literal string "test/**/*.test.js" and fails with "Could not
+    # find ...". Setting `script-shell` to plain "bash" here (resolved via PATH,
+    # which includes Git Bash on windows-latest) makes npm use the same shell —
+    # and the same glob semantics — on all three runners. Two real CI runs of this
+    # workflow failed on windows-latest before this env var was added: first with
+    # the default cmd.exe script-shell, then again after only fixing the *step's*
+    # shell (which turned out not to be the actual mechanism npm uses).
+    env:
+      npm_config_script_shell: bash
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,18 +120,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        shell: bash
 
       - name: Run tests
-        # Explicit bash (Git Bash on windows-latest, native on macOS/Linux):
-        # `npm test` runs `node --test test/**/*.test.js`, and that glob is
-        # expanded by the shell before node ever sees it. The default `run:`
-        # shell on Windows runners is PowerShell, which does not expand it —
-        # node then receives the literal string "test/**/*.test.js" and fails
-        # with "Could not find ...". Verified by a real failing CI run of
-        # this workflow on windows-latest before this line was added.
         run: npm test
-        shell: bash
 
       - name: Build and publish (${{ matrix.os }})
         # Reuses this repo's own dist:mac/dist:win/dist:linux scripts (see
@@ -127,7 +134,6 @@ jobs:
         # (which has spaces) — the same mechanism the release checklist in
         # docs/distribution.md recommends instead of a manual/web upload.
         run: npm run ${{ matrix.build_script }} -- --publish always
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

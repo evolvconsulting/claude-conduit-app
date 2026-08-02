@@ -210,11 +210,17 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
    in CI the way `npm run dist` does locally from macOS (an NSIS `.exe` needs Windows, a
    `.dmg`/ad-hoc-signed `.app` needs macOS), so each job publishes only its own platform's
    artifacts — the same six artifacts `npm run dist` produces locally, split across three
-   runners instead of one. All three `run:` steps set `shell: bash` explicitly — the
-   default shell for `run:` steps on `windows-latest` is PowerShell, which does not expand
-   the `test/**/*.test.js` glob `npm test` depends on the way bash does, and a real CI run
-   failed on exactly that before this line was added (Git Bash, which `windows-latest`
-   ships, expands it identically to macOS/Linux).
+   runners instead of one. The `build` job sets `npm_config_script_shell: bash` — `npm
+   test` runs `node --test test/**/*.test.js`, and that glob is expanded by whichever
+   shell *npm itself* spawns to run the script, not by the shell that invoked `npm test`.
+   npm's script-shell defaults to `cmd.exe` on Windows regardless of the invoking shell,
+   and `cmd.exe` doesn't expand the glob, so `node` received the literal string
+   `test/**/*.test.js` and failed with "Could not find ...". Two real CI runs of this
+   workflow failed on `windows-latest` before this was right: first with the cmd.exe
+   default, then again after only setting the *step's* `shell: bash` (which turned out not
+   to be the mechanism npm actually uses for its own scripts). `script-shell: bash`
+   resolves via `PATH` on all three runners, including the Git Bash `windows-latest`
+   ships, so the glob expands identically everywhere.
 3. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
    "Asset names matter" note above for why this matters over any manual alternative). All
    three jobs target the same tag, so electron-builder finds-or-creates a single release
