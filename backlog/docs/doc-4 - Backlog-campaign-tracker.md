@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 04:30'
+updated_date: '2026-08-02 06:53'
 ---
 # Backlog campaign tracker
 
@@ -114,21 +114,38 @@ created with standing pre-authorization) — was reviewed (approve) and merged: 
 7ea3b45. 220/220 tests passing post-merge. NCOW-10.3 itself is NOT marked Done — it is blocked on
 a human decision (see Not queued).
 
+## Resolution of the human_needed escalation (2026-08-02) — do not re-ask
+
+User decided: **make `evolvconsulting/claude-conduit` public** (not the private+token path), and
+confirmed executing it in-session rather than deferring. Orchestrator ran `gh repo edit
+evolvconsulting/claude-conduit --visibility public --accept-visibility-change-consequences`;
+verified via `gh repo view` (`isPrivate: false`) and directly re-tested the feed
+(`releases.atom` and the `releases/latest` API both now return `200`, previously `404`). The
+structural blocker is resolved — recorded on NCOW-10.3's notes. Separately, user approved filing
+one follow-up task for the two Windows litellm-launch bugs (not the minor pm2Control/lockfile
+nits, which stay as notes only) — created as **NCOW-20**. User then decided NCOW-10.3's full
+re-verification should wait until NCOW-20 lands, so AC#3 (proxy restart across the update) can
+be exercised in the same pass as AC#1/#2 rather than doing a partial re-run now — NCOW-10.3 was
+given a real Backlog dependency on NCOW-20 (`--dep NCOW-20`) to formalize this ordering for
+future restores. Do not re-ask any of this.
+
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 3 settlement (2026-08-02): the queue is now empty of agent-resolvable ready work.
-NCOW-10.3 is blocked pending a human product decision (repo visibility / update-token strategy)
-before it can be usefully re-attempted — see Not queued. No other task in this campaign round is
-ready (see Not queued for NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated
-reasons).
+As of wave 3 settlement + resolution (2026-08-02): **NCOW-20 is ready now** (no dependencies) —
+fix the two Windows litellm-launch bugs. NCOW-10.3 is blocked-by-dependency on NCOW-20 (not
+human_needed anymore — that part is resolved) and should be re-attempted as one full pass once
+NCOW-20 is Done. No other task in this campaign round is ready (see Not queued for
+NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
+| 2 | NCOW-20 | release | none | To Do | | Windows litellm-launch bugs (.cmd-only discovery, missing shell:true); ready now |
+| 3 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (to do) | Blocked | | full re-verification once NCOW-20 lands; privacy blocker already resolved |
 
 ## Resolved
 
@@ -142,20 +159,6 @@ across 4 waves)*
 
 ## Not queued — needs a human / blocked
 
-- **NCOW-10.3: escalated, human_needed (wave 3, 2026-08-02).** Real end-to-end verification is
-  structurally blocked: electron-updater's default unauthenticated feed 404s against this
-  private repo, for every real user on every platform (Windows and Linux alike) — not fixable
-  by an agent. Needs a human decision between (a) making `evolvconsulting/claude-conduit`
-  public (zero code change needed — releases/latest.yml already correctly shaped), or (b) adding
-  `publish: {provider: github, private: true}` to `electron-builder.yml` plus a real strategy
-  for distributing a read-only token to installed clients (no clean answer — any shipped token
-  is extractable). Both the worker and an independent opus reviewer confirmed the full causal
-  chain in the task's notes. Two independent real Windows bugs (litellm/python `.cmd`-only
-  discovery in `platform.js`/`prereqs.js`; missing `shell: true` in `configGen.js`'s generated
-  `run.js` spawn — Node's CVE-2024-27980 hardening throws `EINVAL` otherwise) also block AC#3
-  regardless of the privacy decision, and a minor `pm2Control.ensureConnected()` timeout/retry
-  gap was noted. A `package-lock.json` version-drift nit (still reads 0.1.0) was also flagged.
-  Revisit once the human decision is made — likely needs re-scoping, not just a straight retry.
 - NCOW-7: blocked on NCOW-15, which is deliberately excluded from this campaign round (see
   Confirmed at init). Also explicitly PARKED by a prior-session decision recorded on the task
   itself — revisit after NCOW-15 is scoped/done separately.
@@ -169,6 +172,13 @@ across 4 waves)*
   this campaign round — needs a separate planning/decomposition session.
 - NCOW-15: same reasoning as NCOW-14 (its own description: "expect to split this into subtasks
   when it is picked up"), and depends on NCOW-14 besides. Excluded per the same decision.
+- **Minor items from wave 3, deliberately NOT filed as tasks** (user approved only NCOW-20 for
+  the litellm-launch bugs): a `pm2Control.ensureConnected()` timeout/retry gap (a hung first
+  `pm2.connect()` permanently wedges every future `proxy:*` IPC call, no recovery short of
+  restarting the app) and a `package-lock.json` version-drift nit (still reads `0.1.0` despite
+  `package.json`'s `0.1.1` — `npm ci` tolerated it for the real release builds, but it will
+  compound at the next version bump). Both remain only as notes on NCOW-10.3 — revisit if they
+  become relevant, but do not file tasks for them without asking again.
 
 ## Wave log
 
@@ -232,3 +242,15 @@ across 4 waves)*
   human_needed escalation stops the session before dispatching a further wave -- and the queue
   is in any case now empty of other agent-resolvable ready work, so this session ends here
   pending the user's decision on repo visibility / token strategy.
+- 2026-08-02 — resolution (post-wave-3): user resolved the human_needed escalation by choosing
+  to make `evolvconsulting/claude-conduit` public (over the private+token-distribution path) and
+  confirmed executing it immediately. Orchestrator ran `gh repo edit --visibility public
+  --accept-visibility-change-consequences`, verified via `gh repo view` and by re-testing the
+  feed directly (`releases.atom`/`releases/latest` now `200`, previously `404`) — the structural
+  blocker is gone. User approved filing NCOW-20 for the two Windows litellm-launch bugs only
+  (declined the minor pm2Control/lockfile items as separate tasks); created with full evidence
+  carried over from NCOW-10.3's notes. User then decided NCOW-10.3's full re-verification should
+  wait for NCOW-20 rather than doing a partial AC#1/#2-only re-run now, since AC#3 (proxy
+  restart) can't be exercised until NCOW-20's fixes land — NCOW-10.3 given a real `--dep NCOW-20`
+  to formalize this for future restores. Session ends here; next restore's ready set will
+  correctly surface NCOW-20 as the next wave.
