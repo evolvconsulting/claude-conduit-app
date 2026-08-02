@@ -68,16 +68,15 @@ conflict.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table at the
 start of every restore/wave — never trust a persisted "next wave" plan.
-As of restore 1, post-wave-1 settlement (2026-08-02): NCOW-10.1 is Done and merged to `dev`
-(6633b4a). NCOW-10.2 is now ready (dep NCOW-9 satisfied, no remaining conflict). NCOW-10.3 still
-blocked on NCOW-10.2.
+As of restore 1, wave 2 dispatch (2026-08-02): NCOW-10.1 is Done and merged to `dev` (6633b4a).
+NCOW-10.2 dispatched alone as wave 2. NCOW-10.3 still blocked on NCOW-10.2.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.2 | release | NCOW-9 (done) | To Do | | CI release workflow; ready now, no remaining conflict |
+| 2 | NCOW-10.2 | release | NCOW-9 (done) | Dispatched | 2 | CI release workflow |
 | 3 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 | To Do | | real end-to-end verification; blocked on NCOW-10.2 |
 
 ## Resolved
