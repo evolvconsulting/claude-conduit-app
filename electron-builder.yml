@@ -29,8 +29,25 @@ asar: true
 # pm2 starts its daemon by spawning a real script path (God/Daemon.js). Paths
 # inside app.asar are readable via fs but cannot be executed as a child
 # process, so without this the proxy could never start from a packaged build.
+#
+# NCOW-22: unpacking only pm2/** was not enough. This app's own cold-bootstrap
+# fix (src/engine/pm2Control.js's spawnDaemon()) spawns Daemon.js directly
+# with ELECTRON_RUN_AS_NODE, since pm2's own launchDaemon() spawns
+# process.execPath — this app's Electron binary, not a Node binary — and
+# boots a second copy of the app instead of the daemon. But that plain-Node
+# child's require()s walk pm2's *entire* dependency closure, not just pm2's
+# own files: packages like `debug` that pm2 depends on hoist to the
+# top-level node_modules/ during npm install and would otherwise stay inside
+# app.asar, unreachable from a script running outside it in
+# app.asar.unpacked (the two trees are disjoint — plain module-resolution
+# directory-walking from the unpacked tree can never reach back into the
+# archive). Unpacking node_modules/** wholesale, rather than hand-enumerating
+# pm2's transitive dependencies (which would silently rot on every pm2
+# upgrade), keeps this correct with no ongoing maintenance; the whole
+# production dependency tree is ~25MB, so the installer-size/asar-perf cost
+# is negligible.
 asarUnpack:
-  - "**/node_modules/pm2/**"
+  - "**/node_modules/**"
 
 mac:
   category: public.app-category.developer-tools
