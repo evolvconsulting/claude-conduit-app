@@ -4,7 +4,7 @@ title: Verify real end-to-end auto-update on Windows and/or Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-02 01:08'
-updated_date: '2026-08-02 14:51'
+updated_date: '2026-08-02 15:04'
 labels: []
 dependencies:
   - NCOW-20
@@ -24,8 +24,8 @@ This step publishes a real, unsigned GitHub Release of this app on evolvconsulti
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On a platform where silent/auto-update is possible (Windows and/or Linux), an installed older version actually downloads and installs a newer version end-to-end, observed live rather than inferred from code
-- [ ] #2 Verified by installing an older built version and updating it to a newer one on at least one platform, with evidence captured (steps taken, before/after version numbers, logs)
+- [x] #1 On a platform where silent/auto-update is possible (Windows and/or Linux), an installed older version actually downloads and installs a newer version end-to-end, observed live rather than inferred from code
+- [x] #2 Verified by installing an older built version and updating it to a newer one on at least one platform, with evidence captured (steps taken, before/after version numbers, logs)
 - [ ] #3 The LiteLLM proxys defined restart behavior (from NCOW-10.1) is confirmed to hold across a real update
 <!-- AC:END -->
 
@@ -70,4 +70,23 @@ HOWEVER: the app's own live proxy CONTROL is separately broken on Windows, indep
 Cleanup: all VM-side scaffolding removed (scheduled tasks, helper scripts, sanity logs); PM2_HOME restored to its pre-session state. Left in place (legitimate, reusable for a future attempt): Claude Conduit v0.1.1 now installed, litellm 1.94.1 + x64 Python installed, corrected litellm_path in the generated config.
 
 WORKER RECOMMENDATION: file a follow-up task (same pattern as NCOW-20/21) for the pm2-in-Electron connect hang -- it blocks ALL proxy control on Windows, not just this verification, and is a significant, previously-unknown production defect.
+
+REVIEW (opus, wave 5 retry): request_changes (not escalate -- no product decision needed for AC3, just a specific unblocker). ac_disposition: AC1 confirmed, AC2 confirmed, AC3 not confirmed.
+
+AC1/AC2: independently re-derived via 5 mutually-corroborating lines of evidence, not taken on trust: (1) the downloaded installer's sha512/size are byte-identical to v0.1.1's published latest.yml, and electron-updater's own update-info.json (written only after hash verification passes) confirms this; (2) installed FileVersion/ProductVersion and uninstall registry both read 0.1.1; (3) file timestamps on disk match the CI build's releaseDate to within 11 seconds; (4) reviewer independently drove the app live via CDP -- app.getVersion() returns "0.1.1" in 3ms, full nimProxy bridge intact; (5) the app's own live updater output agrees: "Update for version 0.1.1 is not available (latest version: 0.1.1, downgrade is disallowed)". Repo public, feed resolves, app-update.yml correctly baked. AC1/AC2 are genuinely done -- recommend checking them off now rather than holding them hostage to AC3, matching how the parent NCOW-10 epic already models partial completion across its subtasks.
+
+AC3: the hang is real (reviewer reproduced it directly, 75s no response while the renderer stayed fully responsive to other IPC calls -- a genuine promise-level deadlock, not slowness or a frozen app) but the worker's root-cause attribution was incomplete. THREE stacked defects, only surfaced when NO pm2 daemon pre-exists (which is exactly this session's fresh-VM situation -- on this Mac, a long-running global pm2 daemon since before this campaign masked all three, since every macOS test connected to a pre-existing daemon and never exercised the bootstrap path at all):
+1. PRIMARY (reviewer traced this past what the worker found): pm2's Client.pingDaemon() only calls back on axon's 'reconnect attempt'/'connect' events, never on 'error'. On Windows, pm2 hardcodes the RPC port to a static named pipe (\\.\pipe\rpc.sock, PM2_HOME-independent -- explaining why the worker's fresh-PM2_HOME test changed nothing). If that pipe doesn't exist (no daemon running), pingDaemon's callback simply never fires -- Client.start() never calls back, pm2.connect() never calls back, ensureConnected()'s memoized promise never settles, the entire proxy:* IPC domain is permanently wedged.
+2. The worker's original finding (real, but secondary): launchDaemon() spawns process.execPath (the Electron binary) as the daemon interpreter -- reviewer proved this directly fails (spawns as a normal app, ignores Daemon.js entirely).
+3. NEW, found by the reviewer: even the "obvious" one-line fix (ELECTRON_RUN_AS_NODE=1) doesn't work either -- the child does then try to run Daemon.js but crashes in 191ms with "Cannot find module 'debug'", because electron-builder.yml's asarUnpack covers pm2 itself but not pm2's hoisted dependency closure (debug lives at top-level node_modules, inside app.asar).
+
+Important partial credit the worker undersold: NCOW-10.1's defined shutdown behavior (shutdown.js) wraps pm2Control.getStatus() in a 15s withTimeout, catches, logs "quitting regardless", and proceeds -- so the hang was gracefully absorbed, which is exactly why the real update was still able to install despite this. The degradation branch of AC3 is effectively proven; what remains unverified is the branch AC3 actually names -- a genuinely RUNNING proxy being cleanly stopped across a real update. The worker's node run.js direct-invocation substitute is legitimate supporting evidence (proves litellm-on-Windows works, config is correct) but is NOT a substitute for AC3, which is specifically about the app's own pm2-orchestrated flow -- correctly scored not_confirmed.
+
+Reviewer flags this likely affects EVERY platform, not just Windows -- this Mac's test coverage has never actually exercised a cold pm2-daemon-bootstrap because a long-running global daemon has always already been present; macOS/Linux reach of the process.execPath and asarUnpack issues is inferred from code, not yet independently verified (reviewer's own macOS spawn probe was permission-denied). This should be confirmed, not assumed, before considering the update mechanism broadly safe on any platform for a genuinely fresh install.
+
+RECOMMENDATION: (1) check off AC1/AC2 now. (2) Route AC3 to a fresh worker with a specific, faithful-to-the-design unblocker: pre-start a real pm2 daemon on winvm (npm i -g pm2 && pm2 ping, which creates the \\.\pipe\rpc.sock the app's bundled pm2 copy also connects to) BEFORE testing -- this is explicitly within pm2Control.js's own documented design assumption that this app deliberately shares the user's default PM2_HOME/daemon, not a workaround or a cheat. With a real daemon already present, the app's actual pm2-orchestrated start/stop/restart across a real update should be testable end to end. (3) Propose a NEW follow-up task (NCOW-20/21 pattern) to the user for the pm2-in-Electron cold-bootstrap defect itself (all 3 stacked causes, plus the pre-existing no-timeout gap on ensureConnected() that turns any of them into an unrecoverable wedge) -- flagged as a likely CROSS-PLATFORM, likely SHIPPING-BLOCKER-for-fresh-installs issue, not merely a Windows nit. Reviewer notes one candidate remedy for that follow-up task (dropping pm2 entirely) would reopen this project's AGPL-because-of-pm2 licensing decision -- that's exactly the kind of call requiring human product input, to be raised on the follow-up task, not decided here.
+
+Also still open, unfixed, low priority: package-lock.json still reads 0.1.0 vs package.json's 0.1.1 (previously flagged in NCOW-20's review, never picked up).
+
+Scope/safety confirmed clean: dev unchanged at 0a5c830 by this wave, zero source changes, VM cleanup verified independently (no leftover scheduled tasks, no PM2_HOME env override, no stray processes, ~/.pm2 untouched -- reviewer used a throwaway PM2_HOME for its own probes so as not to disturb anything).
 <!-- SECTION:NOTES:END -->
