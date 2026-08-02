@@ -1,0 +1,134 @@
+name: Release
+
+# Publishes a GitHub Release for this repo. Triggered by pushing a version tag
+# (vX.Y.Z, e.g. v0.2.0) — see docs/distribution.md's "Release checklist" and
+# "Follow-ups this decision implies" (NCOW-10.2) for the decision record this
+# workflow implements. Also runnable by hand via workflow_dispatch for a dry
+# run against an already-pushed tag (does not create a new tag).
+#
+# electron-builder can only build a given platform's installer targets on
+# that platform (an NSIS .exe cannot be produced on macOS/Linux, a signed-ish
+# .dmg cannot be produced on Linux/Windows), so this uses one job per OS
+# runner rather than trying to cross-build everything from one machine —
+# npm run dist locally cross-builds macOS+Windows+Linux targets from macOS,
+# but CI intentionally does not rely on that; each job below builds and
+# publishes only its own platform's artifacts, exactly like `npm run
+# dist:mac` / `dist:win` / `dist:linux` do locally.
+#
+# electron-builder's GitHub publisher looks up (or creates) a release by tag
+# name and appends assets to it, so all three jobs safely publish into the
+# same release for the same tag. By default a release it creates is a draft;
+# the finalize job below adds a SHA256SUMS file once all platforms have
+# uploaded, then flips the release out of draft so electron-updater's
+# `/releases/latest` lookup (and the update checker in docs/auto-update.md)
+# can actually find it — a draft release is invisible to that endpoint.
+#
+# Builds are UNSIGNED (no code-signing certs yet — see docs/distribution.md's
+# "Signing reality" section), so there is deliberately no signing step here.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and publish, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            build_script: dist:mac
+          - os: windows-latest
+            build_script: dist:win
+          - os: ubuntu-latest
+            build_script: dist:linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build and publish (${{ matrix.os }})
+        # Reuses this repo's own dist:mac/dist:win/dist:linux scripts (see
+        # package.json) rather than re-deriving electron-builder flags here,
+        # so CI and a local `npm run dist:mac` stay in lockstep. `--publish
+        # always` is electron-builder's own GitHub-Releases publisher: it
+        # uploads using each artifact's dash-normalized "safe" name (matching
+        # what latest*.yml already records), not the raw on-disk filename
+        # (which has spaces) — the same mechanism the release checklist in
+        # docs/distribution.md recommends instead of a manual/web upload.
+        run: npm run ${{ matrix.build_script }} -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  finalize:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        run: |
+          mkdir -p release-assets
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --dir release-assets
+
+      - name: Generate SHA256SUMS
+        working-directory: release-assets
+        run: |
+          rm -f SHA256SUMS
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload SHA256SUMS
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            release-assets/SHA256SUMS \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      - name: Publish release (undraft)
+        # Notes text lives in a checked-in file (.github/release-notes-template.md)
+        # rather than inline here, so it's easy to review/edit without fighting
+        # YAML block-scalar indentation.
+        run: |
+          gh release edit "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false \
+            --notes-file .github/release-notes-template.md
