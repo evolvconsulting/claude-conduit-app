@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-02 19:07'
+updated_date: '2026-08-02 21:08'
 ---
 # Backlog campaign tracker
 
@@ -148,8 +148,12 @@ NCOW-7/11/13/14/15, all excluded since init/restore-1 for unrelated reasons).
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-10 | release | NCOW-9 (done), NCOW-12 (done) | Split | | epic; split into 10.1/10.2/10.3 at restore 1 |
-| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done), NCOW-22 (done) | Partial (AC1/AC2 done) | 5 | AC3 retry ready now. **The wave-5 unblocker (manually pre-starting a pm2 daemon on winvm) should now be unnecessary** — NCOW-22 fixed the cold-bootstrap defect and proved real start/stop/restart on a daemon-less winvm. Retry AC3 as a normal run, and treat any need for the workaround as a regression |
+| 2 | NCOW-10.3 | release | NCOW-10.1 (done), NCOW-10.2 (done), NCOW-20 (done), NCOW-22 (done) | Dispatched (AC3 only) | 7 | AC3 retry ready now. **The wave-5 unblocker (manually pre-starting a pm2 daemon on winvm) should now be unnecessary** — NCOW-22 fixed the cold-bootstrap defect and proved real start/stop/restart on a daemon-less winvm. Retry AC3 as a normal run, and treat any need for the workaround as a regression |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
+| 5 | NCOW-23 | safety | none | To Do | | win32 NIM_PROXY_TEST_HOME does not protect the config dir; filed wave 6 |
+| 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6 |
+| 7 | NCOW-25 | release | none | To Do | | Linux release x86_64-only vs all-aarch64 hardware; filed wave 6 |
+| 8 | NCOW-26 | pm2 | none | To Do | | spawnDaemon timeout can kill a slow-but-healthy daemon; filed wave 6 |
 
 ## Resolved
 
