@@ -105,6 +105,21 @@ const CHANNELS = {
       run: 'uninstall:run',
     },
   },
+  update: {
+    invoke: {
+      // Manual re-check (e.g. a future "Check for Updates" menu/button); the
+      // same check also runs once automatically shortly after launch — see
+      // main/index.js and docs/auto-update.md.
+      check: 'update:check',
+      // Windows/Linux only, and only meaningful after a 'downloaded' status —
+      // see src/main/autoUpdate.js. Always resolves { ok: false, ... } if
+      // called with nothing downloaded rather than doing anything surprising.
+      install: 'update:install',
+    },
+    events: {
+      statusChanged: 'update:status-changed',
+    },
+  },
 };
 
 module.exports = { CHANNELS };
