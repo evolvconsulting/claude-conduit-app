@@ -185,6 +185,40 @@ in `dist/latest-mac.yml`. `electron-builder --publish` (what both the CI workflo
 correctly hand-cut release use) reconciles that automatically; `gh release upload` on the
 raw `dist/*` globs, or any web-UI upload, would not.
 
+**Correction found by a real publish, not by reading source alone: the space-to-period
+rewrite is not web-UI-only.** A real run of the CI workflow below uploaded one asset —
+specifically the macOS zip target's `.blockmap` sidecar — as
+`Claude.Conduit-0.0.0-ci-smoketest-universal-mac.zip.blockmap` even though it went through
+`electron-builder --publish always`, never the web UI. Traced to a real bug in
+electron-builder 26.15.3 itself: `app-builder-lib/out/targets/ArchiveTarget.js`'s `build()`
+calls `createBlockmap(artifactPath, this, packager, artifactName)` for the macOS zip
+target, passing the **raw, unsanitized** `artifactName` (the one with a literal space from
+`productName`) as the `safeArtifactName` parameter — not
+`packager.computeSafeArtifactName(...)`, which is what the archive's own
+`emitArtifactBuildCompleted` call three lines later correctly uses for the `.zip` itself.
+`differentialUpdateInfoBuilder.js`'s `createBlockmap()` then just appends `.blockmap` to
+whatever it was handed and reports that as the "safe" name, so `httpPublisher.js`'s
+`useSafeArtifactName` branch uses it as-is, uploads a name that still has a space in it,
+and **GitHub's upload API — not just its web UI — silently turns that space into a period
+on the way in.** So the risk this whole workflow exists to close isn't only "someone
+uploads by hand" — it's also "electron-builder itself hands the API an unsafe name for one
+specific artifact type."
+
+**Practical impact, as of this decision: contained, not zero.** Only the macOS zip
+target's `.blockmap` is affected (verified twice, identically, across two independent real
+runs) — the `.dmg`, its own `.blockmap`, both `.zip`s' actual archives, the Linux and
+Windows artifacts, and critically **all three `latest*.yml` files themselves publish with
+correct, intact names** (this is what AC2 of NCOW-10.2 actually requires, and it holds).
+The corrupted file is also not currently load-bearing: `docs/auto-update.md` documents that
+macOS is notify-only and never invokes `electron-updater`/Squirrel.Mac at all today, so
+nothing currently reads the macOS zip's blockmap. It would matter the moment macOS is
+switched onto the shared `electron-updater` path (tracked as a revisit trigger in both
+docs), so this needs to be re-checked (upgrading electron-builder past whatever version
+fixes this, or patching around it) before that switch — flagged here rather than silently
+carried forward. Fixing electron-builder's own bug is out of scope for NCOW-10.2 (a
+CI/docs task, not a dependency-upgrade task); this section exists so the next person to
+touch this doesn't have to re-discover it by reading a corrupted filename on a real Release.
+
 ---
 
 ## CI release workflow (NCOW-10.2)
@@ -276,11 +310,12 @@ an earlier version of this workflow (before the `prepare` job pre-created the re
 exactly that: two of the three jobs' "create" calls raced, producing **two separate draft
 releases both claiming the same tag**. Assets split across them — macOS's `.dmg`/`.zip`/
 `.dmg.blockmap`/`latest-mac.yml` landed on one, Linux's `.AppImage` and macOS's
-`.zip.blockmap` landed on the other. Worse, that stray `.zip.blockmap` was uploaded under
-its raw on-disk filename (`Claude Conduit-…zip.blockmap`, with a space) rather than the
-safe dashed name, and GitHub's upload API silently rewrote the space to a period
-(`Claude.Conduit-…zip.blockmap`) — the exact asset-naming footgun this whole workflow
-exists to prevent, reached by a different road than the manual-upload case above. Cleanup
+`.zip.blockmap` landed on the other. (The stray `.zip.blockmap`'s corrupted
+`Claude.Conduit-…` filename is a *separate* bug, not caused by this race — it happened
+because electron-builder's own macOS zip target passes an unsanitized artifact name to its
+blockmap builder even under `--publish always`; see "Correction found by a real publish"
+above. The race just meant the corrupted asset landed on whichever of the two duplicate
+releases won, making it one asset harder to find during cleanup.) Cleanup
 was its own trap: `gh release delete <tag>` and `gh release list` only ever surfaced *one*
 of the two duplicates — the second was found only by querying
 `GET /repos/{owner}/{repo}/releases` directly and filtering on `tag_name`, which is the
