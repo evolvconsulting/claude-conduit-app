@@ -4,7 +4,7 @@ title: 'Fix Windows litellm launch: .cmd-only discovery and missing shell:true s
 status: In Progress
 assignee: []
 created_date: '2026-08-02 04:37'
-updated_date: '2026-08-02 07:15'
+updated_date: '2026-08-02 07:25'
 labels: []
 dependencies: []
 priority: high
@@ -66,4 +66,18 @@ AC3 (tests): NOT CONFIRMED -- CI-BREAKING BUG. 6 of 7 new prereqs.test.js tests 
 Additional findings (lower severity): taskkill spawn has no 'error' listener (a missing taskkill binary would crash via unhandled error event); runAllPrereqChecks()'s execCli(path,['--version']) on a .cmd shim still throws EINVAL (swallowed, reported as a critical "unparseable version" failure) -- same EINVAL class, unaddressed, arguably closer to the stated ACs than the installLitellm() item the worker already flagged as out-of-scope (that one is confirmed accurate and low-risk, real installers ship .exe).
 
 RECOMMENDATION (priority order): (1) fix the case-dependent tests -- CI-breaking, must fix regardless of anything else; (2) either properly fix the cmd.exe wrapper with metacharacter-aware quoting (not just whitespace) plus windowsVerbatimArguments and a regression test covering a spaced path + a metacharacter-bearing arg, OR remove the wrapper branch entirely and rely on the .exe path (defensible since finding on the version-check gate means a .cmd shim doesn't cleanly reach the launcher today anyway) -- worker's call, with justification; (3) correct the doc comment's safety rationale; (4) add the missing taskkill 'error' listener. AC1's fix is solid and should not be touched by the fix pass.
+
+FIX PASS 1 (fresh worker): addressed all 4 reviewer findings from review pass 1, in the same worktree/branch (2 new commits, no amends).
+
+1. Case-dependent tests fixed: added explicit WIN32_PATH_EXT = '.exe;.cmd;.bat' passed in all 6 affected prereqs.test.js tests. Verified the fix is filesystem-independent by direct reasoning (not by re-hitting the same case-insensitive-FS blind spot): findExecutable's candidate is built as name+ext; with the old default '.EXE;.CMD;.BAT' the candidate 'litellm.EXE' is not === the fixture's exact bytes 'litellm.exe', it only "passed" before because macOS APFS folds case in fs.accessSync/statSync (confirmed live on this machine). With explicit lowercase pathExt the candidate is byte-identical to the fixture -- a plain string comparison that holds on any filesystem.
+
+2. cmd.exe wrapper fixed via Option A (proper fix, not removal): replaced the broken construction with a single fully-escaped command string built by a cmdQuoteArg() emitted into the generated launcher (Windows argv quote/backslash rules + ^-escaping every cmd.exe metacharacter & | < > ^ ( ) % ! -- required even inside quotes), wrapped in one more quote pair, invoked as cmd.exe /d /s /c "<joined>" with windowsVerbatimArguments:true. Verified without Windows access by writing a reference cmd.exe-shaped decoder (strip outer quote per /s, quote-aware tokenize, un-escape ^X->X) and confirming round-trip to the exact original argv for both a spaced path (C:\Program Files\litellm\litellm.cmd, spaced username) and a metacharacter-bearing arg (&echo,INJECTED>marker&set), plus confirmed every &/> in the raw joined string is immediately preceded by an escaping ^. Two new regression tests added in configGen.test.js covering exactly these cases. Direct .exe spawn path untouched, still passing.
+
+3. Doc comment corrected: now states the true reason (these args are app-generated absolute paths + a hardcoded port, never model IDs/keys/URLs which travel via config.yaml/litellm.env) and explicitly disclaims the false "shell is off" framing given cmd.exe's re-parsing behavior.
+
+4. Missing error handling fixed: taskkill spawn now has killer.on('error', ...) logging + falls back to child.kill(sig), matching the existing child.on('error', ...) pattern already used in prereqs.js's installer spawn (closest existing precedent in this codebase; shutdown.js wraps pm2 via injected deps rather than raw spawn so wasn't a direct match).
+
+npm test: 234/234 passing (232 baseline + 2 net new tests). prereqs.js's AC1 fix (confirmed correct by review pass 1) was NOT touched, per instruction. Two commits pushed to origin/fix/NCOW-20-windows-litellm-launch.
+
+Open item carried forward unchanged (same as before this fix, out of scope, prereqs.js is do-not-touch for this pass): runAllPrereqChecks()'s version-check still throws EINVAL on a .cmd shim -- pre-existing, unaddressed, not in NCOW-20's ACs.
 <!-- SECTION:NOTES:END -->
