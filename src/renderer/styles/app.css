@@ -250,6 +250,12 @@ th, td {
 }
 .update-banner[hidden] { display: none; }
 .update-banner-text { flex: 1; }
+.update-banner-error {
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.9;
+}
+.update-banner-error[hidden] { display: none; }
 .update-banner-action,
 .update-banner-dismiss {
   border: none;
@@ -262,6 +268,10 @@ th, td {
   color: var(--accent);
   padding: 0.3rem 0.6rem;
   font-weight: 600;
+}
+.update-banner-action:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .update-banner-dismiss {
   background: transparent;

@@ -60,3 +60,22 @@ test('update-banner: is dismissible, matching the confirm-dialog/about-dialog no
   assert.match(source, /data-role="dismiss"/);
   assert.match(source, /el\.hidden = true;/);
 });
+
+test('update-banner: a failed action attempt leaves the button usable again instead of permanently dead', () => {
+  const source = read('components', 'update-banner.js');
+  const actionListenerBlock = source.slice(
+    source.indexOf('actionButton.addEventListener'),
+    source.indexOf('el.querySelector(\'[data-role="dismiss"]\''),
+  );
+
+  // { once: true } on the action button would make a failed attempt (e.g.
+  // update.install() resolving { ok: false } for ALREADY_INSTALLING) leave
+  // the button permanently dead with no way to retry.
+  assert.doesNotMatch(actionListenerBlock, /\{\s*once:\s*true\s*\}/);
+  // On failure (either a resolved { ok: false, ... } or a thrown/rejected
+  // error) the button must be re-enabled.
+  assert.match(actionListenerBlock, /result\.ok === false/);
+  assert.match(actionListenerBlock, /actionButton\.disabled = false/);
+  // And it should say something, rather than failing with zero feedback.
+  assert.match(actionListenerBlock, /errorEl\.hidden = false/);
+});
