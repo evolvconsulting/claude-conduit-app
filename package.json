@@ -22,7 +22,7 @@
     "predev": "node scripts/patch-dev-bundle-name.js",
     "dev": "electron . --dev",
     "patch:dev-name": "node scripts/patch-dev-bundle-name.js",
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test",
     "icons": "node scripts/generate-icons.js",
     "licenses": "node scripts/generate-licenses.js",
     "dist:mac": "electron-builder --mac",

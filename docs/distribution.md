@@ -210,17 +210,16 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
    in CI the way `npm run dist` does locally from macOS (an NSIS `.exe` needs Windows, a
    `.dmg`/ad-hoc-signed `.app` needs macOS), so each job publishes only its own platform's
    artifacts — the same six artifacts `npm run dist` produces locally, split across three
-   runners instead of one. The `build` job sets `npm_config_script_shell: bash` — `npm
-   test` runs `node --test test/**/*.test.js`, and that glob is expanded by whichever
-   shell *npm itself* spawns to run the script, not by the shell that invoked `npm test`.
-   npm's script-shell defaults to `cmd.exe` on Windows regardless of the invoking shell,
-   and `cmd.exe` doesn't expand the glob, so `node` received the literal string
-   `test/**/*.test.js` and failed with "Could not find ...". Two real CI runs of this
-   workflow failed on `windows-latest` before this was right: first with the cmd.exe
-   default, then again after only setting the *step's* `shell: bash` (which turned out not
-   to be the mechanism npm actually uses for its own scripts). `script-shell: bash`
-   resolves via `PATH` on all three runners, including the Git Bash `windows-latest`
-   ships, so the glob expands identically everywhere.
+   runners instead of one. `npm test` runs plain `node --test` with no path argument —
+   Node's own built-in test runner recursively discovers `test/**/*.test.js` itself by
+   default convention, so no shell ever needs to expand a glob. This replaced an earlier
+   `test/**/*.test.js` glob baked directly into the npm script, which depended on
+   whichever shell npm spawned to run it — that shell varies by platform and by npm
+   config (`cmd.exe` by default on Windows, later forced to Git Bash via
+   `script-shell`), and two real CI runs on `windows-latest` failed under different shells
+   before the glob was removed from the script entirely rather than chasing a third shell
+   that might expand it correctly. `node --test`'s own discovery is shell-independent, so
+   it behaves identically on all three runners.
 3. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
    "Asset names matter" note above for why this matters over any manual alternative). All
    three jobs target the same tag, so electron-builder finds-or-creates a single release

@@ -92,22 +92,6 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    # `npm test` runs `node --test test/**/*.test.js`, and that glob is expanded
-    # by whatever shell npm spawns to run the script — NOT the shell that ran the
-    # `npm test` command itself. npm's script-shell defaults to cmd.exe on Windows
-    # regardless of the invoking shell (see npm's own docs: "on Windows, it
-    # defaults to cmd.exe... customize ... by setting the script-shell
-    # configuration option"), and cmd.exe does not expand the glob, so node
-    # receives the literal string "test/**/*.test.js" and fails with "Could not
-    # find ...". Setting `script-shell` to plain "bash" here (resolved via PATH,
-    # which includes Git Bash on windows-latest) makes npm use the same shell —
-    # and the same glob semantics — on all three runners. Two real CI runs of this
-    # workflow failed on windows-latest before this env var was added: first with
-    # the default cmd.exe script-shell, then again after only fixing the *step's*
-    # shell (which turned out not to be the actual mechanism npm uses).
-    env:
-      npm_config_script_shell: bash
-
     steps:
       - uses: actions/checkout@v4
         with:
