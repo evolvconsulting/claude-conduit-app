@@ -1,9 +1,10 @@
 ---
 id: NCOW-22
 title: pm2 daemon can never cold-bootstrap when embedded in this Electron app
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 15:05'
+updated_date: '2026-08-02 17:21'
 labels: []
 dependencies: []
 priority: high
