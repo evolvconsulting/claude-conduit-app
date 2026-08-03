@@ -3,10 +3,10 @@ id: NCOW-29
 title: >-
   apiKey.validateAndSave silently reports success when secretStore.save() fails
   (ENCRYPTION_UNAVAILABLE)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-03 15:26'
-updated_date: '2026-08-03 23:08'
+updated_date: '2026-08-03 23:12'
 labels:
   - secretstore
   - ipc
@@ -25,11 +25,11 @@ Found during NCOW-27's opus review while live-verifying the packaged proxy fix o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validateAndSave surfaces secretStore.save()'s failure to the caller (renderer) instead of reporting {savedOk:true} when save() returns {ok:false}
-- [ ] #2 The renderer's setup UI shows a clear, actionable error to the user when the key cannot be persisted, rather than silently proceeding as if setup succeeded
-- [ ] #3 Reproduced live on a machine with no available encryption backend (e.g. a headless Linux box) both before the fix (confirming the silent-success bug) and after (confirming the error now surfaces)
-- [ ] #4 A regression test covers validateAndSave's handling of a save() failure
-- [ ] #5 npm test passes
+- [x] #1 validateAndSave surfaces secretStore.save()'s failure to the caller (renderer) instead of reporting {savedOk:true} when save() returns {ok:false}
+- [x] #2 The renderer's setup UI shows a clear, actionable error to the user when the key cannot be persisted, rather than silently proceeding as if setup succeeded
+- [x] #3 Reproduced live on a machine with no available encryption backend (e.g. a headless Linux box) both before the fix (confirming the silent-success bug) and after (confirming the error now surfaces)
+- [x] #4 A regression test covers validateAndSave's handling of a save() failure
+- [x] #5 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -162,3 +162,9 @@ real ~/.pm2 daemon, Claude Desktop's config.
 
 Ready for merge queue.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+apiKey.validateAndSave in engine-context.js now propagates secretStore.save()'s {ok:false, error} instead of discarding it and always reporting success. No renderer change needed -- setup-view.js already branched on result.ok and rendered result.error?.message. Opus review independently reproduced the bug and fix live on a headless Linux box (linuxvm) with a genuine, unforced ENCRYPTION_UNAVAILABLE precondition (no desktop D-Bus session): before the fix, the setup UI showed a misleading pass state with Continue enabled despite the key never being persisted; after, a clear .fail error with Continue disabled; a happy-path control confirmed normal key persistence still works. npm test 260/260 (261/261 after rebase onto NCOW-28). Squash-merged PR #19 -> dev @ 230ca0d. Two adjacent findings recorded on the task but out of scope: an identical swallowed-failure pattern in secretStore.js's importFromExistingEnvFile() (confirmed dead code, zero production callers) and a pre-existing, environment-specific flaky pm2Control test on Linux (confirmed unrelated to this change).
+<!-- SECTION:FINAL_SUMMARY:END -->

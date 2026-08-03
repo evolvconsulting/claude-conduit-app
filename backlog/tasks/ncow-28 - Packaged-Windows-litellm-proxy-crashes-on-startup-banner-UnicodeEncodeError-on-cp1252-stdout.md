@@ -3,10 +3,10 @@ id: NCOW-28
 title: >-
   Packaged Windows litellm proxy crashes on startup: banner UnicodeEncodeError
   on cp1252 stdout
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-03 15:26'
-updated_date: '2026-08-03 23:01'
+updated_date: '2026-08-03 23:12'
 labels:
   - windows
   - release
@@ -25,11 +25,11 @@ Found during NCOW-27's opus review while live-verifying the packaged proxy.start
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A stock packaged Windows build (no manual env-var workaround) can run proxy.start()/stop()/restart() successfully, verified live on a real Windows VM with no pre-existing litellm process
-- [ ] #2 A real request through the running proxy on Windows gets a genuine LLM completion, verified live
-- [ ] #3 The fix is scoped to the child process env this app controls (e.g. the generated run.js launchers env), not a global system-wide encoding change
-- [ ] #4 A regression test covers the generated launcher/ecosystem entry carrying the correct env field(s) for this fix
-- [ ] #5 npm test passes
+- [x] #1 A stock packaged Windows build (no manual env-var workaround) can run proxy.start()/stop()/restart() successfully, verified live on a real Windows VM with no pre-existing litellm process
+- [x] #2 A real request through the running proxy on Windows gets a genuine LLM completion, verified live
+- [x] #3 The fix is scoped to the child process env this app controls (e.g. the generated run.js launchers env), not a global system-wide encoding change
+- [x] #4 A regression test covers the generated launcher/ecosystem entry carrying the correct env field(s) for this fix
+- [x] #5 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -145,3 +145,9 @@ terminated; pm2 daemon (pid 8832) never touched; litellm-nim left stopped
 
 Ready for merge queue.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added PYTHONIOENCODING: 'utf-8' to configGen.js's renderEcosystemConfigCjs() generated env object for the managed litellm-nim pm2 entry, alongside NCOW-27's ELECTRON_RUN_AS_NODE. Fixes litellm's startup banner crashing with UnicodeEncodeError on Windows' default cp1252 stdout codepage, which previously timed out as HEALTH_CHECK_TIMEOUT under pm2 -- blocking every packaged Windows install even after NCOW-27's fix. Opus review independently confirmed all 5 ACs with an A/B control on a real Windows VM (winvm): a matched no-fix build reproduced the exact crash/crash-loop, the fix build ran proxy.start/stop/restart cleanly with a real LLM completion before and after restart. Mutation-tested the regression test. npm test 259/259 (261/261 after rebase onto NCOW-29). Squash-merged PR #18 -> dev @ a6d80ea.
+<!-- SECTION:FINAL_SUMMARY:END -->
