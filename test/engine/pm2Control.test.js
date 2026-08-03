@@ -85,6 +85,30 @@ test('getBootPersistenceGuidance: is print-only text, never something the app ru
   }
 });
 
+// NCOW-27 AC#3: interpreter: process.execPath (see configGen.js's
+// renderEcosystemConfigCjs) resolves to an AppImage's ephemeral per-launch
+// FUSE mount path, which pm2 persists into dump.pm2 on every save() this
+// app calls. That's harmless for THIS app's own lifecycle — it never calls
+// resurrect — but this exact guidance function is the one place this app
+// steers a user toward setting up `pm2 startup`/resurrect itself, so an
+// AppImage-specific caveat belongs here.
+test('getBootPersistenceGuidance: on Linux, warns about the AppImage ephemeral-mount-path pitfall only when env.APPIMAGE is set', () => {
+  const ctl = createPm2Control(fakePm2());
+
+  const plainLinux = ctl.getBootPersistenceGuidance('linux', {});
+  assert.doesNotMatch(plainLinux, /AppImage/i);
+
+  const appImageLinux = ctl.getBootPersistenceGuidance('linux', { APPIMAGE: '/home/user/Downloads/claude-conduit.AppImage' });
+  assert.match(appImageLinux, /AppImage/i);
+  assert.match(appImageLinux, /pm2 startup/);
+});
+
+test('getBootPersistenceGuidance: the AppImage caveat is Linux-specific — an APPIMAGE-like env var on another platform changes nothing', () => {
+  const ctl = createPm2Control(fakePm2());
+  const guidance = ctl.getBootPersistenceGuidance('darwin', { APPIMAGE: '/should/be/ignored' });
+  assert.doesNotMatch(guidance, /AppImage/i);
+});
+
 // --- NCOW-22 regressions -----------------------------------------------
 //
 // pm2's own Client.pingDaemon() can hang forever (Windows, no daemon

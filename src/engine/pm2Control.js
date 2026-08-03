@@ -462,9 +462,28 @@ function createPm2Control(pm2, deps = {}) {
   /**
    * Print-only guidance — DESIGN.md section 7.2 step 5: the app must never
    * run sudo itself.
+   *
+   * NCOW-27 AC#3: `pm2 startup`/a scheduled `pm2 resurrect` persists this
+   * app's own `interpreter: process.execPath` (see configGen.js's
+   * renderEcosystemConfigCjs) into dump.pm2 under PM2_HOME. That's stable
+   * for an installed .deb — the path never moves between launches — but NOT
+   * for an AppImage run in place: AppImageKit self-mounts to a fresh,
+   * per-launch FUSE temp path (e.g. /tmp/.mount_XXXXXX/...) and unmounts it
+   * the instant that AppImage process exits, so a resurrect attempted after
+   * THIS AppImage instance is gone would try to launch a path that no
+   * longer exists. This app itself never calls `pm2 save`/`resurrect` in a
+   * way that reads that stale state back (its own `save()` calls only ever
+   * write the CURRENT, still-valid path, and it never resurrects), so
+   * nothing in this app's own runtime is at risk — the one place this
+   * risk is actually reachable is here, if a user follows this exact
+   * guidance while running an unextracted AppImage. `env.APPIMAGE` is set
+   * by the AppImage runtime itself (pointing at the stable .AppImage file,
+   * not its ephemeral mount) and is how this function tells the two apart.
+   *
    * @param {string} platform
+   * @param {NodeJS.ProcessEnv} [env]
    */
-  function getBootPersistenceGuidance(platform) {
+  function getBootPersistenceGuidance(platform, env = process.env) {
     if (platform === 'win32') {
       return (
         'pm2 has no first-party boot service on Windows. To resume the proxy after a reboot, ' +
@@ -473,7 +492,17 @@ function createPm2Control(pm2, deps = {}) {
         'or run that command for you.'
       );
     }
-    return 'To survive a reboot (not just a pm2 daemon restart), run `pm2 startup` yourself and follow the sudo command it prints. This app will never run that command for you.';
+    const base = 'To survive a reboot (not just a pm2 daemon restart), run `pm2 startup` yourself and follow the sudo command it prints. This app will never run that command for you.';
+    if (platform === 'linux' && env.APPIMAGE) {
+      return (
+        base +
+        ' Note: this does NOT work when running as an AppImage in place — pm2 would persist ' +
+        "this specific launch's temporary mount path, which stops existing the moment you close " +
+        'this AppImage, so the resurrected process fails to start on next boot. Extract the ' +
+        'AppImage or install the .deb build instead if you want the proxy to survive reboots.'
+      );
+    }
+    return base;
   }
 
   return {
