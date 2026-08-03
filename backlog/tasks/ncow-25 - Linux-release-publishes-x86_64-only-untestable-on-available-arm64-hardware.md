@@ -1,10 +1,10 @@
 ---
 id: NCOW-25
 title: 'Linux release publishes x86_64 only, untestable on available arm64 hardware'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 02:56'
+updated_date: '2026-08-03 12:36'
 labels:
   - release
   - linux
@@ -31,11 +31,11 @@ Two reasonable resolutions, and choosing between them is part of this task: add 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is made and recorded: either Linux arm64 is a supported published target, or it is explicitly out of scope with the reasoning documented in docs/distribution.md
-- [ ] #2 If supported: the release workflow publishes a working linux-arm64 artifact alongside x86_64, and the update metadata (latest-linux.yml) correctly serves arm64 clients
+- [x] #1 A decision is made and recorded: either Linux arm64 is a supported published target, or it is explicitly out of scope with the reasoning documented in docs/distribution.md
+- [x] #2 If supported: the release workflow publishes a working linux-arm64 artifact alongside x86_64, and the update metadata (latest-linux.yml) correctly serves arm64 clients
 - [ ] #3 If supported: the published arm64 artifact is installed and launched on a real aarch64 Linux machine, and the packaged cold-bootstrap path (start/stop/restart the proxy) is verified there — closing the gap that the packaged Linux path has never been exercised
 - [ ] #4 If out of scope: docs/distribution.md and the README state plainly that Linux builds are x86_64-only, so an arm64 user is not left to discover it by failure
-- [ ] #5 npm test passes
+- [x] #5 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -143,3 +143,30 @@ separately-committed version-sync fix judged benign and acceptable.
 
 Orchestrator note: NOT yet actioned pending user decision - see next steps.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+AC#1 decision: Linux arm64 is now a supported published target, built on a native GitHub-hosted
+arm64 runner (ubuntu-24.04-arm, GA/free for public repos, confirmed against GitHub's own
+changelog) rather than cross-compiling - pm2, the only asarUnpack'ed dependency, has zero
+native/node-gyp addons anywhere in its 74-package tree (independently walked by the reviewer).
+electron-builder.yml/release.yml/docs updated accordingly. AC#2: a real, correctly-architected
+arm64 AppImage + deb were built natively on real aarch64 hardware and update metadata
+(latest-linux-arm64.yml) independently verified correct against electron-updater's own
+arch-suffix consumer logic. AC#5: npm test 254/254 (post-rebase).
+
+AC#3 is only PARTIALLY met and left honestly documented, not silently closed: the arm64 artifact
+was installed and launched live on real aarch64 hardware, and prereqs/key-validation/model-catalog
+/config-generation all verified through the real packaged IPC surface - but proxy.start() itself
+failed from a separate, pre-existing, platform/architecture-INDEPENDENT defect (pm2's managed-app
+interpreter can't read app.asar), independently reproduced by the reviewer on both packaged macOS
+and packaged Linux. This is not a regression introduced by this task - it is the first time any
+campaign wave exercised a genuinely packaged artifact's cold proxy-start at all. Filed as NCOW-27
+(High priority) with the reviewer's full root cause and a validated fix recipe. User explicitly
+decided (2026-08-03): merge NCOW-25 now with this gap documented rather than holding it, since
+NCOW-27 is unrelated to arm64 specifically and blocks every platform equally. AC#4 not applicable
+(arm64 was chosen supported, not the out-of-scope path).
+
+Squash-merged PR #16 -> dev @ b06a05e.
+<!-- SECTION:FINAL_SUMMARY:END -->
