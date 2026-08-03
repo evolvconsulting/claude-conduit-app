@@ -387,6 +387,43 @@ test('renderEcosystemConfigCjs: name is litellm-nim and autorestart is on, per D
   assert.equal(mod.exports.apps[0].max_restarts, 10);
 });
 
+// NCOW-27 regression coverage: without an explicit `interpreter`, pm2's
+// Common.js resolveInterpreter() maps the managed app's `.js` script to the
+// literal string "node", and God/ForkMode.js then resolves the forked
+// child's entry point relative to pm2's OWN module.filename — inside a
+// packaged (asar: true) build that's an app.asar-internal path, handed to a
+// PATH-resolved system Node binary with no asar support: MODULE_NOT_FOUND,
+// crash loop, HEALTH_CHECK_TIMEOUT on every platform this project ships.
+// `interpreter: process.execPath` + `env: { ELECTRON_RUN_AS_NODE: '1' }`
+// (the same recipe NCOW-22 already used for the pm2 daemon itself) fixes
+// this, live-verified on a real packaged macOS/Linux artifact.
+test('renderEcosystemConfigCjs: NCOW-27 — sets interpreter: process.execPath as a literal expression, not frozen at generate time', () => {
+  const cjs = renderEcosystemConfigCjs({ runLauncherPath: '/r.js', outLog: '/o.log', errLog: '/e.log' });
+
+  // The generated source text must literally contain `process.execPath` —
+  // not a JSON.stringify'd/interpolated path — because this file gets
+  // require()'d by whichever binary is currently running the pm2 client,
+  // and that binary differs run to run (dev vs packaged, or a future
+  // relaunch under a different install path).
+  assert.match(cjs, /interpreter:\s*process\.execPath,/);
+  assert.doesNotMatch(cjs, /interpreter:\s*["']/, 'interpreter must never be a string literal baked in at generate time');
+
+  // Evaluate the generated source under a DIFFERENT `process` binding than
+  // whatever generated it, proving the value tracks eval-time execPath
+  // rather than something captured when renderEcosystemConfigCjs ran.
+  const fakeProcess = { execPath: '/fake/path/to/electron-binary', env: {} };
+  const mod = { exports: {} };
+  new Function('module', 'exports', 'process', cjs)(mod, mod.exports, fakeProcess);
+  assert.equal(mod.exports.apps[0].interpreter, '/fake/path/to/electron-binary');
+});
+
+test('renderEcosystemConfigCjs: NCOW-27 — sets env.ELECTRON_RUN_AS_NODE so a pre-existing daemon this app did not spawn does not boot a second GUI copy', () => {
+  const cjs = renderEcosystemConfigCjs({ runLauncherPath: '/r.js', outLog: '/o.log', errLog: '/e.log' });
+  const mod = { exports: {} };
+  new Function('module', 'exports', cjs)(mod, mod.exports);
+  assert.deepEqual(mod.exports.apps[0].env, { ELECTRON_RUN_AS_NODE: '1' });
+});
+
 test('resolveMasterKey: generates a fresh sk-litellm-* key when no env file exists', () => {
   const key = resolveMasterKey('/nonexistent/litellm.env');
   assert.match(key, /^sk-litellm-[0-9a-f]{48}$/);
