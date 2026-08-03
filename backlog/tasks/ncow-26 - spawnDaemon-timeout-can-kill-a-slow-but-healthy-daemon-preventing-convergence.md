@@ -4,7 +4,7 @@ title: 'spawnDaemon timeout can kill a slow-but-healthy daemon, preventing conve
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 02:15'
+updated_date: '2026-08-03 02:19'
 labels:
   - pm2
 dependencies: []
@@ -99,4 +99,13 @@ Scope check: clean, exactly the 2 expected files, no drive-by changes. No overla
 tasks' files; reviewer flagged one semantic (not textual) adjacency to watch post-rebase -
 engine-context.js (NCOW-23's territory) is the sole production wiring point for spawnDaemon, so
 re-run the full suite after rebase rather than assuming file-disjointness alone is sufficient.
+
+Fix pass 1 complete, pushed (commit b3f1682, verified against origin). Blocking finding addressed:
+leak test's finally now kills the union of `leaked` and liveDaemonChildren() (ppid-filtered, cannot
+touch the real shared daemon) instead of trusting `leaked` alone. Worker reproduced the exact
+failure mode via a standalone repro (spawnDaemon resolving instead of rejecting, triggering
+assert.rejects to throw "Missing expected rejection" before `leaked` gets populated) and confirmed:
+old logic left a real orphan daemon running pointing at a deleted PM2_HOME; new logic killed it via
+liveDaemonChildren(). Both polish items also addressed (test comment accuracy, pid-fidelity
+comment on the adopt path). npm test 246/246. Pending review pass 2.
 <!-- SECTION:NOTES:END -->
