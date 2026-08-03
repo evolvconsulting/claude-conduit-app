@@ -1,9 +1,10 @@
 ---
 id: NCOW-23
 title: NIM_PROXY_TEST_HOME does not protect the config dir on Windows
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
+updated_date: '2026-08-03 01:54'
 labels:
   - windows
   - safety
