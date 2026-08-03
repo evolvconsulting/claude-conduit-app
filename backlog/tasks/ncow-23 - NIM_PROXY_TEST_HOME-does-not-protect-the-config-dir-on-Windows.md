@@ -4,7 +4,7 @@ title: NIM_PROXY_TEST_HOME does not protect the config dir on Windows
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-03 02:11'
+updated_date: '2026-08-03 02:25'
 labels:
   - windows
   - safety
@@ -75,4 +75,33 @@ resolveClaudeCodeSettingsPath/getFilePaths have no env lookup, no bug. Noted but
 untouched: pm2Control.js's PM2_HOME env fallback is a different, documented design choice (shared
 daemon architecture), not the same class of bug. AC1-6 all self-reported true; pending independent
 reviewer confirmation.
+
+Wave 9 review (opus): approve. All 6 ACs independently confirmed via fresh live evidence on the
+real Windows VM (not code reading) - drove the real createEngineContext()+handlers under --dev +
+NIM_PROXY_TEST_HOME, observed all resolved paths (configDir, all ctx.files, claudeCode settings
+path, Claude Desktop configLibrary dir, Electron userData dir) land under the fake home; hashed the
+7 real %APPDATA%\claude-conduit files (5 config + 2 logs) plus the real nim-key.enc and real
+%LOCALAPPDATA%\Claude-3p before and after - all byte-identical, same LastWriteTimeUtc, pm2 daemon
+pid 8832 untouched. Independently confirmed the gating (--dev + NIM_PROXY_TEST_HOME both required)
+does not invert real-Windows precedence in any of 3 non-test combinations, including a simulated
+folder-redirection case where a redirected APPDATA still correctly wins over a homedir guess.
+Confirmed the main/index.js bug (resolveElectronAppDataDir via NIM_PROXY_TEST_HOME) is real and
+distinct - reviewer noted it as arguably MORE severe than the config-dir bug, since pre-fix it
+would have pointed secretStore at the REAL userData dir containing the live encrypted NVIDIA key on
+a --dev test-home run. npm test 252/252 on macOS; 15/15 native win32 run of paths.test.js.
+
+Non-blocking findings (low/info, no fix required): (1) call-site wiring itself
+(engine-context.js/index.js) has no direct test coverage, only paths.js's exported functions do -
+matches this repo's pre-existing pattern (resolveHomedir also untested), satisfies AC#4 as written;
+(2) the --dev + NIM_PROXY_TEST_HOME gating condition is duplicated across two call sites rather
+than derived from one source of truth - correct today, could drift later; (3) PM2_HOME still
+resolves via the real homedir on every platform regardless of test-home (pre-existing, deliberate
+shared-daemon design, NCOW-26's territory not NCOW-23's - flagged only so it isn't mistaken for a
+gap this task introduced); (4) full npm test was not re-run natively on win32 (would require a pm2
+install on the shared VM) - substituted a native win32 run of the specifically affected test file
+plus the full macOS suite, no AC required more.
+
+Scope check: clean, exactly the 5 expected files, no overlap with NCOW-25 or NCOW-26. Winvm scratch
+artifacts (including one with a subtle trailing-space directory name) cleaned up, VM verified left
+clean. Approved and ready for the merge queue once the rest of wave 9 settles.
 <!-- SECTION:NOTES:END -->
