@@ -4,7 +4,7 @@ title: NIM_PROXY_TEST_HOME does not protect the config dir on Windows
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-03 01:54'
+updated_date: '2026-08-03 02:11'
 labels:
   - windows
   - safety
@@ -37,3 +37,42 @@ Why this matters beyond tidiness: this is the mechanism that is supposed to make
 - [ ] #5 CLAUDE.md's Safe manual testing section is updated if any platform caveat remains after the fix
 - [ ] #6 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Root cause confirmed: paths.js's resolveConfigDir/resolveLegacyConfigDir/
+resolveClaudeDesktopConfigLibraryDir/resolveElectronAppDataDir all resolve win32 paths as
+opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...) - correct precedence for a real
+Windows run (env can legitimately differ from a bare homedir guess under folder redirection) but
+wrong for the NIM_PROXY_TEST_HOME override case, since APPDATA/LOCALAPPDATA are always set on real
+Windows. Reversing paths.js's own precedence would break real-Windows correctness, so the fix adds
+paths.resolveWindowsAppDataOverrides(homedir) and wires it into engine-context.js and
+main/index.js's resolveUserDataPaths() (which had the identical bug via
+resolveElectronAppDataDir), gated behind the existing --dev + NIM_PROXY_TEST_HOME condition.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Wave 9 implementation complete, pushed to fix/NCOW-23-win32-test-home-config-dir (commits 5fdf28d,
+30220e0, 5401d86). Independently verified by the orchestrator: branch/commits exist on origin,
+diff vs dev touches exactly src/engine/paths.js, src/main/engine-context.js, src/main/index.js,
+test/engine/paths.test.js, CLAUDE.md - no sibling-task files (pm2Control.js, CI/release docs)
+touched.
+
+Evidence (worker-reported, pending independent reviewer re-verification): npm test 252/252 in the
+worktree. Live winvm verification: source transferred and installed fresh on real win32, npm test
+251/252 (the 1 failure is a pre-existing pm2Control.test.js flake attributed to the shared pm2
+daemon pid 8832 that must never be touched - unrelated file, out of this task's scope). Functional
+proof on winvm: hashed the 5 real %APPDATA%\claude-conduit files before touching anything, drove
+the real createEngineContext()+config.generate() under --dev + NIM_PROXY_TEST_HOME with a stub
+safeStorage, confirmed all resolved paths landed under the fake home and all 5 config files were
+written there; re-hashed the real 5 files afterward - all byte-identical, real Electron userData
+dir also confirmed untouched by timestamp. AC#3 audit: resolveConfigDir/resolveLegacyConfigDir/
+resolveClaudeDesktopConfigLibraryDir/resolveElectronAppDataDir shared the bug (all fixed);
+resolveClaudeCodeSettingsPath/getFilePaths have no env lookup, no bug. Noted but deliberately left
+untouched: pm2Control.js's PM2_HOME env fallback is a different, documented design choice (shared
+daemon architecture), not the same class of bug. AC1-6 all self-reported true; pending independent
+reviewer confirmation.
+<!-- SECTION:NOTES:END -->
