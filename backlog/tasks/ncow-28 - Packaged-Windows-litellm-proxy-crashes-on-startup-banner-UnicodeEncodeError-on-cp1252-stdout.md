@@ -3,9 +3,10 @@ id: NCOW-28
 title: >-
   Packaged Windows litellm proxy crashes on startup: banner UnicodeEncodeError
   on cp1252 stdout
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-03 15:26'
+updated_date: '2026-08-03 22:33'
 labels:
   - windows
   - release

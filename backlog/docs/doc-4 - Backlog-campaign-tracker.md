@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 22:32'
+updated_date: '2026-08-03 22:33'
 ---
 # Backlog campaign tracker
 
@@ -203,14 +203,28 @@ NCOW-28 likely touches the same generated-launcher code path (`configGen.js` / `
 NCOW-21 and NCOW-27 already contended over — treat as a probable file conflict with NCOW-21 until
 the next wave's file-citation check confirms or clears it, not just a cluster-tag heuristic.
 
+**Wave 11 dispatch (2026-08-03):** all four ready tasks need one of two contended resources.
+NCOW-21, NCOW-24, and NCOW-28 all require live winvm (Shared Machine State caps them to one per
+wave regardless of file overlap); NCOW-29 instead needs a Linux box with no keyring backend
+(`linuxvm`, an independent resource, reachable and already qualified by NCOW-25). Among the three
+winvm-contending tasks, NCOW-28 was chosen for the single live-Windows slot over NCOW-21 (LOW
+priority, cosmetic hardening with no live exploit path today) and NCOW-24 (HIGH, but open-ended
+characterization work with no fix recipe yet) — NCOW-28 is HIGH priority, directly continues
+NCOW-27's exact defect class (packaged proxy still cannot start on a whole platform), and already
+has a reviewer-validated fix recipe (`PYTHONIOENCODING=utf-8`) ready to implement, so it is both
+the highest-severity and highest-confidence pick for the contended slot. **Wave 11 = {NCOW-28,
+NCOW-29}** — no file overlap (NCOW-28 touches `configGen.js`/`run.js`, NCOW-29 touches
+`engine-context.js`/renderer setup UI) and no shared-machine-state overlap (winvm vs linuxvm).
+NCOW-21 and NCOW-24 remain queued for a future wave once winvm's single slot frees up again.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
-| 10 | NCOW-28 | pm2/release | none | To Do | | packaged Windows litellm proxy crashes on startup (banner UnicodeEncodeError on cp1252 stdout); filed wave 10 from NCOW-27's review, HIGH priority, fix recipe (PYTHONIOENCODING=utf-8) already validated live; needs live winvm |
-| 11 | NCOW-29 | secretstore | none | To Do | | apiKey.validateAndSave silently reports success when secretStore.save() fails (ENCRYPTION_UNAVAILABLE); filed wave 10 from NCOW-27's review, MEDIUM priority; needs a Linux box with no keyring backend (linuxvm qualified for NCOW-25) |
+| 10 | NCOW-28 | pm2/release | none | Dispatched | 11 | packaged Windows litellm proxy crashes on startup (banner UnicodeEncodeError on cp1252 stdout); filed wave 10 from NCOW-27's review, HIGH priority, fix recipe (PYTHONIOENCODING=utf-8) already validated live; needs live winvm |
+| 11 | NCOW-29 | secretstore | none | Dispatched | 11 | apiKey.validateAndSave silently reports success when secretStore.save() fails (ENCRYPTION_UNAVAILABLE); filed wave 10 from NCOW-27's review, MEDIUM priority; needs a Linux box with no keyring backend (linuxvm qualified for NCOW-25) |
 
 ## Resolved
 

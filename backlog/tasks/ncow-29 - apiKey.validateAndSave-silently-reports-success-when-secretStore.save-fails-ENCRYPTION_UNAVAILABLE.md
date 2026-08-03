@@ -3,9 +3,10 @@ id: NCOW-29
 title: >-
   apiKey.validateAndSave silently reports success when secretStore.save() fails
   (ENCRYPTION_UNAVAILABLE)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-03 15:26'
+updated_date: '2026-08-03 22:33'
 labels:
   - secretstore
   - ipc
