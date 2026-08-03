@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 12:38'
+updated_date: '2026-08-03 12:56'
 ---
 # Backlog campaign tracker
 
@@ -161,13 +161,28 @@ Linux fix already prototyped by the reviewer; Windows verification is one of NCO
 **CHECK winvm REACHABILITY FIRST** if picking up NCOW-21/24. Shared Machine State still limits
 any wave to one live-Windows task at a time.
 
+Restore 4 / wave 10 dispatch (2026-08-03): all three remaining ready tasks (NCOW-21, NCOW-24,
+NCOW-27) turn out to conflict pairwise, so this wave has exactly one member. NCOW-21 and NCOW-27
+both cite `src/engine/configGen.js` (NCOW-21: the generated launcher's `cmdQuoteArg`
+embedded-quote escaping; NCOW-27: `renderEcosystemConfigCjs()`'s managed-app entry) — treated as
+a real file conflict, not a cluster-tag heuristic, per the tracker's own note from wave 9.
+NCOW-24 and NCOW-27 don't share a file but both require live-verifying this app's actual
+start/stop/restart behavior on a real packaged Windows build against the SAME shared `winvm`
+daemon/process state — treated as a Shared-Machine-State conflict. NCOW-21's own Windows AC also
+exercises the same generated launcher pm2 uses to start litellm, so it was conservatively treated
+as contending for the same live-Windows resource too, per the "ambiguous match → keep the
+conflict" rule. **Wave 10 = NCOW-27 alone** (HIGH priority, release-blocking — no published
+release has ever proven `proxy.start()` works from a packaged install — and its core fix needs no
+VM at all for the macOS/Linux portion, only its own AC#2 needs winvm). NCOW-21 and NCOW-24 remain
+queued for a future wave once NCOW-27 releases the shared file/winvm resources.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
-| 9 | NCOW-27 | pm2/packaging | none | To Do | | packaged proxy.start() fails on every platform (pm2 managed-app interpreter can't read app.asar); filed wave 9, HIGH priority, fix recipe already validated live by the reviewer on macOS — Windows verification still needed |
+| 9 | NCOW-27 | pm2/packaging | none | Dispatched | 10 | packaged proxy.start() fails on every platform (pm2 managed-app interpreter can't read app.asar); filed wave 9, HIGH priority, fix recipe already validated live by the reviewer on macOS — Windows verification still needed |
 
 ## Resolved
 

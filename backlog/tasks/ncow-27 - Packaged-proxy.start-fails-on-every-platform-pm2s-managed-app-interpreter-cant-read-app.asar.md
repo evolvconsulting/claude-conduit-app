@@ -3,9 +3,10 @@ id: NCOW-27
 title: >-
   Packaged proxy.start() fails on every platform: pm2's managed-app interpreter
   can't read app.asar
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-03 12:33'
+updated_date: '2026-08-03 12:56'
 labels:
   - pm2
   - packaging
