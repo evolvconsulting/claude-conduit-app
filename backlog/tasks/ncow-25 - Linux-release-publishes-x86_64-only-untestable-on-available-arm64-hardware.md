@@ -1,9 +1,10 @@
 ---
 id: NCOW-25
 title: 'Linux release publishes x86_64 only, untestable on available arm64 hardware'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
+updated_date: '2026-08-03 01:55'
 labels:
   - release
   - linux
