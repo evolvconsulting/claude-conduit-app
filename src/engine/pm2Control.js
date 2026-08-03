@@ -209,6 +209,12 @@ function spawnDaemon(opts = {}) {
           // Already disconnected/exited; nothing to do.
         }
         child.unref();
+        // No IPC 'message' ever arrived on this path, so unlike onMessage's
+        // `msg?.pid ?? child.pid` there is no daemon-reported pid to prefer
+        // — this is only the pid of the process we spawned, which can
+        // differ from pm2's own self-daemonized pid. Inert today (the only
+        // caller discards the resolved value); worth revisiting if a future
+        // caller starts relying on the returned pid.
         finish(resolve, { pid: child.pid });
       } else {
         finish(reject, new Error(`pm2 daemon did not report ready within ${timeoutMs}ms`));

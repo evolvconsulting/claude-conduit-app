@@ -296,9 +296,15 @@ test('spawnDaemon: a rejecting attempt does not leak the daemon it spawned (revi
     // NCOW-26 review finding #2: if the assertion above fails (the leak
     // regression it exists to catch is back), this must still not leave a
     // real "God Daemon" process alive pointing at a PM2_HOME we're about to
-    // delete out from under it. Mirrors the sibling real-process test's
+    // delete out from under it. `leaked` is only ever populated on the
+    // happy path — if `assert.rejects` itself throws (e.g. "Missing
+    // expected rejection"), this finally block runs with `leaked` still
+    // empty, so it can't be trusted alone. Re-derive the live set via
+    // liveDaemonChildren() (ppid-filtered, so it can never touch anything
+    // but processes this test itself spawned) and union it with whatever
+    // `leaked` already collected, mirroring the sibling real-process test's
     // cleanup pattern above (:238-244).
-    for (const pid of leaked) {
+    for (const pid of new Set([...leaked, ...liveDaemonChildren()])) {
       try {
         process.kill(pid, 'SIGTERM');
       } catch {
@@ -321,9 +327,13 @@ test('spawnDaemon: a rejecting attempt does not leak the daemon it spawned (revi
 //
 // These use a fully-controlled fake child (rather than a real spawned pm2
 // daemon, whose own boot time is fast and not reliably fake-able-slow) so
-// the exact race — "still not alive when spawnDaemon gives up waiting on the
-// child's IPC message, but alive by the time the timeout handler's own
-// probe runs" — is deterministic instead of relying on real-world timing.
+// the scenario is deterministic instead of relying on real-world timing:
+// the fake daemon's rpc socket is already listening for the whole call
+// (bound before spawnDaemon() is even invoked), it just never sends the
+// IPC 'message' spawnDaemon() would otherwise wait on. spawnDaemon only
+// ever probes aliveness once, at timeout, so "alive the whole time" and
+// "bound late but alive by the time the timeout handler's probe runs" are
+// indistinguishable to the code under test — AC#2 holds either way.
 // probeDaemonAlive() itself is still exercised for real, against a real
 // socket, matching this file's preference for live evidence over pure
 // mocking.
@@ -351,9 +361,13 @@ test('spawnDaemon: on timeout, adopts a daemon that is already alive by then ins
   const child = fakeChildProcess({ pid: 424242 });
   const server = net.createServer();
   try {
-    // Simulate the daemon having bound its rpc socket even though it never
-    // sends the IPC 'message' spawnDaemon() would otherwise wait on — the
-    // exact shape of "slow to report ready over IPC, but genuinely up".
+    // The daemon's rpc socket is already listening for the entire call
+    // below — bound before spawnDaemon() is even invoked — but it never
+    // sends the IPC 'message' spawnDaemon() would otherwise wait on.
+    // Because spawnDaemon only ever probes aliveness once, at timeout, this
+    // is indistinguishable to the code under test from a daemon that bound
+    // its socket later: either way, the daemon is alive by the time the
+    // timeout handler's probe runs.
     await new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(path.join(pm2Home, 'rpc.sock'), resolve);
