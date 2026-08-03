@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 22:33'
+updated_date: '2026-08-03 23:13'
 ---
 # Backlog campaign tracker
 
@@ -217,14 +217,29 @@ NCOW-29}** — no file overlap (NCOW-28 touches `configGen.js`/`run.js`, NCOW-29
 `engine-context.js`/renderer setup UI) and no shared-machine-state overlap (winvm vs linuxvm).
 NCOW-21 and NCOW-24 remain queued for a future wave once winvm's single slot frees up again.
 
+As of wave 11 settlement (2026-08-03): **NCOW-28 and NCOW-29 are both Done** (see Resolved) —
+merged PR #18 -> `a6d80ea` and PR #19 -> `230ca0d`, both approved with independent live A/B
+verification, wave-level integration review found the merged result `clean` (no cross-task
+conflicts, all three configGen.js fixes across NCOW-22/27/28 coexist correctly, npm test 261/261
+on merged dev). One real follow-up candidate surfaced across both reviews and the integration
+pass: `configGen.generateAll()` has exactly one caller (the setup wizard), so an existing install
+upgrading in place never regenerates `ecosystem.config.cjs` and keeps whatever
+NCOW-22/27/28-vintage fixes (or lack thereof) it had at first setup — proposed to the user for
+filing as a new task, not created unilaterally. A second candidate (`secretStore.js`'s
+`importFromExistingEnvFile()` swallowing a save failure identically to NCOW-29's fixed bug) was
+confirmed by the integration review to be dead code with zero production callers — not proposed
+for filing.
+
+Three tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-24, plus whatever the user
+decides on the ecosystem-regeneration follow-up. **CHECK winvm REACHABILITY FIRST** — both NCOW-21
+and NCOW-24 need it, and Shared Machine State still limits any wave to one live-Windows task.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
-| 10 | NCOW-28 | pm2/release | none | Dispatched | 11 | packaged Windows litellm proxy crashes on startup (banner UnicodeEncodeError on cp1252 stdout); filed wave 10 from NCOW-27's review, HIGH priority, fix recipe (PYTHONIOENCODING=utf-8) already validated live; needs live winvm |
-| 11 | NCOW-29 | secretstore | none | Dispatched | 11 | apiKey.validateAndSave silently reports success when secretStore.save() fails (ENCRYPTION_UNAVAILABLE); filed wave 10 from NCOW-27's review, MEDIUM priority; needs a Linux box with no keyring backend (linuxvm qualified for NCOW-25) |
 
 ## Resolved
 
@@ -240,6 +255,9 @@ NCOW-21 and NCOW-24 remain queued for a future wave once winvm's single slot fre
 | 8 | NCOW-26 | Done, 2026-08-02/03, wave 9 | Fixed spawnDaemon()'s TIMEOUT path to probe first via probeDaemonAlive() and adopt an already-alive-but-slow daemon instead of killing it (onError/onExit unchanged, preserving NCOW-22's leak fix for genuine failures). Two review passes: pass 1 found and live-reproduced a real daemon-leak defect in the new regression test's OWN cleanup (a failing assertion could itself leave a real orphan pointing at a deleted PM2_HOME); fixed by killing the union of the collected list and liveDaemonChildren() unconditionally. Pass 2 independently reproduced the fix two ways (copy-based A/B and a source-mutation 2x2) against real orphaned processes -- approve, all 4 ACs confirmed. npm test 254/254 (post-rebase onto NCOW-23). Squash-merged PR #15 -> dev @ 3ea0fb3. |
 | 9 | NCOW-25 | Done, 2026-08-02/03, wave 9 | AC#1: Linux arm64 is now a supported published target on a native GitHub-hosted arm64 runner (GA/free for public repos, confirmed against GitHub's own changelog) -- pm2, the only asarUnpack'ed dependency, independently confirmed to have zero native/node-gyp addons across its 74-package tree, so no cross-arch rebuild concerns. AC#2: a real arm64 AppImage + deb built NATIVELY on real aarch64 hardware (linuxvm), update metadata (latest-linux-arm64.yml) independently verified correct against electron-updater's own arch-suffix consumer logic, both arch-narrowing build scripts verified to produce arch-pure output (no cross-arch leakage). AC#5: npm test 254/254. AC#3 PARTIAL and left honestly documented rather than silently closed: install/launch/prereqs/key-validation/model-catalog/config-generation all verified live on real aarch64 hardware through the real packaged IPC surface, but proxy.start() itself failed from a separate, pre-existing, platform/architecture-INDEPENDENT defect (NOT an arm64 or Linux-specific regression) -- reproduced by the reviewer on both packaged macOS and packaged Linux. Filed as NCOW-27 (HIGH priority) with a reviewer-validated fix recipe. User explicitly decided (2026-08-03) to merge now with this gap documented rather than hold, since NCOW-27 is unrelated to arm64 specifically and blocks every platform equally. AC#4 n/a (arm64 was chosen supported). Also fixed the long-standing package-lock.json/package.json version drift (0.1.0 vs 0.1.1) as its own commit. Reviewer verdict was escalate (human_needed) specifically for the NCOW-27 gap; resolved via AskUserQuestion (file NCOW-27: yes; merge NCOW-25 now: yes). Squash-merged PR #16 -> dev @ b06a05e. |
 | 10 | NCOW-27 | Done, 2026-08-03, wave 10 | Fixed the packaged proxy.start() defect on all three platforms: configGen.js's renderEcosystemConfigCjs() now emits interpreter: process.execPath (a literal expression, never frozen at generate time) + env: { ELECTRON_RUN_AS_NODE: '1' } for the managed litellm-nim pm2 entry, mirroring the existing daemon-spawn pattern NCOW-22 already established. Independently verified live by an opus reviewer on all three platforms, including an A/B negative control that reverted the fix and reproduced the original MODULE_NOT_FOUND/HEALTH_CHECK_TIMEOUT failure on a real packaged macOS build, then confirmed the fix resolves it: packaged macOS (npm run pack) and a real Linux arm64 AppImage both proxy.start()/stop()/restart() cleanly with genuine LLM completions through the running proxy; Windows (winvm) confirmed the same asar-path defect and same fix mechanism (against the shared daemon, since Windows hardcodes pm2's RPC pipe regardless of PM2_HOME) once two unrelated Python/Windows environment issues were separately worked around. AC#3 (AppImage's ephemeral process.execPath persisted into pm2's dump.pm2): confirmed this app never calls resurrect()/pm2 startup itself, so no self-inflicted failure within its own lifecycle; added an advisory AppImage-specific caveat to pm2Control.js's getBootPersistenceGuidance() without touching NCOW-24's scope (that function currently has no caller in src/, so the caveat is correct but not yet user-visible -- a pre-existing gap, not introduced here). AC#4: regression tests prove the interpreter expression isn't frozen at generate time (verified to fail without the fix, and to fail again against a plausible-wrong JSON.stringify(process.execPath) implementation) and that the env field is present. Two minor comment-accuracy findings from review (a stale "no interpreter needed" claim; an overly narrow ELECTRON_RUN_AS_NODE justification) were folded in as a follow-up commit, re-confirmed doc-only via a byte-identical-after-stripping-comments diff check. npm test 258/258. Squash-merged PR #17 -> dev @ 08d8ecf. Two adjacent defects found during review were filed as separate follow-ups per user approval: NCOW-28 (Windows litellm banner UnicodeEncodeError blocking every packaged Windows install) and NCOW-29 (apiKey.validateAndSave silently discarding a secretStore.save() ENCRYPTION_UNAVAILABLE failure). |
+
+| 11 | NCOW-28 | Done, 2026-08-03, wave 11 | Added PYTHONIOENCODING: 'utf-8' to configGen.js's renderEcosystemConfigCjs() generated env object for the managed litellm-nim pm2 entry, alongside NCOW-27's ELECTRON_RUN_AS_NODE. Fixes litellm's startup banner crashing with UnicodeEncodeError on Windows' default cp1252 stdout codepage (previously timed out as HEALTH_CHECK_TIMEOUT under pm2) -- blocked every packaged Windows install even after NCOW-27's fix. Opus review independently confirmed all 5 ACs with an A/B control on a real Windows VM (winvm): a matched no-fix build reproduced the exact crash/crash-loop (HEALTH_CHECK_TIMEOUT, restarts 3->4, the exact UnicodeEncodeError string), the fix build ran proxy.start/stop/restart cleanly with a real LLM completion before and after restart. Mutation-tested the regression test (fails without the fix, passes with it). npm test 259/259 (261/261 after rebase onto NCOW-29). Squash-merged PR #18 -> dev @ a6d80ea. |
+| 12 | NCOW-29 | Done, 2026-08-03, wave 11 | apiKey.validateAndSave in engine-context.js now propagates secretStore.save()'s {ok:false, error} instead of discarding it and always reporting success. No renderer change needed -- setup-view.js already branched on result.ok and rendered result.error?.message in its existing .fail span, gated on wiz.apiKeyValidated. Opus review independently reproduced the bug and fix live on a headless Linux box (linuxvm) with a genuine, unforced ENCRYPTION_UNAVAILABLE precondition (no desktop D-Bus session, confirmed with a standalone probe): before the fix, the setup UI showed a misleading pass state with Continue enabled despite the key never being persisted (getMasked() null, generate() NO_KEY); after, a clear .fail error with Continue disabled; a happy-path control (XDG_CURRENT_DESKTOP=GNOME) confirmed normal key persistence still works. npm test 260/260 (261/261 after rebase onto NCOW-28). Squash-merged PR #19 -> dev @ 230ca0d. Two adjacent findings recorded on the task but out of scope: an identical swallowed-failure pattern in secretStore.js's importFromExistingEnvFile() (confirmed by the wave integration review to be dead code, zero production callers) and a pre-existing, environment-specific flaky pm2Control test on Linux (confirmed unrelated to this change, its own orphaned daemon cleaned up by the reviewer). |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -594,3 +612,42 @@ across 4 waves)*
   `origin/dev` in sync, no leftover worktrees/branches/open PRs). This tracker update is the matching
   catch-up for the doc side, folding in NCOW-27's Resolved-table entry and NCOW-28/NCOW-29's Queue
   rows in the same pass.
+
+- 2026-08-03 — wave 11 (tasks: NCOW-28, NCOW-29): dispatched immediately after restore 5's
+  reconciliation, first real parallel wave since wave 9. Of the four ready tasks (NCOW-21, NCOW-24,
+  NCOW-28, NCOW-29), three needed the single live-winvm slot; NCOW-28 was chosen for it over NCOW-21
+  (LOW priority, no live exploit today) and NCOW-24 (HIGH but open-ended, no fix recipe yet) since it
+  is HIGH priority, directly continues NCOW-27's exact defect class, and already had a
+  reviewer-validated fix recipe. NCOW-29 ran in parallel against `linuxvm` instead (independent
+  resource, no file overlap with NCOW-28's `configGen.js`/`run.js`).
+
+  Both implemented cleanly, one opus review pass each, both **approve** with independently-confirmed
+  evidence rather than trusted implementer claims — both reviewers went further than either worker,
+  building their own A/B control pairs (revert-the-fix / reapply-the-fix) live on real hardware
+  rather than accepting the workers' before/after narratives: NCOW-28's reviewer built its own
+  packaged Windows arm64 artifact pair and reproduced the exact `UnicodeEncodeError`/
+  `HEALTH_CHECK_TIMEOUT`/crash-loop without the fix, clean start/stop/restart plus two real LLM
+  completions with it; NCOW-29's reviewer independently established that `ENCRYPTION_UNAVAILABLE` is
+  a genuine unforced condition on a headless Linux desktop session (not an artificial trigger) before
+  reproducing the silent-success bug and its fix live over CDP, plus a happy-path control proving the
+  fix doesn't break normal key persistence. Both mutation-tested their regression tests (removing the
+  fix makes the new test fail, restoring it passes).
+
+  Merged serially in confirmed queue order: NCOW-28 first (clean rebase, re-verified 259/259, PR #18
+  -> dev @ `a6d80ea`), then NCOW-29 (clean rebase onto NCOW-28's merge, re-verified 261/261, PR #19 ->
+  dev @ `230ca0d`) — no file overlap, as predicted at dispatch. Wave-level integration review (opus)
+  over the cumulative diff came back `clean`: confirmed no shared code path between the two changes,
+  confirmed all three configGen.js env-object fixes (NCOW-22-era daemon pattern, NCOW-27, NCOW-28)
+  coexist correctly and additively with nothing clobbered, re-ran the full suite on merged dev
+  (261/261), and confirmed neither change violates any of CLAUDE.md's hard constraints (no renderer
+  touched at all this wave, so the banned-dialog/CSP checks were trivially clean).
+
+  Both worktrees released back to the treehouse pool, both branches deleted (local + remote) after
+  their respective merges. One real follow-up candidate surfaced independently by both individual
+  reviews and confirmed by the integration pass: `configGen.generateAll()` has exactly one caller
+  (the setup wizard), so an existing install upgrading in place never regenerates
+  `ecosystem.config.cjs` and keeps whatever fix-vintage it had at first setup, meaning NCOW-27/28's
+  fixes don't reach an existing Windows install without a fresh setup run — proposed to the user for
+  filing rather than created unilaterally. A second candidate (`secretStore.js`'s
+  `importFromExistingEnvFile()`, same swallowed-failure pattern as NCOW-29) was confirmed dead code
+  with zero production callers by the integration review, so it was not proposed for filing.
