@@ -118,17 +118,31 @@ function ensurePm2HomeStructure(pm2Home) {
  * and posts an IPC 'message' once its rpc/pub sockets are bound and ready,
  * exactly what pm2's own launchDaemon() itself waits for.
  *
- * @param {{pm2Home?: string, timeoutMs?: number}} [opts]
+ * On timeout specifically (NCOW-26), a merely-slow-but-healthy daemon —
+ * one whose sockets end up bound after timeoutMs on a cold, contended, or
+ * antivirus-scanned machine — is adopted via a fresh probeDaemonAlive()
+ * check rather than killed outright: killing a daemon that would have come
+ * up fine given a bit longer means every retry restarts from zero, so a
+ * machine that consistently needs longer than timeoutMs never converges.
+ * onError and onExit are genuine failures and are always killed, preserving
+ * NCOW-22's leak fix.
+ *
+ * @param {{pm2Home?: string, timeoutMs?: number, spawn?: typeof spawn}} [opts]
+ *   `spawn` is a test-only override (NCOW-26) letting pm2Control.test.js
+ *   drive the timeout/kill/adopt state machine below with a fully-controlled
+ *   fake child; every real caller leaves it unset and gets the genuine
+ *   node:child_process spawn.
  * @returns {Promise<{pid: number}>}
  */
 function spawnDaemon(opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const pm2Home = resolvePm2Home(opts.pm2Home);
   ensurePm2HomeStructure(pm2Home);
+  const spawnFn = typeof opts.spawn === 'function' ? opts.spawn : spawn;
 
   return new Promise((resolve, reject) => {
     const daemonScript = path.join(path.dirname(require.resolve('pm2/package.json')), 'lib', 'Daemon.js');
-    const child = spawn(process.execPath, [daemonScript], {
+    const child = spawnFn(process.execPath, [daemonScript], {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
@@ -137,10 +151,7 @@ function spawnDaemon(opts = {}) {
 
     let settled = false;
     // Deliberately not unref'd — see probeDaemonAlive's identical comment.
-    const timer = setTimeout(
-      () => finish(reject, new Error(`pm2 daemon did not report ready within ${timeoutMs}ms`)),
-      timeoutMs
-    );
+    const timer = setTimeout(onTimeout, timeoutMs);
 
     function finish(fn, arg) {
       if (settled) return;
@@ -150,12 +161,13 @@ function spawnDaemon(opts = {}) {
       child.removeListener('message', onMessage);
       child.removeListener('exit', onExit);
       if (fn === reject) {
-        // Every reject path (timeout, onError, and defensively onExit even
-        // though the child is normally already gone by then) must not leave
-        // a live, detached/unref'd daemon behind. Without this, a persistent
-        // bootstrap failure leaks one orphan pm2 daemon per retry, since
-        // AC#3's memo-clearing makes every subsequent proxy:* call retry and
-        // status-poller.js polls every 5s (NCOW-22 review finding).
+        // onError, onExit, and a timeout with no daemon actually alive are
+        // genuine failures: never leave a live, detached/unref'd daemon
+        // behind. Without this, a persistent bootstrap failure leaks one
+        // orphan pm2 daemon per retry, since AC#3's memo-clearing makes
+        // every subsequent proxy:* call retry and status-poller.js polls
+        // every 5s (NCOW-22 review finding). A timeout that finds the
+        // daemon actually alive never reaches here — see onTimeout (NCOW-26).
         try {
           child.kill();
         } catch {
@@ -178,6 +190,35 @@ function spawnDaemon(opts = {}) {
     }
     function onExit(code) {
       finish(reject, new Error(`pm2 daemon process exited during bootstrap (code ${code})`));
+    }
+    async function onTimeout() {
+      if (settled) return;
+      // NCOW-26 mitigation: probe for real aliveness before giving up. A
+      // "yes" here means the daemon bound its rpc/pub sockets later than
+      // timeoutMs but is genuinely healthy — adopt it exactly like onMessage
+      // does, instead of killing a process that would otherwise have been
+      // found and reused by the next status-poller tick anyway.
+      const alive = await probeDaemonAlive({ pm2Home }).catch(() => false);
+      // onError/onMessage/onExit may have already settled this while the
+      // probe above was in flight.
+      if (settled) return;
+      if (alive) {
+        try {
+          child.disconnect();
+        } catch {
+          // Already disconnected/exited; nothing to do.
+        }
+        child.unref();
+        // No IPC 'message' ever arrived on this path, so unlike onMessage's
+        // `msg?.pid ?? child.pid` there is no daemon-reported pid to prefer
+        // — this is only the pid of the process we spawned, which can
+        // differ from pm2's own self-daemonized pid. Inert today (the only
+        // caller discards the resolved value); worth revisiting if a future
+        // caller starts relying on the returned pid.
+        finish(resolve, { pid: child.pid });
+      } else {
+        finish(reject, new Error(`pm2 daemon did not report ready within ${timeoutMs}ms`));
+      }
     }
 
     child.once('error', onError);

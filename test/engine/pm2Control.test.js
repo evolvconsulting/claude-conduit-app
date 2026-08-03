@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const { createPm2Control, probeDaemonAlive, spawnDaemon } = require('../../src/engine/pm2Control');
 
 function fakePm2({ apps = [] } = {}) {
@@ -274,6 +275,7 @@ test('spawnDaemon: a rejecting attempt does not leak the daemon it spawned (revi
     return;
   }
   const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-leak-'));
+  let leaked = [];
   try {
     // Reproduces the reviewer's exact repro: a non-socket file already
     // sitting at the resolved rpc socket path makes the daemon's own socket
@@ -288,8 +290,119 @@ test('spawnDaemon: a rejecting attempt does not leak the daemon it spawned (revi
     // process table before inspecting it.
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const leaked = liveDaemonChildren();
+    leaked = liveDaemonChildren();
     assert.deepEqual(leaked, [], `expected no leaked daemon processes; found pids: ${leaked.join(', ')}`);
+  } finally {
+    // NCOW-26 review finding #2: if the assertion above fails (the leak
+    // regression it exists to catch is back), this must still not leave a
+    // real "God Daemon" process alive pointing at a PM2_HOME we're about to
+    // delete out from under it. `leaked` is only ever populated on the
+    // happy path — if `assert.rejects` itself throws (e.g. "Missing
+    // expected rejection"), this finally block runs with `leaked` still
+    // empty, so it can't be trusted alone. Re-derive the live set via
+    // liveDaemonChildren() (ppid-filtered, so it can never touch anything
+    // but processes this test itself spawned) and union it with whatever
+    // `leaked` already collected, mirroring the sibling real-process test's
+    // cleanup pattern above (:238-244).
+    for (const pid of new Set([...leaked, ...liveDaemonChildren()])) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already exited.
+      }
+    }
+    fs.rmSync(pm2Home, { recursive: true, force: true });
+  }
+});
+
+// --- NCOW-26 regression --------------------------------------------------
+//
+// NCOW-22's leak fix made spawnDaemon() kill its child on every reject path,
+// including timeout — but a daemon that is merely SLOW (cold, contended, or
+// antivirus-scanned machine) can bind its rpc/pub sockets just after
+// timeoutMs fires. Killing that daemon means every retry restarts from
+// zero and a machine that consistently needs longer than the timeout never
+// converges. The fix: on the timeout path only, probe for real aliveness
+// first and adopt (not kill) a daemon the probe finds alive.
+//
+// These use a fully-controlled fake child (rather than a real spawned pm2
+// daemon, whose own boot time is fast and not reliably fake-able-slow) so
+// the scenario is deterministic instead of relying on real-world timing:
+// the fake daemon's rpc socket is already listening for the whole call
+// (bound before spawnDaemon() is even invoked), it just never sends the
+// IPC 'message' spawnDaemon() would otherwise wait on. spawnDaemon only
+// ever probes aliveness once, at timeout, so "alive the whole time" and
+// "bound late but alive by the time the timeout handler's probe runs" are
+// indistinguishable to the code under test — AC#2 holds either way.
+// probeDaemonAlive() itself is still exercised for real, against a real
+// socket, matching this file's preference for live evidence over pure
+// mocking.
+
+function fakeChildProcess({ pid } = {}) {
+  const child = new EventEmitter();
+  child.pid = pid;
+  child.calls = [];
+  child.kill = () => child.calls.push('kill');
+  child.disconnect = () => child.calls.push('disconnect');
+  child.unref = () => child.calls.push('unref');
+  return child;
+}
+
+test('spawnDaemon: on timeout, adopts a daemon that is already alive by then instead of killing it (NCOW-26)', async (t) => {
+  // Skipped on win32 for the same reason as the sibling real-socket tests
+  // above: resolveRpcSocketPath() hardcodes a single shared named pipe
+  // there regardless of pm2Home, so a throwaway pm2Home can't isolate the
+  // transport the way it can on Unix-domain-socket platforms.
+  if (process.platform === 'win32') {
+    t.skip('rpc socket path is a fixed, shared named pipe on win32');
+    return;
+  }
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-adopt-'));
+  const child = fakeChildProcess({ pid: 424242 });
+  const server = net.createServer();
+  try {
+    // The daemon's rpc socket is already listening for the entire call
+    // below — bound before spawnDaemon() is even invoked — but it never
+    // sends the IPC 'message' spawnDaemon() would otherwise wait on.
+    // Because spawnDaemon only ever probes aliveness once, at timeout, this
+    // is indistinguishable to the code under test from a daemon that bound
+    // its socket later: either way, the daemon is alive by the time the
+    // timeout handler's probe runs.
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(path.join(pm2Home, 'rpc.sock'), resolve);
+    });
+
+    const result = await spawnDaemon({ pm2Home, timeoutMs: 30, spawn: () => child });
+
+    assert.deepEqual(result, { pid: child.pid });
+    assert.ok(!child.calls.includes('kill'), `expected the adopted child not to be killed; calls: ${child.calls.join(', ')}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(pm2Home, { recursive: true, force: true });
+  }
+});
+
+test('spawnDaemon: on timeout, still kills the child when nothing is actually alive (genuine failure keeps NCOW-22 leak fix)', async (t) => {
+  // Skipped on win32: a machine with a live pm2 daemon already using the
+  // shared named pipe would make the probe below find "alive" for reasons
+  // unrelated to this test's own pm2Home, same risk noted on the sibling
+  // real-spawn test above.
+  if (process.platform === 'win32') {
+    t.skip('rpc socket path is a fixed, shared named pipe on win32');
+    return;
+  }
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-timeout-kill-'));
+  const child = fakeChildProcess({ pid: 434343 });
+  try {
+    // Nothing ever binds pm2Home's rpc socket, so the timeout handler's own
+    // probe must find it not-alive and fall through to the same kill path
+    // as onError/onExit — no orphan should be left behind.
+    await assert.rejects(
+      spawnDaemon({ pm2Home, timeoutMs: 30, spawn: () => child }),
+      /did not report ready/i
+    );
+    assert.ok(child.calls.includes('kill'), `expected the genuinely-failed child to be killed; calls: ${child.calls.join(', ')}`);
   } finally {
     fs.rmSync(pm2Home, { recursive: true, force: true });
   }
