@@ -1,10 +1,10 @@
 ---
 id: NCOW-23
 title: NIM_PROXY_TEST_HOME does not protect the config dir on Windows
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-03 02:25'
+updated_date: '2026-08-03 12:35'
 labels:
   - windows
   - safety
@@ -30,12 +30,12 @@ Why this matters beyond tidiness: this is the mechanism that is supposed to make
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolveConfigDir honors an injected homedir/appData override on win32 so that NIM_PROXY_TEST_HOME redirects the config dir on Windows exactly as it does on macOS/Linux
-- [ ] #2 Verified live on the real Windows VM: a --dev run with NIM_PROXY_TEST_HOME set reads and writes ONLY under the fake home, confirmed by observing the fake path in use and the real %APPDATA%\claude-conduit being untouched (hash or timestamp comparison before/after)
-- [ ] #3 An audit of the other path resolvers in src/engine/paths.js confirms no sibling function has the same env-var-beats-injected-override bug (or any that do are fixed too)
-- [ ] #4 A regression test covers the win32 override path using the existing process.platform-injection pattern in test/engine/
-- [ ] #5 CLAUDE.md's Safe manual testing section is updated if any platform caveat remains after the fix
-- [ ] #6 npm test passes
+- [x] #1 resolveConfigDir honors an injected homedir/appData override on win32 so that NIM_PROXY_TEST_HOME redirects the config dir on Windows exactly as it does on macOS/Linux
+- [x] #2 Verified live on the real Windows VM: a --dev run with NIM_PROXY_TEST_HOME set reads and writes ONLY under the fake home, confirmed by observing the fake path in use and the real %APPDATA%\claude-conduit being untouched (hash or timestamp comparison before/after)
+- [x] #3 An audit of the other path resolvers in src/engine/paths.js confirms no sibling function has the same env-var-beats-injected-override bug (or any that do are fixed too)
+- [x] #4 A regression test covers the win32 override path using the existing process.platform-injection pattern in test/engine/
+- [x] #5 CLAUDE.md's Safe manual testing section is updated if any platform caveat remains after the fix
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -105,3 +105,22 @@ Scope check: clean, exactly the 5 expected files, no overlap with NCOW-25 or NCO
 artifacts (including one with a subtle trailing-space directory name) cleaned up, VM verified left
 clean. Approved and ready for the merge queue once the rest of wave 9 settles.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed: on win32, NIM_PROXY_TEST_HOME did not protect the config dir because APPDATA/LOCALAPPDATA
+always won over an injected homedir in paths.js's resolvers. Added
+resolveWindowsAppDataOverrides(homedir) and wired it into the two test-home call sites
+(engine-context.js and main/index.js's resolveUserDataPaths(), which had the identical bug -
+independently confirmed by the reviewer to point at the real encrypted NVIDIA key on a
+--dev + test-home Windows run before the fix). Real-Windows precedence (env wins, for folder
+redirection correctness) is preserved outside the test-home gate - independently verified live on
+winvm across 3 non-test gating combinations plus a simulated folder-redirection case.
+
+All 6 ACs independently confirmed by an opus reviewer via fresh live evidence on the real Windows
+VM, not code reading: before/after SHA-256 hashes of the real 7 %APPDATA%\claude-conduit files,
+the real nim-key.enc, and the real %LOCALAPPDATA%\Claude-3p all byte-identical (same
+LastWriteTimeUtc too); pm2 daemon pid 8832 untouched throughout. npm test 252/252 (macOS); 15/15
+native win32 run of the affected test file. Squash-merged PR #14 -> dev @ 0b2c7ad.
+<!-- SECTION:FINAL_SUMMARY:END -->
