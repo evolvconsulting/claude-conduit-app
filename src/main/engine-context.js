@@ -152,7 +152,28 @@ function createEngineContext(deps) {
       validateAndSave: async (key) => {
         const result = await nvidiaKey.validateApiKey({ apiKey: key });
         if (!result.ok) return result;
-        secretStore.save(key);
+        // NCOW-29: secretStore.save() can fail (e.g. ok:false/
+        // ENCRYPTION_UNAVAILABLE when the platform has no OS-native
+        // encryption backend — observed on a headless Linux box with no
+        // keyring). That failure must be surfaced to the caller instead of
+        // discarded, or the renderer reports success while the key was
+        // never actually persisted.
+        const saveResult = secretStore.save(key);
+        if (!saveResult.ok) {
+          // Reworded (rather than passed through verbatim) so the setup
+          // wizard's error span — which renders whatever message lands here
+          // (see renderer/views/setup-view.js's validateApiKey()) — can't
+          // read as "the key you typed is invalid": validation already
+          // succeeded; only persisting it to the OS-native secret store
+          // failed.
+          return {
+            ok: false,
+            error: {
+              code: saveResult.error.code,
+              message: `Key validated, but could not be saved: ${saveResult.error.message}`,
+            },
+          };
+        }
         return { ok: true, data: { maskedKey: result.data.maskedKey, models: result.data.models } };
       },
       getMasked: async () => {
