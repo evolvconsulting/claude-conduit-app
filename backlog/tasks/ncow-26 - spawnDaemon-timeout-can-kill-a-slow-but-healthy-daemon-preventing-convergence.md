@@ -4,7 +4,7 @@ title: 'spawnDaemon timeout can kill a slow-but-healthy daemon, preventing conve
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 02:19'
+updated_date: '2026-08-03 02:26'
 labels:
   - pm2
 dependencies: []
@@ -108,4 +108,19 @@ assert.rejects to throw "Missing expected rejection" before `leaked` gets popula
 old logic left a real orphan daemon running pointing at a deleted PM2_HOME; new logic killed it via
 liveDaemonChildren(). Both polish items also addressed (test comment accuracy, pid-fidelity
 comment on the adopt path). npm test 246/246. Pending review pass 2.
+
+Wave 9 review pass 2 (opus): approve. All 4 ACs re-confirmed. Blocking finding from pass 1
+independently verified fixed via two separate reproductions: (1) copy-based A/B from the exact
+committed pre-fix vs post-fix finally blocks - pre-fix left a real orphan daemon pointing at a
+deleted PM2_HOME every time, post-fix left zero; (2) a stronger source-mutation 2x2 directly
+against the on-disk files (mutating pm2Control.js's alive-check with each of the two historical
+test-file versions in place) - causally isolates the fix as the only variable, confirms the
+ppid-filter in liveDaemonChildren() genuinely matches at finally-time (not a no-op), and rules out
+a process.title race against pm2's Daemon.js (title is set at module load, well before any
+ready-signal). Both polish items confirmed addressed in the actual current text. npm test 246/246
+(run twice). Scope unchanged: exactly 2 files across all 3 commits. Reviewer's own test artifacts
+and orphan processes fully cleaned up, machine left in its original state (only the user's real
+pid 1479 ~/.pm2 daemon remains, untouched throughout both review passes).
+
+Approved and ready for the merge queue once the rest of wave 9 settles.
 <!-- SECTION:NOTES:END -->
