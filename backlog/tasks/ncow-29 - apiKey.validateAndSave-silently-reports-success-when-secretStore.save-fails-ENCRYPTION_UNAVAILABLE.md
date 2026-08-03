@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-03 15:26'
-updated_date: '2026-08-03 22:54'
+updated_date: '2026-08-03 23:08'
 labels:
   - secretstore
   - ipc
@@ -96,4 +96,69 @@ All live-testing artifacts (checkout, temp key file, test homes, Xvfb/Electron
 processes) removed from linuxvm; no stray processes or leftover files remain.
 
 Awaiting opus review.
+
+Opus review verdict: APPROVE. All 5 ACs independently confirmed with fresh
+live evidence, not the implementer's claims.
+
+AC#1/#4 - reviewer built two trees on linuxvm sharing node_modules (branch vs
+a dev-baseline swap of engine-context.js, sha-checked). New test file against
+pre-fix engine-context: 1 fails ("surfaces secretStore.save() failure"), 1
+passes; against fixed engine-context: 2/2 pass. validateAndSave confirmed to
+have exactly one consumer (setup-view.js:157), no other caller regressed.
+
+AC#2 - read setup-view.js directly (not trusted): validateApiKey() branches on
+result.ok, sets wiz.apiKeyError = result.error?.message on failure;
+renderApiKeyStep() renders it in an escaped .fail span and gates
+#apikey-continue-btn on wiz.apiKeyValidated. Confirmed live below.
+
+AC#3 - live A/B on linuxvm (real aarch64 Ubuntu, Electron 43.2.0), both halves
+independently reproduced. First established ENCRYPTION_UNAVAILABLE is a
+genuine unforced precondition: a standalone probe with real inherited env
+(live D-Bus session, running gnome-keyring-daemon) reported
+isEncryptionAvailable:false / backend basic_text / encryptString actually
+throwing; control with XDG_CURRENT_DESKTOP=GNOME -> gnome_libsecret,
+available:true. Then drove the real Electron window over CDP:
+  BEFORE (dev engine-context): pass span, Continue enabled, while
+  getMasked()->null and generate()->NO_KEY -- silent-success bug reproduced
+  firsthand.
+  AFTER (branch): fail span "Key validated, but could not be saved: OS-level
+  secret encryption is not available on this system.", Continue disabled,
+  getMasked/generate still null/NO_KEY.
+  HAPPY-PATH CONTROL (branch + XDG_CURRENT_DESKTOP=GNOME): pass span, Continue
+  enabled, nim-key.enc written inside the fake home, generate() ok -- fix
+  doesn't break the success path; test-home redirection held (real
+  ~/.config/claude-conduit never created).
+
+AC#5 - npm test 260/260 (macOS worktree), run independently.
+
+Blocking-dialog rule: grepped the added diff lines for window.confirm/alert/
+prompt -- none introduced.
+
+Non-blocking findings (not addressed in this task):
+- The flagged linuxvm-only pm2Control.test.js failure ("spawnDaemon: a
+  rejecting attempt does not leak the daemon it spawned") independently
+  confirmed genuinely pre-existing and environmental: fails identically on
+  the dev baseline AND on an untouched Aug-2 build tree that predates this
+  branch entirely; pm2Control.js/its test are byte-identical (sha256) across
+  dev and branch; suite is 260/260 on macOS. Root cause: pm2 v7.0.3 on Linux
+  doesn't reject spawnDaemon() against a non-socket file at rpc.sock the way
+  the test expects. A real orphaned God Daemon this run left behind was
+  killed by the reviewer.
+- Adjacent, same bug class, out of scope: secretStore.js's
+  importFromExistingEnvFile() also calls this.save(key) and discards the
+  result, returning the key as if persisted -- the identical swallow this
+  task fixed elsewhere. Candidate follow-up task, pending user decision.
+- Minor nit: new code reads saveResult.error.code unguarded; safe today since
+  secretStore.save() always pairs ok:false with error, but a ?. would be free
+  insurance. Not required.
+- Unrelated: one live validate attempt hit nvidiaKey.js's 10s AbortController
+  timeout against integrate.api.nvidia.com even though a raw curl to the same
+  endpoint returned 200 in 0.13s -- pre-existing, untouched by this diff.
+
+Cleanup: linuxvm review artifacts (branch/devbase trees, fake homes, run logs,
+probe config) removed; reviewer's Xvfb + orphaned pm2 daemon (and its temp
+PM2_HOME) killed. Untouched: the pre-existing ncow25-build tree, the user's
+real ~/.pm2 daemon, Claude Desktop's config.
+
+Ready for merge queue.
 <!-- SECTION:NOTES:END -->
