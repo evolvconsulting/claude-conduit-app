@@ -1,10 +1,10 @@
 ---
 id: NCOW-26
 title: 'spawnDaemon timeout can kill a slow-but-healthy daemon, preventing convergence'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 02:26'
+updated_date: '2026-08-03 12:35'
 labels:
   - pm2
 dependencies: []
@@ -33,10 +33,10 @@ Two related test-coverage gaps from the same review, worth folding in here rathe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The timeout path adopts a slow-but-healthy daemon instead of killing it (probe first, treat alive as success), while genuinely failed spawns are still killed so NCOW-22's leak fix is preserved
-- [ ] #2 A regression test proves both halves: a daemon that becomes ready just after the timeout is adopted rather than killed, and a spawn that genuinely fails still leaves no orphan
-- [ ] #3 The existing leak test's finally block terminates any pids it collected, so a failing run cannot leave real daemons alive pointing at a deleted PM2_HOME
-- [ ] #4 npm test passes
+- [x] #1 The timeout path adopts a slow-but-healthy daemon instead of killing it (probe first, treat alive as success), while genuinely failed spawns are still killed so NCOW-22's leak fix is preserved
+- [x] #2 A regression test proves both halves: a daemon that becomes ready just after the timeout is adopted rather than killed, and a spawn that genuinely fails still leaves no orphan
+- [x] #3 The existing leak test's finally block terminates any pids it collected, so a failing run cannot leave real daemons alive pointing at a deleted PM2_HOME
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -124,3 +124,23 @@ pid 1479 ~/.pm2 daemon remains, untouched throughout both review passes).
 
 Approved and ready for the merge queue once the rest of wave 9 settles.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed: on the spawnDaemon() TIMEOUT path only (onError/onExit untouched), probe first via
+probeDaemonAlive() and treat "alive" as success (adopt the daemon) instead of killing it -
+preserving NCOW-22's leak fix for genuinely failed spawns while letting a merely-slow daemon
+converge instead of being killed and retried forever. Two review passes: pass 1 found and
+live-reproduced a real daemon-leak defect in the new regression test's own cleanup (the leak
+test's finally block only populated its kill-list on the happy path, so a failing assertion could
+itself leave a real orphan daemon pointing at an already-deleted PM2_HOME); fixed by killing the
+union of the collected list and liveDaemonChildren() unconditionally. Pass 2 independently
+reproduced the fix working via two separate methods (a copy-based A/B from the exact committed
+before/after text, and a source-mutation 2x2 directly against the on-disk files) - approved.
+
+All 4 ACs independently confirmed via mutation testing (forcing each branch of the state machine
+to fail in isolation) plus real-process verification (real orphaned pm2 "God Daemon" processes
+observed before the fix, confirmed absent after). npm test 246/246 (pre-rebase), 254/254 after
+rebasing onto NCOW-23. Squash-merged PR #15 -> dev @ 3ea0fb3.
+<!-- SECTION:FINAL_SUMMARY:END -->
