@@ -421,7 +421,22 @@ test('renderEcosystemConfigCjs: NCOW-27 — sets env.ELECTRON_RUN_AS_NODE so a p
   const cjs = renderEcosystemConfigCjs({ runLauncherPath: '/r.js', outLog: '/o.log', errLog: '/e.log' });
   const mod = { exports: {} };
   new Function('module', 'exports', cjs)(mod, mod.exports);
-  assert.deepEqual(mod.exports.apps[0].env, { ELECTRON_RUN_AS_NODE: '1' });
+  assert.deepEqual(mod.exports.apps[0].env, { ELECTRON_RUN_AS_NODE: '1', PYTHONIOENCODING: 'utf-8' });
+});
+
+// NCOW-28 regression coverage: litellm 1.94.1's startup banner
+// (litellm/proxy/common_utils/banner.py) writes characters the default
+// Windows console codepage (cp1252) cannot encode, so a stock packaged
+// Windows install crashes with a UnicodeEncodeError before litellm ever
+// finishes starting — pm2 then reports HEALTH_CHECK_TIMEOUT. Live-verified
+// fix (NCOW-27's review, then productized here): PYTHONIOENCODING=utf-8 in
+// the managed app's pm2 env resolves it. Set unconditionally (not gated to
+// win32) since it is a harmless no-op on platforms already using UTF-8.
+test('renderEcosystemConfigCjs: NCOW-28 — sets env.PYTHONIOENCODING=utf-8 so litellm\'s startup banner does not crash under Windows\' default cp1252 console codepage', () => {
+  const cjs = renderEcosystemConfigCjs({ runLauncherPath: '/r.js', outLog: '/o.log', errLog: '/e.log' });
+  const mod = { exports: {} };
+  new Function('module', 'exports', cjs)(mod, mod.exports);
+  assert.equal(mod.exports.apps[0].env.PYTHONIOENCODING, 'utf-8');
 });
 
 test('resolveMasterKey: generates a fresh sk-litellm-* key when no env file exists', () => {
