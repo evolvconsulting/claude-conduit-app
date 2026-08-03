@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-03 15:26'
-updated_date: '2026-08-03 22:44'
+updated_date: '2026-08-03 23:01'
 labels:
   - windows
   - release
@@ -81,4 +81,67 @@ home + build dirs removed from winvm, litellm-nim left stopped on the real
 shared pm2 daemon (its pre-test state; never pm2 kill'd).
 
 Awaiting opus review.
+
+Opus review verdict: APPROVE. All 5 ACs independently confirmed with fresh
+live evidence, not the implementer's claims.
+
+AC#1/#2 - reviewer built its OWN packaged Windows arm64 artifact from this
+branch, ran it live on winvm under --dev + a fresh NIM_PROXY_TEST_HOME,
+confirmed no pre-existing litellm (port 4000 free): proxy.start -> ok:true
+(13.1s/13.5s), running with 0 restarts, restart -> new pid, stop -> stopped,
+zero renderer exceptions, banner printed with all glyphs intact,
+UnicodeEncodeError/charmap grep over err.log -> 0 matches. Real completion via
+raw HTTP POST to the live proxy -> HTTP 200 with real NVIDIA nvext
+timing/worker metadata, both before and after restart; app's own
+testConnection() also passed (completion + tool-calling).
+
+AC#3 - confirmed on the generated artifact (not source): ecosystem.config.cjs
+carries only { ELECTRON_RUN_AS_NODE: '1', PYTHONIOENCODING: 'utf-8' }; pm2 env
+0 on the live process confirms it reached the child; nothing system-wide
+(no setx/registry/chcp).
+
+AC#4 - mutation-tested: removing PYTHONIOENCODING from configGen.js makes
+test/engine/configGen.test.js fail 18/20 (the new NCOW-28 test plus NCOW-27's
+env deepEqual); restoring it passes 20/20.
+
+AC#5 - npm test 259/259, run twice independently.
+
+A/B control (reviewer's own build pair, fix vs no-fix from the identical
+tree): without the fix, proxy.start -> HEALTH_CHECK_TIMEOUT, crash-looped
+(restarts 3->4), out.log empty (banner never printed), err.log 201KB with the
+exact UnicodeEncodeError from the task description, completion ->
+ECONNREFUSED. With the fix, all of the above pass cleanly. Isolates this one
+env var as the load-bearing change.
+
+Scope: diff is 2 files, additive only. NCOW-27's fields (interpreter,
+ELECTRON_RUN_AS_NODE) confirmed still live and working, not clobbered. No
+overlap with NCOW-21 (cmdQuoteArg/renderRunLauncherJs untouched) or NCOW-24
+(pm2Control.js untouched).
+
+Non-blocking findings (not addressed in this task):
+- configGen.generateAll() has exactly one caller (config.generate); nothing
+  regenerates ecosystem.config.cjs on launch or version change, so an existing
+  Windows install that ran setup on an older build keeps a stale ecosystem
+  file missing this fix (and NCOW-27's, if pre-dating it) until it re-runs
+  setup. Inherited from NCOW-27, not introduced here -- worth a possible
+  follow-up task (regenerate generated configs on version change), pending
+  user decision.
+- electron-builder.yml's win targets are x64 only; reviewer verified a
+  win-arm64 --dir build (native to winvm, matching the implementer) -- the fix
+  itself is arch-independent, not a gap in this task, but no artifact this
+  project actually SHIPS for Windows has been launched end-to-end yet (a
+  release-readiness concern, not this task's).
+- Minor test-name nit on NCOW-27's existing test (title only mentions
+  ELECTRON_RUN_AS_NODE even though its deepEqual now also pins
+  PYTHONIOENCODING) -- reviewer recommends leaving as-is since the assertion
+  is more valuable than the name.
+
+Cleanup: all winvm artifacts (builds, both asars/exes, driver script, a key
+file with the real NVIDIA key) removed; reviewer's own driver processes
+terminated; pm2 daemon (pid 8832) never touched; litellm-nim left stopped
+(same state found); real %APPDATA%\claude-conduit confirmed byte-identical
+(7 files, SHA-256 + LastWriteTimeUtc) before/after. Local worktree clean,
+259/259.
+
+Ready for merge queue.
 <!-- SECTION:NOTES:END -->
