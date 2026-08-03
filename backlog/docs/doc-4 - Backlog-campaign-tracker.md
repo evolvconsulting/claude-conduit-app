@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 01:54'
+updated_date: '2026-08-03 12:38'
 ---
 # Backlog campaign tracker
 
@@ -151,26 +151,23 @@ needs a scheduled task -- a bare `ssh "pm2 ping"` daemon dies with the SSH sessi
 NCOW-22's cold-bootstrap path, exactly as this dev Mac's own daemon masked it all campaign: any
 fresh-install testing on winvm must account for it, and must never `pm2 kill` it.
 
-As of restore 3 (2026-08-02): winvm re-confirmed reachable at restore. Wave 9 dispatched:
-NCOW-23 (the one live-Windows slot this wave, per the handover's stated priority — it fixes the
-safety mechanism NCOW-21/24 will both depend on for their own live-Windows verification later),
-NCOW-25 (live-Linux, on `linuxvm`, independent resource from winvm so it runs alongside), and
-NCOW-26 (pure code + tests, no VM). File-citation check found no overlap between the three
-members' expected files (NCOW-23: `src/main/engine-context.js`, `src/engine/paths.js`,
-`CLAUDE.md`; NCOW-25: `.github/workflows/release.yml`, `electron-builder.yml`,
-`docs/distribution.md`, `README.md`; NCOW-26: `src/engine/pm2Control.js`,
-`test/engine/pm2Control.test.js`). NCOW-21 and NCOW-24 deferred to a future wave (both need the
-single live-Windows slot already spent this wave by NCOW-23).
+As of wave 9 settlement (2026-08-03): NCOW-23, NCOW-25, and NCOW-26 all Done (see Resolved).
+NCOW-25's live verification surfaced a NEW, much more severe, platform/architecture-INDEPENDENT
+defect — packaged `proxy.start()` fails on every platform this app ships, not just Linux/arm64
+(pm2's managed-app interpreter can't read `app.asar`) — user-approved and filed as **NCOW-27**
+(HIGH priority, with a reviewer-validated fix recipe already in hand). Two tasks remain queued
+needing live winvm (NCOW-21, NCOW-24), plus the new NCOW-27 which needs no VM to start (macOS/
+Linux fix already prototyped by the reviewer; Windows verification is one of NCOW-27's own ACs).
+**CHECK winvm REACHABILITY FIRST** if picking up NCOW-21/24. Shared Machine State still limits
+any wave to one live-Windows task at a time.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm, deferred past wave 9 (single Windows slot went to NCOW-23) |
-| 5 | NCOW-23 | safety | none | Dispatched | 9 | win32 NIM_PROXY_TEST_HOME does not protect the config dir; filed wave 6 |
-| 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm, deferred past wave 9 |
-| 7 | NCOW-25 | release | none | Dispatched | 9 | Linux release x86_64-only vs all-aarch64 hardware; filed wave 6 |
-| 8 | NCOW-26 | pm2 | none | Dispatched | 9 | spawnDaemon timeout can kill a slow-but-healthy daemon; filed wave 6 |
+| 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
+| 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
+| 9 | NCOW-27 | pm2/packaging | none | To Do | | packaged proxy.start() fails on every platform (pm2 managed-app interpreter can't read app.asar); filed wave 9, HIGH priority, fix recipe already validated live by the reviewer on macOS — Windows verification still needed |
 
 ## Resolved
 
@@ -181,7 +178,10 @@ single live-Windows slot already spent this wave by NCOW-23).
 | 3 | NCOW-20 | Done, 2026-08-02, wave 4 | Fixed two independent, compounding Windows bugs found during NCOW-10.3's E2E verification: (1) resolveCliCommand() no longer wraps litellm/python/installer names in .cmd before findExecutable() -- real pip/uv/pipx .exe stubs are now correctly discovered. (2) configGen.js's generated run.js launcher routes .cmd/.bat paths through cmd.exe with a properly double-quoted, fully escaped command string (windowsVerbatimArguments:true) instead of a direct spawn (which threw EINVAL) -- deliberately not shell:true. Took 3 review passes (all opus, all with LIVE Windows VM verification via a real recording litellm.cmd shim, not just code reading): pass 1 found a CI-breaking case-sensitive test bug plus a flawed early escaping approach that broke paths like "Program Files (x86)" and wasn't even injection-safe (live-proven); fix pass 1 fixed the tests, replaced the escaping with a different but still-flawed caret-based construction; pass 2 live-reproduced that the new escaping STILL broke "Program Files (x86)" and was still injectable via an embedded-quote case, root-caused to cmd.exe not treating metacharacters as control characters inside a quoted region (making the caret pass actively harmful, not protective); fix pass 2 removed the caret-escaping entirely since proper double-quoting alone is correct; pass 3 (final, would have auto-escalated on another request_changes per the 2-retry cap) approved after full live re-verification confirmed all 4 ACs, including a live before/after proof of AC1 (python/litellm genuinely undiscoverable pre-fix, found post-fix on real Windows) and that "Program Files (x86)" now round-trips correctly. 235/235 tests passing (232 baseline + 3 net new). Squash-merged PR #12 -> dev @ 11eacfa. Two small non-blocking findings flagged for a possible fast-follow (an unreachable embedded-quote-plus-metachar edge case with an already-live-verified one-line fix, and a doc-comment wording nit) -- not addressed in this task, pending user decision on whether to file a follow-up. Operational note: mid-review-pass-2, the reviewer's own test-volume cleanup accidentally ran `diskutil unmountDisk force` on the whole disk container, briefly unmounting and FileVault-locking this repo's own disk (/Volumes/_data) -- no data lost, user unlocked it, orchestrator confirmed repo/worktree integrity before continuing; all subsequent passes were explicitly warned off local diskutil operations. |
 | 4 | NCOW-22 | Done, 2026-08-02, wave 6 | Fixed the pm2 cold-bootstrap hang that made proxy start/stop/restart permanently unusable on any genuinely fresh install. ensureConnected() now raw-probes the resolved rpc socket/pipe with net.connect before calling pm2.connect(), and spawns pm2's own unmodified lib/Daemon.js via ELECTRON_RUN_AS_NODE + explicit PM2_HOME when nothing is listening, so pingDaemon() always takes its working path; the whole flow is bounded by a 30s timeout that clears the memoized promise on failure (AC#3 stands independently). Verified live on genuinely daemon-less machines, start->stop->restart with real new pids: Windows (not-installed -> start 13212ms -> pid 3664 -> stop 589ms -> restart 13243ms -> pid 7100), macOS from a REAL PACKAGED artifact under a throwaway PM2_HOME, Linux (linuxvm, Ubuntu 26.04 aarch64) daemon bootstrap + full suite. Full suite independently run by the reviewer on all three platforms. AC1/2/3/5/6 checked; AC4 left unchecked as not-applicable (pm2 never dropped, so its AGPL sign-off was never triggered) on both reviewers' explicit recommendation. TWO significant review findings: pass 1 caught a real regression the implementation introduced (spawnDaemon() never killed the child on its reject paths -- an unbounded leak of one Electron-weight daemon per retry against a 5s poller, reproduced live as 3 simultaneous orphans) and DISPROVED cause #3 of the task's own description (the asarUnpack/'debug' gap does not reproduce against shipped code, since require.resolve returns the app.asar path and Electron's asar shim stays active in ELECTRON_RUN_AS_NODE children) -- so the broadened asarUnpack was reverted to the original narrow pattern, leaving electron-builder.yml byte-identical to base dev, and the wrong rationale comments were corrected in both files. Pass 2 independently reconstructed the leak repro rather than trusting the fix (pre-fix 3 orphans, post-fix 0, counted two independent ways) and approved. Also verified empirically that asarUnpack cannot pack .env (zero matches across 3097 asar entries), preserving CLAUDE.md's allowlist guarantee. Squash-merged PR #13 -> dev @ e4b517c, 244/244 tests passing (235 baseline + 9). |
 | 5 | NCOW-10.3 | Done, 2026-08-02, waves 3/5/8 | Real end-to-end auto-update verified on Windows. AC1/AC2 (wave 5): installed v0.1.0 detected, downloaded and installed v0.1.1 live, relaunched app reporting 0.1.1, reviewer-confirmed by byte-exact sha512 match against the real published release. AC3 (wave 8): with the proxy genuinely running under the app's OWN pm2-orchestrated control (getStatus -> running pid 7696, /health/liveliness -> alive), update.install() stopped litellm-nim (waiting -> stopped, pid 0) and only THEN did the v0.1.1 installer appear; relaunched app reported 0.1.1 with the proxy stopped (the specified behavior -- no auto-start on relaunch), then started cleanly again (pid 11000, health passing). The opus reviewer re-derived the whole timeline independently from machine-written artifacts the worker never cited (pm2 daemon log's explicit stop RPC with matching pid and exactly one stop in the window; pm2 dump env proving programmatic require('pm2') control via PM2_PROGRAMMATIC present and PM2_USAGE absent -- the exact thing wave 5 could not achieve; litellm's own access log; Windows Prefetch; NTFS times proving stop-before-install by 113s). Ordering nuance recorded honestly: the polling timeline is corroborative; the proof is the straight-line installUpdateAndRestart() returning {ok:true} only after quitAndInstall() plus the observed ~1s stop (a degraded stop would have deferred the quit by the full 15s timeout). Scope caveats preserved: proves the SHARED-DAEMON path (a daemon was pre-started by hand, since both published builds predate NCOW-22's fix) not cold bootstrap, and used wave 5's hand-corrected run.js/manifest.json so it does not validate configGen on Windows. Zero repo changes in waves 5-8; no PR (nothing to merge). |
-| 6 | NCOW-10 | Done, 2026-08-02, epic | Parent epic closed after all three subtasks completed. All 8 ACs mapped to reviewed subtask evidence: #1/#2/#4/#7 -> NCOW-10.1 (electron-updater integration, in-app checker, macOS notify-only fallback, graceful degradation -- the latter proven under a real unplanned 404 in wave 3); #5 -> NCOW-10.1 implementation plus NCOW-10.3 AC3 live confirmation; #6 -> NCOW-10.2's CI release workflow (verified against a real smoke-test tag that surfaced 6 real bugs); #3/#8 -> NCOW-10.3 AC1/AC2. Caveats recorded on the task: macOS remains notify-only pending signing certs (the intended answer, not a gap, but macOS silent update is unproven); auto-update has only ever been exercised on Windows, and the published Linux artifact is x86_64 while all available Linux hardware is aarch64 (NCOW-25). Three defects found while proving the epic out are tracked separately: NCOW-20 and NCOW-22 (both merged) and NCOW-24. |
+| 6 | NCOW-10 | Done, 2026-08-02, epic | Parent epic closed after all three subtasks completed. All 8 ACs mapped to reviewed subtask evidence: #1/#2/#4/#7 -> NCOW-10.1 (electron-updater integration, in-app checker, macOS notify-only fallback, graceful degradation -- the latter proven under a real unplanned 404 in wave 3); #5 -> NCOW-10.1 implementation plus NCOW-10.3 AC3 live confirmation; #6 -> NCOW-10.2's CI release workflow (verified against a real smoke-test tag that surfaced 6 real bugs); #3/#8 -> NCOW-10.3 AC1/AC2. Caveats recorded on the task: macOS remains notify-only pending signing certs (the intended answer, not a gap, but macOS silent update is unproven); auto-update has only ever been exercised on Windows, and the published Linux artifact is x86_64 while all available Linux hardware is aarch64 (NCOW-25). Three defects found while proving the epic out are tracked separately: NCOW-20 and NCOW-22 (both merged) and NCOW-24. CAVEAT ADDED wave 9: none of NCOW-10/NCOW-22's live proxy-restart/cold-bootstrap verification was ever exercised from a genuinely packaged artifact calling proxy.start() cold (all were source runs or relied on an already-running proxy) -- see NCOW-27. |
+| 7 | NCOW-23 | Done, 2026-08-02/03, wave 9 | Fixed the win32 NIM_PROXY_TEST_HOME config-dir safety hole: APPDATA/LOCALAPPDATA always won over an injected homedir in paths.js's resolvers, so a --dev + test-home run on Windows silently operated against the REAL config dir. Added resolveWindowsAppDataOverrides(homedir), wired into engine-context.js and main/index.js's resolveUserDataPaths() (which had the identical bug -- reviewer confirmed this one would have pointed secretStore at the real encrypted NVIDIA key). Real-Windows precedence (env wins, for folder-redirection correctness) preserved outside the test-home gate -- verified live across 3 non-test gating combinations plus a simulated redirection case. Opus review: approve, all 6 ACs independently confirmed via fresh live before/after hashes on winvm (7 real config files + real nim-key.enc + real Claude-3p dir, all byte-identical, same LastWriteTimeUtc). npm test 252/252 (macOS), 15/15 native win32 run. Squash-merged PR #14 -> dev @ 0b2c7ad. |
+| 8 | NCOW-26 | Done, 2026-08-02/03, wave 9 | Fixed spawnDaemon()'s TIMEOUT path to probe first via probeDaemonAlive() and adopt an already-alive-but-slow daemon instead of killing it (onError/onExit unchanged, preserving NCOW-22's leak fix for genuine failures). Two review passes: pass 1 found and live-reproduced a real daemon-leak defect in the new regression test's OWN cleanup (a failing assertion could itself leave a real orphan pointing at a deleted PM2_HOME); fixed by killing the union of the collected list and liveDaemonChildren() unconditionally. Pass 2 independently reproduced the fix two ways (copy-based A/B and a source-mutation 2x2) against real orphaned processes -- approve, all 4 ACs confirmed. npm test 254/254 (post-rebase onto NCOW-23). Squash-merged PR #15 -> dev @ 3ea0fb3. |
+| 9 | NCOW-25 | Done, 2026-08-02/03, wave 9 | AC#1: Linux arm64 is now a supported published target on a native GitHub-hosted arm64 runner (GA/free for public repos, confirmed against GitHub's own changelog) -- pm2, the only asarUnpack'ed dependency, independently confirmed to have zero native/node-gyp addons across its 74-package tree, so no cross-arch rebuild concerns. AC#2: a real arm64 AppImage + deb built NATIVELY on real aarch64 hardware (linuxvm), update metadata (latest-linux-arm64.yml) independently verified correct against electron-updater's own arch-suffix consumer logic, both arch-narrowing build scripts verified to produce arch-pure output (no cross-arch leakage). AC#5: npm test 254/254. AC#3 PARTIAL and left honestly documented rather than silently closed: install/launch/prereqs/key-validation/model-catalog/config-generation all verified live on real aarch64 hardware through the real packaged IPC surface, but proxy.start() itself failed from a separate, pre-existing, platform/architecture-INDEPENDENT defect (NOT an arm64 or Linux-specific regression) -- reproduced by the reviewer on both packaged macOS and packaged Linux. Filed as NCOW-27 (HIGH priority) with a reviewer-validated fix recipe. User explicitly decided (2026-08-03) to merge now with this gap documented rather than hold, since NCOW-27 is unrelated to arm64 specifically and blocks every platform equally. AC#4 n/a (arm64 was chosen supported). Also fixed the long-standing package-lock.json/package.json version drift (0.1.0 vs 0.1.1) as its own commit. Reviewer verdict was escalate (human_needed) specifically for the NCOW-27 gap; resolved via AskUserQuestion (file NCOW-27: yes; merge NCOW-25 now: yes). Squash-merged PR #16 -> dev @ b06a05e. |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -204,10 +204,10 @@ across 4 waves)*
 - **Minor items from wave 3, deliberately NOT filed as tasks** (user approved only NCOW-20 for
   the litellm-launch bugs): a `pm2Control.ensureConnected()` timeout/retry gap (a hung first
   `pm2.connect()` permanently wedges every future `proxy:*` IPC call, no recovery short of
-  restarting the app) and a `package-lock.json` version-drift nit (still reads `0.1.0` despite
-  `package.json`'s `0.1.1` — `npm ci` tolerated it for the real release builds, but it will
-  compound at the next version bump). Both remain only as notes on NCOW-10.3 — revisit if they
-  become relevant, but do not file tasks for them without asking again.
+  restarting the app) — remains only as a note on NCOW-10.3, revisit if it becomes relevant, do
+  not file a task for it without asking again. The `package-lock.json` version-drift nit noted
+  alongside it (0.1.0 vs package.json's 0.1.1) is now RESOLVED — fixed incidentally as its own
+  commit during NCOW-25's wave 9 implementation.
 
 ## Wave log
 
@@ -439,3 +439,55 @@ across 4 waves)*
 
   Process note repeated from wave 6: no code changed in this wave, so there was no PR and nothing
   to merge — a pure verification wave, released with zero commits.
+
+- 2026-08-02/03 — wave 9 (tasks: NCOW-23, NCOW-25, NCOW-26): restore 3 found zero drift against
+  the prior handover; winvm re-confirmed reachable. First 3-way parallel wave of this campaign
+  round: NCOW-23 (the one live-Windows slot, per the prior handover's stated priority — fixes the
+  safety mechanism NCOW-21/24 both depend on), NCOW-25 (live-Linux on `linuxvm`, an independent
+  resource from winvm), NCOW-26 (pure code + tests, no VM) — file-citation check found no overlap
+  among the three members' expected files, confirmed clean by three separate treehouse-leased
+  worktrees off the same pinned wave base.
+
+  NCOW-23: implemented and approved in one review pass, all 6 ACs independently confirmed via
+  fresh live before/after evidence on winvm (see Resolved). NCOW-26: implemented, took 2 review
+  passes (pass 1 found and live-reproduced a real daemon-leak defect in the new regression test's
+  own cleanup logic; fix pass resolved it; pass 2 approved via two independent reproductions
+  against real processes — see Resolved). Both merged via the serial merge queue in confirmed
+  queue order (NCOW-23 first, then NCOW-26 rebased cleanly on top — no file overlap, as predicted
+  at dispatch), each re-verified with a full `npm test` pass after rebase before pushing.
+
+  NCOW-25: implemented (arm64 decided supported on a native GH-hosted runner, built and verified
+  live on real aarch64 hardware) but its live verification surfaced a NEW, far more severe,
+  platform/architecture-INDEPENDENT defect: packaged `proxy.start()` fails on every platform this
+  app ships, via a pm2 managed-app interpreter that can't read `app.asar` (the same class of
+  problem NCOW-22 already solved for the DAEMON itself, but never extended to the process pm2
+  launches on the daemon's behalf). The reviewer independently reproduced this live on TWO
+  packaged artifacts (macOS and Linux arm64), traced the exact root cause in pm2's own
+  `God/ForkMode.js`, and validated a fix recipe live (fixed packaged macOS start/stop/restart
+  end-to-end including a real LLM completion through the running proxy). Confirmed this is not a
+  NCOW-25 regression: no prior wave had ever called `proxy.start()` from a genuinely packaged
+  artifact — NCOW-22's own verifications were all source runs (except a packaged `getStatus()`
+  check, which never forks the managed app), and NCOW-10.3's Windows verification relied on an
+  already-running proxy under a pre-started daemon. Reviewer verdict: escalate (human_needed) —
+  severity vastly exceeds this task's own MEDIUM framing, Windows is untested for this specific
+  failure, and there's a real open AppImage-packaging question (process.execPath is an ephemeral
+  FUSE-mounted path once running, which pm2 persists into `dump.pm2`) entangled with NCOW-24.
+
+  Escalation surfaced directly to the user (per this skill's R4j — a human_needed escalation
+  should be seen promptly, not scroll past under routine merges) via AskUserQuestion rather than
+  guessed past: user approved (a) filing the defect as its own new HIGH-priority task — created as
+  **NCOW-27** with the reviewer's full root cause, live reproduction, and validated fix recipe —
+  and (b) merging NCOW-25 now with AC#3 left honestly partial/documented rather than holding the
+  branch, since NCOW-27 is unrelated to arm64 specifically and blocks every platform equally.
+  NCOW-25 then rebased cleanly (no overlap with NCOW-23/26's files) and merged last in the queue.
+
+  All three branches' worktrees released back to the treehouse pool (2 warm-reused slots plus 1
+  newly created — pool grew from 2 to 3 on demand with no `max_trees` friction), all three
+  branches deleted (local + remote) after their respective merges. `dev` finished the wave at
+  254/254 tests (244 baseline + 8 from NCOW-23 + 2 from NCOW-26), 4 real PRs merged (#14, #15,
+  #16, plus the file-only NCOW-27 creation commit). Also flagged and resolved in-session: a
+  subagent's returned review report for NCOW-23 triggered the harness's own prompt-injection
+  pattern-match (tag: "settings-json"); on inspection this was a false positive (bracket
+  placeholders like `<fakehome>\.claude\settings.json` describing real file paths, not an actual
+  embedded instruction) — flagged transparently to the user per policy, nothing in the report was
+  treated as a directive.
