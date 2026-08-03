@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 01:01'
+updated_date: '2026-08-03 01:54'
 ---
 # Backlog campaign tracker
 
@@ -151,15 +151,26 @@ needs a scheduled task -- a bare `ssh "pm2 ping"` daemon dies with the SSH sessi
 NCOW-22's cold-bootstrap path, exactly as this dev Mac's own daemon masked it all campaign: any
 fresh-install testing on winvm must account for it, and must never `pm2 kill` it.
 
+As of restore 3 (2026-08-02): winvm re-confirmed reachable at restore. Wave 9 dispatched:
+NCOW-23 (the one live-Windows slot this wave, per the handover's stated priority — it fixes the
+safety mechanism NCOW-21/24 will both depend on for their own live-Windows verification later),
+NCOW-25 (live-Linux, on `linuxvm`, independent resource from winvm so it runs alongside), and
+NCOW-26 (pure code + tests, no VM). File-citation check found no overlap between the three
+members' expected files (NCOW-23: `src/main/engine-context.js`, `src/engine/paths.js`,
+`CLAUDE.md`; NCOW-25: `.github/workflows/release.yml`, `electron-builder.yml`,
+`docs/distribution.md`, `README.md`; NCOW-26: `src/engine/pm2Control.js`,
+`test/engine/pm2Control.test.js`). NCOW-21 and NCOW-24 deferred to a future wave (both need the
+single live-Windows slot already spent this wave by NCOW-23).
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; ready now |
-| 5 | NCOW-23 | safety | none | To Do | | win32 NIM_PROXY_TEST_HOME does not protect the config dir; filed wave 6 |
-| 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6 |
-| 7 | NCOW-25 | release | none | To Do | | Linux release x86_64-only vs all-aarch64 hardware; filed wave 6 |
-| 8 | NCOW-26 | pm2 | none | To Do | | spawnDaemon timeout can kill a slow-but-healthy daemon; filed wave 6 |
+| 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm, deferred past wave 9 (single Windows slot went to NCOW-23) |
+| 5 | NCOW-23 | safety | none | Dispatched | 9 | win32 NIM_PROXY_TEST_HOME does not protect the config dir; filed wave 6 |
+| 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm, deferred past wave 9 |
+| 7 | NCOW-25 | release | none | Dispatched | 9 | Linux release x86_64-only vs all-aarch64 hardware; filed wave 6 |
+| 8 | NCOW-26 | pm2 | none | Dispatched | 9 | spawnDaemon timeout can kill a slow-but-healthy daemon; filed wave 6 |
 
 ## Resolved
 
