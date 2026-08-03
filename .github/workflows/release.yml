@@ -13,10 +13,14 @@ name: Release
 # npm run dist locally cross-builds macOS+Windows+Linux targets from macOS,
 # but CI intentionally does not rely on that; each job below builds and
 # publishes only its own platform's artifacts, exactly like `npm run
-# dist:mac` / `dist:win` / `dist:linux` do locally.
+# dist:mac` / `dist:win` / `dist:linux` do locally. This includes linux-arm64
+# (NCOW-25): it gets its own job on a native arm64 runner rather than being
+# cross-built from the x64 Linux job, for the same "build on the real target"
+# reasoning as the macOS/Windows split — see docs/distribution.md's "Linux
+# arm64 target (NCOW-25)" section for the full decision record.
 #
 # electron-builder's GitHub publisher looks up (or creates) a release by tag
-# name and appends assets to it, so all three jobs safely publish into the
+# name and appends assets to it, so every job safely publishes into the
 # same release for the same tag. By default a release it creates is a draft;
 # the finalize job below adds a SHA256SUMS file once all platforms have
 # uploaded, then flips the release out of draft so electron-updater's
@@ -120,7 +124,18 @@ jobs:
           - os: windows-latest
             build_script: dist:win
           - os: ubuntu-latest
-            build_script: dist:linux
+            build_script: dist:linux:x64
+          # linux-arm64 (NCOW-25): built on a *native* arm64 runner rather than
+          # cross-compiled from ubuntu-latest (x64). GitHub's own arm64-hosted Ubuntu
+          # runners (ubuntu-24.04-arm / ubuntu-22.04-arm) are GA and free for public
+          # repos as of 2025-08 — see docs/distribution.md's "Linux arm64 target
+          # (NCOW-25)" section for the full decision record, including why native
+          # beats cross-compiling here (no QEMU, no risk of electron-builder's
+          # documented arm64-cross-build footgun, and it matches this workflow's
+          # existing philosophy of one job per real target rather than one machine
+          # cross-building everything).
+          - os: ubuntu-24.04-arm
+            build_script: dist:linux:arm64
 
     runs-on: ${{ matrix.os }}
 
