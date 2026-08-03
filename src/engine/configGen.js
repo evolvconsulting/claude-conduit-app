@@ -270,6 +270,25 @@ child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
  * save`, so nothing that shouldn't be inspectable via `pm2 jlist`/`describe`
  * may ever go here.
  *
+ * NCOW-28: `env` also carries `PYTHONIOENCODING: 'utf-8'`, needed on Windows
+ * specifically. litellm 1.94.1's startup banner
+ * (litellm/proxy/common_utils/banner.py) writes characters the default
+ * Windows console codepage (cp1252) cannot encode, and Python's default
+ * stdout/stderr encoding on Windows follows that console codepage — so
+ * litellm crashes with a UnicodeEncodeError ("'charmap' codec can't encode
+ * characters...") before it ever finishes starting, which pm2 then reports
+ * as HEALTH_CHECK_TIMEOUT. Confirmed live on a real Windows VM during
+ * NCOW-27's review: setting PYTHONIOENCODING=utf-8 in the child's env fixes
+ * this cleanly (proxy.start() -> {"ok":true}, real completion, clean
+ * stop/restart). Set unconditionally on every platform rather than gated to
+ * win32 — it only affects Python's own stdout/stderr text encoding, is a
+ * no-op on platforms whose console is already UTF-8 (macOS/Linux), and
+ * keeping this list platform-unconditional avoids yet another
+ * process.platform branch in generated output. Deliberately scoped to just
+ * this child's pm2-managed env (not any system/global env var this app does
+ * not control) — see the doc comment above on why plain, non-secret `env`
+ * values are the right place for this and never a secret.
+ *
  * @param {{runLauncherPath: string, outLog: string, errLog: string}} opts
  */
 function renderEcosystemConfigCjs(opts) {
@@ -281,7 +300,10 @@ function renderEcosystemConfigCjs(opts) {
     // see renderEcosystemConfigCjs's doc comment in configGen.js. Do not
     // change either of these two fields without reading it first.
     interpreter: process.execPath,
-    env: { ELECTRON_RUN_AS_NODE: '1' },
+    // NCOW-28: PYTHONIOENCODING=utf-8 avoids litellm's startup-banner
+    // UnicodeEncodeError under Windows' default cp1252 console codepage —
+    // see this function's doc comment in configGen.js for the full story.
+    env: { ELECTRON_RUN_AS_NODE: '1', PYTHONIOENCODING: 'utf-8' },
     autorestart: true,
     max_restarts: 10,
     restart_delay: 3000,
