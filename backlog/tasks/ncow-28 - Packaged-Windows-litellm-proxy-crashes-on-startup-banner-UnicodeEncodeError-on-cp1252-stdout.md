@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-03 15:26'
-updated_date: '2026-08-03 22:33'
+updated_date: '2026-08-03 22:44'
 labels:
   - windows
   - release
@@ -31,3 +31,54 @@ Found during NCOW-27's opus review while live-verifying the packaged proxy.start
 - [ ] #4 A regression test covers the generated launcher/ecosystem entry carrying the correct env field(s) for this fix
 - [ ] #5 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Add PYTHONIOENCODING: 'utf-8' to the generated managed litellm-nim pm2 entry's
+env object in configGen.js's renderEcosystemConfigCjs(), alongside the existing
+ELECTRON_RUN_AS_NODE: '1' (NCOW-27). Unconditional across platforms (harmless
+no-op where the console is already UTF-8). Add a doc comment on the Windows
+cp1252/UnicodeEncodeError mechanism, and a regression test in
+test/engine/configGen.test.js asserting env.PYTHONIOENCODING === 'utf-8' in the
+generated ecosystem config.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worker evidence (fix/NCOW-28-windows-litellm-banner-encoding, commit 5bae1f8):
+
+AC#1/#2 - live on a real Windows VM (winvm), fresh packaged Windows arm64
+artifact built from this branch via npm run pack. No pre-existing litellm-nim
+pm2 entry beforehand (pm2 list empty). Ran the packaged Claude Conduit.exe
+under --dev + NIM_PROXY_TEST_HOME (via a one-shot Scheduled Task so it
+survives the SSH session), driven live via CDP:
+  prereqs.check() found litellm 1.94.1 on PATH
+  config.generate() succeeded
+  proxy.start() -> {"ok":true}, pid 6644, status "running"
+  proxy.testConnection() -> NIM upstream pass, real completion pass (2246ms),
+    tool-calling pass
+  proxy.stop() -> stopped
+  proxy.restart() -> new pid 7896, running again; testConnection() passed again
+  proxy.stop() -> stopped (final)
+out.log shows litellm's banner (the exact crash trigger) printing twice with
+zero UnicodeEncodeError, followed by real POST /v1/messages 200 OK entries
+both times.
+
+AC#3 - confirmed the generated ecosystem.config.cjs under the fake test home
+sets env: { ELECTRON_RUN_AS_NODE: '1', PYTHONIOENCODING: 'utf-8' } only on this
+app's own pm2-managed child entry; nothing system-wide touched.
+
+AC#4 - new test: "renderEcosystemConfigCjs: NCOW-28 -- sets
+env.PYTHONIOENCODING=utf-8..."; existing NCOW-27 env-equality assertion
+updated to include the new key.
+
+AC#5 - npm test 259/259, run twice (before and after the winvm work).
+
+Cleanup: all Claude Conduit.exe processes killed, scheduled task deleted, fake
+home + build dirs removed from winvm, litellm-nim left stopped on the real
+shared pm2 daemon (its pre-test state; never pm2 kill'd).
+
+Awaiting opus review.
+<!-- SECTION:NOTES:END -->
