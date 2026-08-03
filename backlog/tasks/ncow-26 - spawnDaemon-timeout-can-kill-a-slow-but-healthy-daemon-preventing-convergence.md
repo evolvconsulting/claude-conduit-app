@@ -4,7 +4,7 @@ title: 'spawnDaemon timeout can kill a slow-but-healthy daemon, preventing conve
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 02:07'
+updated_date: '2026-08-03 02:15'
 labels:
   - pm2
 dependencies: []
@@ -72,4 +72,31 @@ per project rules). AC1-4 all self-reported true; pending independent reviewer c
 Note: the worktree has an unrelated, uncommitted package-lock.json diff (version string 0.1.0 ->
 0.1.1, a pre-existing known drift noted since wave 3) left uncommitted by the worker as
 out-of-scope - correct call, will not be merged.
+
+Wave 9 review pass 1 (opus): request_changes. AC1-4 all independently confirmed via mutation
+testing (disabling the adopt branch fails the new adopt test; forcing always-adopt fails both the
+new "still kills" test AND the pre-existing real-process leak test, proving the leak test genuinely
+routes through the new onTimeout branch) and two full local npm test runs (246/246 both times).
+
+Blocking finding (medium): the leak regression test's finally block only populates `leaked` on the
+happy path (after `assert.rejects` succeeds at :286) - if that assertion itself throws ("Missing
+expected rejection"), finally runs with `leaked` still empty, killing nothing before deleting
+PM2_HOME, so real daemons survive pointing at a deleted directory - exactly what AC#3 exists to
+prevent. Reviewer reproduced this live 3 times via mutation testing (real orphaned "God Daemon"
+processes at pids 40487/41629/42597, each pointing at an already-deleted PM2_HOME), killed them by
+hand, confirmed clean afterward. Fix: have the finally block re-derive the live set via the
+existing liveDaemonChildren() helper (ppid-filtered, so it can never touch the user's real shared
+daemon) unioned with `leaked`, rather than trusting a variable only assigned on the success path.
+
+Two low-severity non-blocking polish items also noted: (1) the new adopt test's comments overstate
+the scenario timing (server.listen() actually completes before spawnDaemon is even called, not
+mid-flight as the comment implies - AC#2 still holds since spawnDaemon only ever probes at timeout,
+but the comment should be reworded); (2) the adopt path resolves with a bare child.pid rather than
+following onMessage's `msg?.pid ?? child.pid` precedence - inert today (only caller discards the
+value) but worth a comment for future callers.
+
+Scope check: clean, exactly the 2 expected files, no drive-by changes. No overlap with sibling wave
+tasks' files; reviewer flagged one semantic (not textual) adjacency to watch post-rebase -
+engine-context.js (NCOW-23's territory) is the sole production wiring point for spawnDaemon, so
+re-run the full suite after rebase rather than assuming file-disjointness alone is sufficient.
 <!-- SECTION:NOTES:END -->
