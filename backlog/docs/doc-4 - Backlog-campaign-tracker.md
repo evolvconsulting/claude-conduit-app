@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 12:56'
+updated_date: '2026-08-03 22:32'
 ---
 # Backlog campaign tracker
 
@@ -176,13 +176,41 @@ release has ever proven `proxy.start()` works from a packaged install — and it
 VM at all for the macOS/Linux portion, only its own AC#2 needs winvm). NCOW-21 and NCOW-24 remain
 queued for a future wave once NCOW-27 releases the shared file/winvm resources.
 
+As of wave 10 settlement (2026-08-03): **NCOW-27 is Done** (see Resolved) — merged, PR #17 ->
+`08d8ecf`. Its opus review live-verified the fix on all three platforms (macOS, Linux arm64
+AppImage, and Windows via winvm) and surfaced two adjacent, independent defects while doing so,
+both user-approved and filed between waves: **NCOW-28** (HIGH — Windows litellm banner
+`UnicodeEncodeError` on cp1252 stdout, blocks every packaged Windows install from starting the
+proxy even after NCOW-27's fix) and **NCOW-29** (MEDIUM — `apiKey.validateAndSave` silently
+reports success when `secretStore.save()` fails with `ENCRYPTION_UNAVAILABLE`, found on a headless
+Linux box with no keyring backend).
+
+**Restore 5 ground-truth check (2026-08-03) found one piece of drift**: the previous session
+crashed after `backlog task edit`'s on-disk write for NCOW-27's settlement (status Done, all 5 ACs
+checked, final summary) but before its git commit — the tracker doc itself was also never updated
+past wave 10 dispatch. Reconciled: `npm test` re-verified 258/258 against dev @ `08d8ecf` before
+committing the recovered settlement write (now `0dd283c`); this tracker update is the matching
+catch-up for the doc side. No code, branch, worktree, or PR drift — `dev`/`origin/dev` were
+already in sync, no leftover worktrees/branches/PRs from wave 10.
+
+Four tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-24, NCOW-28, NCOW-29.
+**CHECK winvm REACHABILITY FIRST** — confirmed reachable again at this restore
+(`~/.scripts/winvm.sh "hostname"` → `winvm`). Needs live Windows: NCOW-21, NCOW-24, NCOW-28 (AC#1/
+#2). NCOW-29's live-reproduction AC (#3) needs a Linux box with no available keyring backend —
+the same `linuxvm` characteristics used for NCOW-25 should qualify, needs reconfirming reachable
+before dispatch. Shared Machine State still limits any wave to at most one live-Windows task.
+NCOW-28 likely touches the same generated-launcher code path (`configGen.js` / `run.js`) that
+NCOW-21 and NCOW-27 already contended over — treat as a probable file conflict with NCOW-21 until
+the next wave's file-citation check confirms or clears it, not just a cluster-tag heuristic.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
-| 9 | NCOW-27 | pm2/packaging | none | Dispatched | 10 | packaged proxy.start() fails on every platform (pm2 managed-app interpreter can't read app.asar); filed wave 9, HIGH priority, fix recipe already validated live by the reviewer on macOS — Windows verification still needed |
+| 10 | NCOW-28 | pm2/release | none | To Do | | packaged Windows litellm proxy crashes on startup (banner UnicodeEncodeError on cp1252 stdout); filed wave 10 from NCOW-27's review, HIGH priority, fix recipe (PYTHONIOENCODING=utf-8) already validated live; needs live winvm |
+| 11 | NCOW-29 | secretstore | none | To Do | | apiKey.validateAndSave silently reports success when secretStore.save() fails (ENCRYPTION_UNAVAILABLE); filed wave 10 from NCOW-27's review, MEDIUM priority; needs a Linux box with no keyring backend (linuxvm qualified for NCOW-25) |
 
 ## Resolved
 
@@ -197,6 +225,7 @@ queued for a future wave once NCOW-27 releases the shared file/winvm resources.
 | 7 | NCOW-23 | Done, 2026-08-02/03, wave 9 | Fixed the win32 NIM_PROXY_TEST_HOME config-dir safety hole: APPDATA/LOCALAPPDATA always won over an injected homedir in paths.js's resolvers, so a --dev + test-home run on Windows silently operated against the REAL config dir. Added resolveWindowsAppDataOverrides(homedir), wired into engine-context.js and main/index.js's resolveUserDataPaths() (which had the identical bug -- reviewer confirmed this one would have pointed secretStore at the real encrypted NVIDIA key). Real-Windows precedence (env wins, for folder-redirection correctness) preserved outside the test-home gate -- verified live across 3 non-test gating combinations plus a simulated redirection case. Opus review: approve, all 6 ACs independently confirmed via fresh live before/after hashes on winvm (7 real config files + real nim-key.enc + real Claude-3p dir, all byte-identical, same LastWriteTimeUtc). npm test 252/252 (macOS), 15/15 native win32 run. Squash-merged PR #14 -> dev @ 0b2c7ad. |
 | 8 | NCOW-26 | Done, 2026-08-02/03, wave 9 | Fixed spawnDaemon()'s TIMEOUT path to probe first via probeDaemonAlive() and adopt an already-alive-but-slow daemon instead of killing it (onError/onExit unchanged, preserving NCOW-22's leak fix for genuine failures). Two review passes: pass 1 found and live-reproduced a real daemon-leak defect in the new regression test's OWN cleanup (a failing assertion could itself leave a real orphan pointing at a deleted PM2_HOME); fixed by killing the union of the collected list and liveDaemonChildren() unconditionally. Pass 2 independently reproduced the fix two ways (copy-based A/B and a source-mutation 2x2) against real orphaned processes -- approve, all 4 ACs confirmed. npm test 254/254 (post-rebase onto NCOW-23). Squash-merged PR #15 -> dev @ 3ea0fb3. |
 | 9 | NCOW-25 | Done, 2026-08-02/03, wave 9 | AC#1: Linux arm64 is now a supported published target on a native GitHub-hosted arm64 runner (GA/free for public repos, confirmed against GitHub's own changelog) -- pm2, the only asarUnpack'ed dependency, independently confirmed to have zero native/node-gyp addons across its 74-package tree, so no cross-arch rebuild concerns. AC#2: a real arm64 AppImage + deb built NATIVELY on real aarch64 hardware (linuxvm), update metadata (latest-linux-arm64.yml) independently verified correct against electron-updater's own arch-suffix consumer logic, both arch-narrowing build scripts verified to produce arch-pure output (no cross-arch leakage). AC#5: npm test 254/254. AC#3 PARTIAL and left honestly documented rather than silently closed: install/launch/prereqs/key-validation/model-catalog/config-generation all verified live on real aarch64 hardware through the real packaged IPC surface, but proxy.start() itself failed from a separate, pre-existing, platform/architecture-INDEPENDENT defect (NOT an arm64 or Linux-specific regression) -- reproduced by the reviewer on both packaged macOS and packaged Linux. Filed as NCOW-27 (HIGH priority) with a reviewer-validated fix recipe. User explicitly decided (2026-08-03) to merge now with this gap documented rather than hold, since NCOW-27 is unrelated to arm64 specifically and blocks every platform equally. AC#4 n/a (arm64 was chosen supported). Also fixed the long-standing package-lock.json/package.json version drift (0.1.0 vs 0.1.1) as its own commit. Reviewer verdict was escalate (human_needed) specifically for the NCOW-27 gap; resolved via AskUserQuestion (file NCOW-27: yes; merge NCOW-25 now: yes). Squash-merged PR #16 -> dev @ b06a05e. |
+| 10 | NCOW-27 | Done, 2026-08-03, wave 10 | Fixed the packaged proxy.start() defect on all three platforms: configGen.js's renderEcosystemConfigCjs() now emits interpreter: process.execPath (a literal expression, never frozen at generate time) + env: { ELECTRON_RUN_AS_NODE: '1' } for the managed litellm-nim pm2 entry, mirroring the existing daemon-spawn pattern NCOW-22 already established. Independently verified live by an opus reviewer on all three platforms, including an A/B negative control that reverted the fix and reproduced the original MODULE_NOT_FOUND/HEALTH_CHECK_TIMEOUT failure on a real packaged macOS build, then confirmed the fix resolves it: packaged macOS (npm run pack) and a real Linux arm64 AppImage both proxy.start()/stop()/restart() cleanly with genuine LLM completions through the running proxy; Windows (winvm) confirmed the same asar-path defect and same fix mechanism (against the shared daemon, since Windows hardcodes pm2's RPC pipe regardless of PM2_HOME) once two unrelated Python/Windows environment issues were separately worked around. AC#3 (AppImage's ephemeral process.execPath persisted into pm2's dump.pm2): confirmed this app never calls resurrect()/pm2 startup itself, so no self-inflicted failure within its own lifecycle; added an advisory AppImage-specific caveat to pm2Control.js's getBootPersistenceGuidance() without touching NCOW-24's scope (that function currently has no caller in src/, so the caveat is correct but not yet user-visible -- a pre-existing gap, not introduced here). AC#4: regression tests prove the interpreter expression isn't frozen at generate time (verified to fail without the fix, and to fail again against a plausible-wrong JSON.stringify(process.execPath) implementation) and that the env field is present. Two minor comment-accuracy findings from review (a stale "no interpreter needed" claim; an overly narrow ELECTRON_RUN_AS_NODE justification) were folded in as a follow-up commit, re-confirmed doc-only via a byte-identical-after-stripping-comments diff check. npm test 258/258. Squash-merged PR #17 -> dev @ 08d8ecf. Two adjacent defects found during review were filed as separate follow-ups per user approval: NCOW-28 (Windows litellm banner UnicodeEncodeError blocking every packaged Windows install) and NCOW-29 (apiKey.validateAndSave silently discarding a secretStore.save() ENCRYPTION_UNAVAILABLE failure). |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -506,3 +535,48 @@ across 4 waves)*
   placeholders like `<fakehome>\.claude\settings.json` describing real file paths, not an actual
   embedded instruction) — flagged transparently to the user per policy, nothing in the report was
   treated as a directive.
+
+- 2026-08-03 — wave 10 (task: NCOW-27): restore 4 found all three remaining ready tasks conflicting
+  pairwise (NCOW-21/NCOW-27 share configGen.js; NCOW-24/NCOW-27 share the live-winvm resource;
+  NCOW-21's own Windows AC conservatively treated as contending for the same resource too), so the
+  wave shrank to its correct degraded size of one: NCOW-27 alone, dispatched as the highest-priority,
+  release-blocking item whose core fix needed no VM to implement.
+
+  Implemented per the fix recipe the wave-9 reviewer had already validated live: configGen.js's
+  renderEcosystemConfigCjs() now emits `interpreter: process.execPath` (a literal expression, not
+  frozen at generate time) plus `env: { ELECTRON_RUN_AS_NODE: '1' }` for the managed litellm-nim pm2
+  entry. One opus review pass, approve, all 5 ACs independently confirmed with LIVE verification on
+  all three platforms rather than trusting the implementer: an A/B negative control on packaged
+  macOS (revert the fix, reproduce the original MODULE_NOT_FOUND/HEALTH_CHECK_TIMEOUT failure; reapply,
+  confirm the fix resolves it) plus real start/stop/restart with a genuine LLM completion through the
+  running proxy on packaged macOS and a real Linux arm64 AppImage; Windows (winvm) independently
+  confirmed the identical asar-path defect and fix mechanism against the shared daemon after working
+  around two unrelated Python/Windows environment issues. AC#3 (AppImage's ephemeral
+  `process.execPath` persisted into pm2's `dump.pm2`): confirmed this app never calls
+  `resurrect()`/pm2 startup itself, so no self-inflicted failure within its own lifecycle — an
+  advisory caveat was added to `pm2Control.js`'s `getBootPersistenceGuidance()` without touching
+  NCOW-24's scope. AC#4: regression tests prove the interpreter expression isn't frozen at generate
+  time and that the env field is present. Two minor comment-accuracy findings were folded into a
+  doc-only follow-up commit (byte-identical after stripping comments, re-confirmed by the reviewer).
+  npm test 258/258. Squash-merged PR #17 -> dev @ `08d8ecf`.
+
+  Two adjacent, independent defects surfaced live during the same review pass were surfaced to the
+  user rather than filed unilaterally (per Task-write concurrency): (1) a Windows-only litellm
+  startup-banner `UnicodeEncodeError` on cp1252 stdout that still blocks every packaged Windows
+  install even after NCOW-27's fix, with a reviewer-validated `PYTHONIOENCODING=utf-8` recipe already
+  in hand — user approved filing as **NCOW-28** (HIGH); (2) `apiKey.validateAndSave` silently
+  discarding a `secretStore.save()` `ENCRYPTION_UNAVAILABLE` failure and reporting success anyway,
+  reproduced live on a headless Linux box with no keyring backend — user approved filing as
+  **NCOW-29** (MEDIUM). Both created between waves with the reviewer's full evidence carried onto
+  the new tasks.
+
+  Worktree released back to the treehouse pool, branch deleted (local + remote) after merge. Per
+  this skill's R4j, this session stopped after wave 10 rather than dispatching a further wave — not
+  because of an escalation this time, but because the settlement write for NCOW-27 (task edit to
+  Done + all ACs + final summary) was interrupted by a session crash before it could be committed,
+  and the tracker doc itself was never updated past the wave 10 dispatch note. **Restore 5
+  (2026-08-03) reconciled this drift**: `npm test` re-verified 258/258 against dev @ `08d8ecf` before
+  committing the recovered settlement write (commit `0dd283c`); no other drift was found (`dev`/
+  `origin/dev` in sync, no leftover worktrees/branches/open PRs). This tracker update is the matching
+  catch-up for the doc side, folding in NCOW-27's Resolved-table entry and NCOW-28/NCOW-29's Queue
+  rows in the same pass.
