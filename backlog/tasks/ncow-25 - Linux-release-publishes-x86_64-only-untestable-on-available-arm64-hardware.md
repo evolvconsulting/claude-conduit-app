@@ -4,7 +4,7 @@ title: 'Linux release publishes x86_64 only, untestable on available arm64 hardw
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 02:39'
+updated_date: '2026-08-03 02:56'
 labels:
   - release
   - linux
@@ -92,4 +92,54 @@ between waves per this campaign's rules.
 npm test: 244/244 passing before and after all changes (worker's report, pending reviewer
 re-verification). ac_status self-reported: {"1": true, "2": true, "3": "partial - see above",
 "4": "n/a (arm64 was chosen as supported)", "5": true}.
+
+Wave 9 review (opus): ESCALATE (human_needed). AC1/2/5 independently confirmed (arm64 runner GA
+verified against GitHub's own changelog, pm2's dependency tree independently walked - all 74
+packages, zero native/node-gyp addons anywhere; both arch-narrowing build scripts empirically
+verified to produce arch-pure output with no cross-arch leakage; latest-linux.yml/
+latest-linux-arm64.yml producer/consumer sides both verified correct; npm test 244/244 re-run by
+reviewer). AC#4 n/a (arm64 was supported, not descoped).
+
+AC#3 only PARTIALLY met, and the reviewer's independent investigation found the underlying cause
+is far more severe than the worker characterized: **packaged proxy.start() fails on EVERY
+platform and architecture this app ships**, not just Linux/arm64. Root cause re-derived from real
+source (not speculation): configGen.js's generated ecosystem.config.cjs omits an interpreter for
+the managed litellm-nim app, so pm2 defaults to resolving argv against an app.asar-internal path
+to its own ProcessContainerFork.js, which a PATH-resolved system Node cannot read (no asar
+support) - MODULE_NOT_FOUND, crash loop, HEALTH_CHECK_TIMEOUT. pm2Control.js's spawnDaemon()
+already solves this exact class of problem for the DAEMON itself (process.execPath +
+ELECTRON_RUN_AS_NODE, established by NCOW-22) but nothing equivalent exists for the managed app.
+Reviewer independently REPRODUCED this live on TWO real packaged artifacts (packaged macOS via npm
+run pack, and the new packaged Linux arm64 build) - byte-for-byte the same error on both. Confirmed
+why NCOW-22 never caught it: every one of its start/stop/restart verifications on all 3 platforms
+was a SOURCE run; its only packaged-artifact test exercised daemon bootstrap + getStatus(), which
+never forks the managed app - so no wave has ever actually called proxy.start() from a packaged
+artifact, on any platform, ever. This means the entire NCOW-10 auto-update epic's "verified real
+proxy restart across the update" claim, and every currently-published release (v0.1.0, v0.1.1),
+have never actually been proven to start litellm from a real packaged install.
+
+Reviewer also independently validated a fix recipe live (adding interpreter: process.execPath +
+env: {ELECTRON_RUN_AS_NODE: '1'} to the generated ecosystem entry fixed packaged macOS start/stop/
+restart end-to-end, including a real HTTP 200 completion through the running proxy) but explicitly
+recommends escalate rather than a routine request_changes fix-pass, reasoning: severity vastly
+exceeds this task's own MEDIUM framing (a release-blocking defect meaning no shipped build has
+ever started the proxy is not a Linux-packaging enhancement's problem to silently absorb); Windows
+is entirely untested for this specific failure; and there's a real open design question specific to
+AppImage packaging (process.execPath is an ephemeral per-launch FUSE-mounted temp path, and pm2
+persists the interpreter path into dump.pm2, so pm2 save/resurrect/autorestart-after-quit would
+reference a dead path after the AppImage unmounts - entangles with NCOW-24's already-filed daemon-
+persistence concerns). Reviewer's own lean: merge NCOW-25 now (its own scope is solid and
+independently verified) and file the interpreter defect as its own new high-priority task, but
+explicitly defers the final call to the user.
+
+Minor findings, all addressed/acceptable: CI workflow unverified by a real tag-triggered Actions
+run (mitigated: actionlint clean, and a deliberate bogus-runner-label control test proved the
+linter genuinely validates runner names); artifact built on Ubuntu 26.04 rather than the exact
+ubuntu-24.04-arm image (low risk, same config); README size table's cited baseline version vs
+actual measured version is a harmless label mismatch; the worker's claimed "throwaway home
+removed" was incomplete (a fake-home directory containing a real plaintext copy of the NVIDIA key
+was left on linuxvm - reviewer deleted it and confirmed linuxvm is now clean); package-lock.json's
+separately-committed version-sync fix judged benign and acceptable.
+
+Orchestrator note: NOT yet actioned pending user decision - see next steps.
 <!-- SECTION:NOTES:END -->
