@@ -1,9 +1,10 @@
 ---
 id: NCOW-26
 title: 'spawnDaemon timeout can kill a slow-but-healthy daemon, preventing convergence'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
+updated_date: '2026-08-03 01:55'
 labels:
   - pm2
 dependencies: []
