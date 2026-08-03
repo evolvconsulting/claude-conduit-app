@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-03 12:33'
-updated_date: '2026-08-03 12:56'
+updated_date: '2026-08-03 13:52'
 labels:
   - pm2
   - packaging
@@ -93,3 +93,109 @@ closes.
 - [ ] #4 A regression test covers the managed app's generated ecosystem entry carrying the correct interpreter/env fields
 - [ ] #5 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add interpreter: process.execPath (literal expression, never interpolated at
+   generate time) + env: { ELECTRON_RUN_AS_NODE: '1' } to configGen.js's
+   renderEcosystemConfigCjs() managed litellm-nim entry -- the same class of fix
+   NCOW-22 already applied to the daemon itself, extended to the managed app.
+2. Add regression tests proving (a) the generated .cjs literally contains the
+   process.execPath expression rather than a frozen string, by re-evaluating the
+   generated source under a different process binding than generation time, and
+   (b) the env.ELECTRON_RUN_AS_NODE field is present.
+3. Verify live on a packaged macOS build (npm run pack, throwaway PM2_HOME, no
+   pre-existing daemon): proxy.start()/stop()/restart() plus a real LLM
+   completion through the running proxy.
+4. Verify live on a packaged Linux arm64 AppImage on linuxvm (real FUSE mount):
+   same start/stop/restart + real completion, no pre-existing daemon.
+5. Verify live on Windows (winvm) against the existing shared pm2 daemon --
+   Windows hardcodes pm2's RPC named pipe regardless of PM2_HOME, so isolation
+   via a throwaway PM2_HOME isn't possible there; confirm the same fix applies
+   against the real shared daemon without ever stopping/killing it.
+6. Investigate AC#3 (AppImage's ephemeral process.execPath persisted into pm2's
+   dump.pm2): confirm via code+grep whether this app's own lifecycle ever calls
+   pm2 resurrect()/startup itself (it does call save() constantly, but never
+   reads a persisted path back within its own lifecycle), and add a narrow
+   AppImage-specific caveat to pm2Control.js's getBootPersistenceGuidance()
+   rather than touching NCOW-24's own scope.
+7. Run npm test, commit in logical slices, push the branch.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worker report (implemented, evidence per AC):
+
+AC#1 (macOS+Linux, packaged, no pre-existing daemon, real completion): macOS
+(npm run pack, throwaway PM2_HOME/NIM_PROXY_TEST_HOME, real Electron GUI+CDP) --
+proxy.start() -> {"ok":true}; process tree showed ".../Claude Conduit.app/.../
+MacOS/Claude Conduit run.js" (pid 5504) as interpreter, litellm (pid 5505) on
+4123; testConnection() returned a real completion ("Completion
+(claude-sonnet-4-5)": pass, 1046ms, tool-calling pass); stop() killed litellm;
+restart() produced a new pid, health re-passed. Linux arm64 (npm run
+dist:linux:arm64, a real AppImage with a genuine FUSE mount after installing
+libfuse2t64, and the unpacked asar:true build): proxy.start() -> {"ok":true},
+litellm (pid 1662580) on 4123, /health/liveliness -> "I'm alive!", real
+completion {"content":"PONG"} HTTP 200; stop()/restart() produced fresh pids.
+
+AC#2 (Windows): genuinely tested, not assumed. winvm has a pre-existing shared
+pm2 daemon from an earlier wave; confirmed Windows hardcodes the RPC named pipe
+regardless of PM2_HOME, so a throwaway PM2_HOME can't isolate there -- tested
+against the real shared daemon instead, never stopped/killed it. Built a
+Windows arm64 unpacked (asar:true) artifact; confirmed pm2 forked the packaged
+binary as interpreter correctly (same mechanism as macOS/Linux). Two unrelated
+Python/Windows env issues were hit and fixed (fastapi/litellm version mismatch;
+cp1252 console-encoding crash) -- pinned litellm==1.94.1 fastapi==0.141.1 and
+PYTHONIOENCODING=utf-8, neither related to this task's own fix. After that:
+proxy.start() -> {"ok":true} pid 6544, real completion "PONG" HTTP 200, stop(),
+restart() -> pid 1828, final stop -- litellm-nim left in "stopped" state,
+matching what was found.
+
+AC#3: confirmed pm2Control.js's save() (-> pm2.dump()) runs after every
+start/stop/restart, so the persisted path is always current: this app never
+calls resurrect()/pm2 startup itself (grepped, confirmed absent), so no
+self-inflicted failure within this app's own lifecycle. The one place this
+app's own code steers a user toward the AppImage hazard is
+getBootPersistenceGuidance()'s pm2 startup/resurrect suggestion -- gated an
+AppImage-specific caveat there (env.APPIMAGE) recommending extraction or the
+.deb build instead. Deliberately did not touch NCOW-24's own scope
+(daemon-outlives-app). Also observed live during Linux testing: each throwaway
+PM2_HOME reset left an orphaned detached daemon behind (by design, per
+NCOW-22) -- cleaned up manually each time, noted for awareness, not fixed
+(out of scope).
+
+AC#4: configGen.test.js asserts the generated .cjs text literally contains
+"interpreter: process.execPath," via regex (never a string literal), and
+re-evaluates the generated source under a DIFFERENT process binding than
+generation time to prove it isn't frozen; plus an env.ELECTRON_RUN_AS_NODE
+=== '1' assertion. pm2Control.test.js gained two tests for the AppImage
+caveat (fires only with env.APPIMAGE set, only on Linux).
+
+AC#5: npm test 258/258 in the worktree (macOS), before and after commits.
+(Also sanity-ran on winvm: 257/258 -- the one failure, probeDaemonAlive: false
+when nothing is listening, is pre-existing environmental contamination from
+the same live shared daemon colliding with Windows' hardcoded RPC pipe name,
+in a function/test not touched by this task; worth a follow-up task, not
+fixed here.)
+
+Files touched: src/engine/configGen.js (fix + doc comment),
+test/engine/configGen.test.js (AC#4), src/engine/pm2Control.js (AC#3 caveat),
+test/engine/pm2Control.test.js (AC#3 tests). Commits: 53d8b12
+fix(configGen): give the managed litellm-nim pm2 entry an explicit
+interpreter; c6983cb fix(pm2Control): warn about AppImage's ephemeral
+interpreter path in boot-persistence guidance. Branch pushed:
+fix/NCOW-27-packaged-proxy-interpreter.
+
+Environment cleanup verified on all three machines (this Mac, linuxvm, winvm)
+-- no stray processes/temp dirs/plaintext keys left; winvm's litellm-nim
+entry left in "stopped" state matching pre-existing shared-daemon state.
+
+Two out-of-scope findings surfaced, not fixed here, flagged for a possible
+follow-up decision: (1) probeDaemonAlive's win32 test depends on a hardcoded
+shared named pipe and is environment-fragile under a live shared daemon; (2)
+apiKey.validateAndSave's IPC handler silently discards secretStore.save()'s
+ENCRYPTION_UNAVAILABLE failure (observed on a headless Linux box with no
+keyring backend).
+<!-- SECTION:NOTES:END -->
