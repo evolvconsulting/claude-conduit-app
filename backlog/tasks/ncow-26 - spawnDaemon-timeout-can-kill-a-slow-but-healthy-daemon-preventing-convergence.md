@@ -4,7 +4,7 @@ title: 'spawnDaemon timeout can kill a slow-but-healthy daemon, preventing conve
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:07'
-updated_date: '2026-08-03 01:55'
+updated_date: '2026-08-03 02:07'
 labels:
   - pm2
 dependencies: []
@@ -38,3 +38,38 @@ Two related test-coverage gaps from the same review, worth folding in here rathe
 - [ ] #3 The existing leak test's finally block terminates any pids it collected, so a failing run cannot leave real daemons alive pointing at a deleted PM2_HOME
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+On the spawnDaemon() TIMEOUT path only (not onError/onExit), await probeDaemonAlive({pm2Home})
+before rejecting. If alive, adopt the daemon via the same resolve path onMessage uses (disconnect,
+unref, resolve {pid: child.pid}) instead of killing it, preserving NCOW-22's leak fix for genuine
+failures. Add an opts.spawn test-only override so tests can deterministically drive both branches
+of the state machine without relying on real timing. Fix the existing leak regression test's
+finally block to kill collected pids (matching the sibling test's pattern) and add two new tests
+covering timeout-adopt and timeout-genuine-failure.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Wave 9 implementation complete, pushed to fix/NCOW-26-adopt-slow-daemon (commits ad4e232, 3739c67).
+Independently verified by the orchestrator (not just the worker's self-report): both commits and
+the branch exist on origin, diff vs dev touches only src/engine/pm2Control.js and
+test/engine/pm2Control.test.js (147 lines, 2 files - no scope creep).
+
+Evidence: npm test 246/246 passing (run twice for stability); node --test on the pm2Control test
+file alone 16/16 passing including the two new tests, both completing in ~34ms deterministically
+(a real net.createServer() bound on the resolved rpc.sock path, real probeDaemonAlive() exercised,
+fake injected child so no real timing race) - one proves a daemon that's alive by the timeout is
+adopted (resolves with the real pid, kill never called on the fake child), the other proves a
+genuinely-dead spawn still gets killed and rejects (leak fix preserved). Manually confirmed no
+orphaned daemon left running after the suite (the one "God Daemon" process found belongs to this
+machine's real pre-existing ~/.pm2 daemon, ppid 1, unrelated to any temp PM2_HOME - left untouched
+per project rules). AC1-4 all self-reported true; pending independent reviewer confirmation.
+
+Note: the worktree has an unrelated, uncommitted package-lock.json diff (version string 0.1.0 ->
+0.1.1, a pre-existing known drift noted since wave 3) left uncommitted by the worker as
+out-of-scope - correct call, will not be merged.
+<!-- SECTION:NOTES:END -->
