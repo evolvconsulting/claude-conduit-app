@@ -100,6 +100,22 @@ packaged or dev, because it's set by Electron itself before any app code runs. T
 disposable Chromium housekeeping, never anything sensitive this app writes, and is safe to
 delete after a manual test run.
 
+NOTE (NCOW-23): Windows parity was not automatic. `paths.js`'s win32 branches each resolve as
+`opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...)` (same shape for
+`LOCALAPPDATA`) — correct for a real, unmodified Windows run, since `APPDATA`/`LOCALAPPDATA`
+can legitimately differ from `homedir/AppData/...` under folder redirection or a roaming
+profile, so the env var must win over a bare homedir guess there. But it means a caller that
+redirects *only* homedir (as `engine-context.js`/`main/index.js` used to) is silently ignored
+on win32, because `APPDATA`/`LOCALAPPDATA` are always set on a real Windows machine. Fixed by
+having both call sites also pass a matching `appData`/`localAppData` override
+(`paths.resolveWindowsAppDataOverrides`) whenever `--dev` + `NIM_PROXY_TEST_HOME` are active —
+confirmed live on winvm: the config dir, Claude Desktop's `configLibrary` dir, and the
+encrypted-key userData dir all resolved under the fake home, and the real
+`%APPDATA%\claude-conduit` (5 files) plus the real Electron userData directory were
+SHA-256/timestamp-identical before and after. Any *new* path resolver added to `paths.js` with
+a win32 branch needs the same override wired through its call site, or it will silently repeat
+this bug.
+
 ```sh
 NIM_PROXY_TEST_HOME=/tmp/fake-home NIM_TEST_API_KEY=$(grep NVIDIA_NIM_API_KEY .env | cut -d= -f2) \
   ./node_modules/.bin/electron . --dev

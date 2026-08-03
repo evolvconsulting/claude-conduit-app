@@ -33,6 +33,23 @@ function resolveLegacyConfigDir(opts = {}) {
   return resolveConfigDirNamed('claude-nim-proxy', opts);
 }
 
+// NCOW-23: on win32 every function below resolves its Windows special folder
+// as `opts.<X> ?? process.env.<X> ?? path.join(homedir, ...)` — explicit
+// override first, then the real environment variable, and only then a
+// homedir-derived guess. That order is correct for a real, unmodified
+// Windows run (APPDATA/LOCALAPPDATA can legitimately differ from
+// homedir/AppData/... under folder redirection or a roaming profile, so the
+// env var must be allowed to win over a homedir-only guess) — but it means a
+// caller that overrides *only* homedir (e.g. engine-context.js's
+// NIM_PROXY_TEST_HOME support) is silently ignored on win32, because
+// process.env.APPDATA/LOCALAPPDATA is always set on a real Windows machine
+// and is consulted before the homedir fallback is ever reached. Any caller
+// that redirects homedir for testing MUST also pass a matching
+// appData/localAppData override — resolveWindowsAppDataOverrides below
+// derives one from an arbitrary homedir using the exact same convention, so
+// every such call site (engine-context.js, main/index.js) computes it the
+// same way instead of re-deriving 'AppData/Roaming' / 'AppData/Local' by
+// hand.
 function resolveConfigDirNamed(dirName, opts = {}) {
   const platform = opts.platform ?? process.platform;
   const homedir = opts.homedir ?? require('node:os').homedir();
@@ -129,6 +146,25 @@ function resolveElectronAppDataDir(opts = {}) {
   return path.join(homedir, '.config');
 }
 
+/**
+ * NCOW-23: derives the conventional Windows appData/localAppData subpaths
+ * (AppData/Roaming, AppData/Local) from an arbitrary homedir. Any caller that
+ * overrides homedir for NIM_PROXY_TEST_HOME must spread this into the opts of
+ * resolveConfigDir/resolveLegacyConfigDir, resolveClaudeDesktopConfigLibraryDir,
+ * and resolveElectronAppDataDir — otherwise those functions' win32 branches
+ * fall back to the real process.env.APPDATA/LOCALAPPDATA (always set on a
+ * real Windows machine) instead of honoring the injected homedir. See the
+ * comment above resolveConfigDirNamed for the full precedence rationale.
+ *
+ * @param {string} homedir
+ */
+function resolveWindowsAppDataOverrides(homedir) {
+  return {
+    appData: path.join(homedir, 'AppData', 'Roaming'),
+    localAppData: path.join(homedir, 'AppData', 'Local'),
+  };
+}
+
 module.exports = {
   resolveConfigDir,
   resolveLegacyConfigDir,
@@ -136,4 +172,5 @@ module.exports = {
   resolveClaudeCodeSettingsPath,
   resolveClaudeDesktopConfigLibraryDir,
   resolveElectronAppDataDir,
+  resolveWindowsAppDataOverrides,
 };

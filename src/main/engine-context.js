@@ -46,21 +46,46 @@ function resolveHomedir() {
 }
 
 /**
+ * NCOW-23: paths.resolveConfigDir/resolveLegacyConfigDir/
+ * resolveClaudeDesktopConfigLibraryDir all fall back to
+ * process.env.APPDATA/LOCALAPPDATA on win32 *before* ever consulting an
+ * injected homedir — and APPDATA is always set on a real Windows machine, so
+ * passing homedir alone (as this file used to) left NIM_PROXY_TEST_HOME
+ * silently ignored on Windows: the app kept resolving to the real
+ * %APPDATA%\claude-conduit regardless of the fake home. Only substitutes an
+ * override when resolveHomedir() actually substituted the fake home, so an
+ * ordinary (non-test) Windows run still gets the real
+ * %APPDATA%/%LOCALAPPDATA% — which can legitimately differ from
+ * homedir/AppData/... under folder redirection or a roaming profile.
+ */
+function resolveWindowsTestOverrides() {
+  const isDev = process.argv.includes('--dev');
+  if (isDev && process.env.NIM_PROXY_TEST_HOME) {
+    return paths.resolveWindowsAppDataOverrides(process.env.NIM_PROXY_TEST_HOME);
+  }
+  return {};
+}
+
+/**
  * @param {{safeStorage: import('electron').safeStorage, userDataDir: string, appDataDir: string, broadcast: (channel: string, payload: any) => void}} deps
  */
 function createEngineContext(deps) {
   const homedir = resolveHomedir();
-  const configDir = paths.resolveConfigDir({ homedir });
+  const winTestOverrides = resolveWindowsTestOverrides();
+  const configDir = paths.resolveConfigDir({ homedir, ...winTestOverrides });
 
   // NCOW-12: migrate a pre-rename config directory (~/.config/claude-nim-proxy)
   // to its new name before anything else touches configDir — see
   // configDirMigration.js for why this needs no separate consent prompt.
   // Cheap and safe to run on every startup: a no-op once already migrated.
-  migrateLegacyConfigDir({ legacyConfigDir: paths.resolveLegacyConfigDir({ homedir }), newConfigDir: configDir });
+  migrateLegacyConfigDir({
+    legacyConfigDir: paths.resolveLegacyConfigDir({ homedir, ...winTestOverrides }),
+    newConfigDir: configDir,
+  });
 
   const files = paths.getFilePaths(configDir);
   const claudeCodeSettingsPath = paths.resolveClaudeCodeSettingsPath({ homedir });
-  const claudeDesktopConfigLibraryDir = paths.resolveClaudeDesktopConfigLibraryDir({ homedir });
+  const claudeDesktopConfigLibraryDir = paths.resolveClaudeDesktopConfigLibraryDir({ homedir, ...winTestOverrides });
 
   // NCOW-12: best-effort carry-forward of the encrypted NVIDIA key across the
   // userData directory move that renaming productName causes (Electron

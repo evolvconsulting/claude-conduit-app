@@ -25,11 +25,19 @@ const updateCheck = require('../engine/updateCheck');
  * project's safe-testing story exists to keep dev runs away from. Mirrors
  * Electron's own appData/userData convention (paths.resolveElectronAppDataDir),
  * just rooted under the fake home instead of the real one.
+ *
+ * NCOW-23: resolveElectronAppDataDir falls back to process.env.APPDATA before
+ * ever consulting homedir on win32, and APPDATA is always set on a real
+ * Windows machine — so passing homedir alone here (as this function used to)
+ * left NIM_PROXY_TEST_HOME silently ignored on Windows, same as the
+ * configDir bug. paths.resolveWindowsAppDataOverrides derives the matching
+ * appData override from the same fake home so it wins instead.
  */
 function resolveUserDataPaths() {
   const isDev = process.argv.includes('--dev');
   if (isDev && process.env.NIM_PROXY_TEST_HOME) {
-    const appDataDir = paths.resolveElectronAppDataDir({ homedir: process.env.NIM_PROXY_TEST_HOME });
+    const homedir = process.env.NIM_PROXY_TEST_HOME;
+    const appDataDir = paths.resolveElectronAppDataDir({ homedir, ...paths.resolveWindowsAppDataOverrides(homedir) });
     return { appDataDir, userDataDir: path.join(appDataDir, app.name) };
   }
   return { appDataDir: app.getPath('appData'), userDataDir: app.getPath('userData') };
