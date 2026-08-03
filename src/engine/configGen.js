@@ -49,9 +49,12 @@ general_settings:
 
 /**
  * Replaces DESIGN.md section 6.2's bash run.sh with a single Node launcher
- * used on all three platforms — pm2 auto-detects the .js extension and runs
- * it under node, so ecosystem.config.cjs needs no `interpreter` field either.
- * Windows has no bash by default, and a parallel .cmd twin would carry real
+ * used on all three platforms. (pm2 does auto-detect the `.js` extension and
+ * default to running it via a PATH-resolved "node" — but NCOW-27 found that
+ * default insufficient for this app's packaged build, so
+ * renderEcosystemConfigCjs's ecosystem.config.cjs below overrides it with an
+ * explicit `interpreter`; see that function's doc comment for why.) Windows
+ * has no bash by default, and a parallel .cmd twin would carry real
  * metacharacter-injection risk if a secret value ever contained %/^/&.
  *
  * Secrets enter ONLY via the sourced litellm.env file, exactly as in
@@ -246,17 +249,26 @@ child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
  * own execPath that must resolve, not whatever process happened to run
  * setup and generate the file on disk.
  *
- * The explicit `env: { ELECTRON_RUN_AS_NODE: '1' }` is load-bearing, not
- * cosmetic: God.forkMode builds the forked child's env from this app's own
- * pm2_env alone, so a pre-existing daemon this app didn't spawn (e.g. a
- * user's own global pm2) has no ELECTRON_RUN_AS_NODE of its own — without
- * this, `interpreter: process.execPath` would boot a second GUI copy of
- * this app instead of running the launcher as plain Node. Exactly the
- * hazard NCOW-22 already documented for the daemon itself. This is also why
- * plain `env` values below stay non-secret (see the doc comment on
- * renderRunLauncherJs above): pm2 flattens `env` onto pm2_env and persists
- * it to dump.pm2 on every `pm2 save`, so nothing that shouldn't be
- * inspectable via `pm2 jlist`/`describe` may ever go here.
+ * The explicit `env: { ELECTRON_RUN_AS_NODE: '1' }` is load-bearing on EVERY
+ * start — not just some edge case — confirmed live: God/ForkMode.js builds
+ * the forked child's `spawn_env` SOLELY from `pm2_env`, which carries the
+ * pm2 CLIENT's own env at request time (i.e. this Electron app's env at the
+ * moment it called proxy.start()/restart()), never the daemon's env. And
+ * `ps -Eww` on the running GUI app process confirms it does NOT have
+ * ELECTRON_RUN_AS_NODE set itself — only pm2Control.js's spawnDaemon() sets
+ * that var, and only for the daemon child it spawns, not for the app
+ * process. So without this field, EVERY fork of this managed app — even one
+ * spawned by this app's own daemon in the ordinary case — would inherit
+ * `interpreter: process.execPath` with no ELECTRON_RUN_AS_NODE, and boot a
+ * second GUI copy of this app instead of running the launcher as plain
+ * Node. One motivating (but not the only) case: a pre-existing daemon this
+ * app didn't spawn (e.g. a user's own global pm2) obviously has no
+ * ELECTRON_RUN_AS_NODE of its own either. Exactly the hazard NCOW-22 already
+ * documented for the daemon itself. This is also why plain `env` values
+ * below stay non-secret (see the doc comment on renderRunLauncherJs above):
+ * pm2 flattens `env` onto pm2_env and persists it to dump.pm2 on every `pm2
+ * save`, so nothing that shouldn't be inspectable via `pm2 jlist`/`describe`
+ * may ever go here.
  *
  * @param {{runLauncherPath: string, outLog: string, errLog: string}} opts
  */
