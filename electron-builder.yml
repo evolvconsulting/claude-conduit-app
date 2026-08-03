@@ -86,8 +86,18 @@ linux:
       StartupWMClass: claude-conduit
   maintainer: evolv consulting <info@evolvconsulting.com>
   synopsis: GUI manager for a local LiteLLM proxy routing Claude Desktop and the Claude Code CLI through NVIDIA NIM models
+  # arm64 added under NCOW-25: every Linux machine this project's maintainer owns is
+  # aarch64, so an x64-only artifact could never be run, smoke-tested or verified on any of
+  # them. This app has no native (node-gyp-compiled) dependencies — pm2, the only
+  # asarUnpacked package, is pure JS end to end (verified: no `*.node` file anywhere in its
+  # dependency tree) — so there is nothing here that needs a per-arch native rebuild, only
+  # Electron's own prebuilt arm64 binary, which electron-builder downloads like any other
+  # arch. electron-builder's own arch-suffix convention (`getArtifactArchName`/
+  # `getArchPrefixForUpdateFile`) leaves x64 filenames and `latest-linux.yml` unchanged and
+  # adds arm64-suffixed siblings (`*-arm64.AppImage`, `latest-linux-arm64.yml`) alongside
+  # them, so existing x64 users and update metadata are unaffected by this addition.
   target:
     - target: AppImage
-      arch: [x64]
+      arch: [x64, arm64]
     - target: deb
-      arch: [x64]
+      arch: [x64, arm64]

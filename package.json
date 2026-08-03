@@ -28,6 +28,8 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
+    "dist:linux:x64": "electron-builder --linux AppImage:x64 deb:x64",
+    "dist:linux:arm64": "electron-builder --linux AppImage:arm64 deb:arm64",
     "dist": "electron-builder -mwl",
     "pack": "electron-builder --dir"
   },

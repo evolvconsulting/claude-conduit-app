@@ -46,6 +46,119 @@ built: it would be a third artifact nobody here can test on a real Fedora/openSU
 and those users are well served by the AppImage today. Add it when there's a real user
 asking and a way to test it.
 
+### Linux target architecture: x64 **and** arm64 (NCOW-25, 2026-08-02)
+
+Surfaced during NCOW-22: every Linux machine this project's maintainer owns (linuxvm,
+spark, rpi5, jetson, remote — checked via `uname -m` on the tailnet) is **aarch64**, so an
+x64-only Linux artifact could never be run, smoke-tested, or verified on any of them.
+NCOW-22's own Linux cold-bootstrap verification had to fall back to a from-source run for
+exactly this reason — the packaged Linux path had never been exercised at all.
+
+**Decision: arm64 is a supported, published target, built on a native arm64 runner —
+not cross-compiled.** Two things had to be checked before deciding, rather than assumed:
+
+1. **Does GitHub Actions offer a native arm64-hosted Ubuntu runner today?** Yes —
+   `ubuntu-24.04-arm` / `ubuntu-22.04-arm`, GA and **free for public repositories** since
+   2025-08 (this repo is public — confirmed via `gh repo view --json visibility`). No
+   opt-in or repo setting is needed beyond using the label in `runs-on`. This is what
+   makes "native, not cross-compiled" the easy choice rather than a slower/riskier one:
+   there is no QEMU tax and no separate cross-toolchain to maintain.
+2. **Does anything in this app's dependency tree need a native (node-gyp-compiled,
+   arch-specific) rebuild?** No. pm2 — the only `asarUnpack`ed package, per CLAUDE.md —
+   was checked directly (`find node_modules/pm2 -name '*.node'` across its entire
+   dependency tree) and has **zero** native addons; it and everything under it are pure
+   JS. The only arch-specific artifact this app ships is Electron's own prebuilt binary,
+   which electron-builder downloads per target arch exactly like it already does for x64
+   — there is nothing here that "compiling for the wrong architecture" could silently get
+   wrong, unlike apps carrying real native modules (the class of problem GitHub's own
+   arm64 rollout notes and electron-builder's Linux arm64 issues both warn about).
+
+Cross-compiling was still a real option worth naming, not just a strawman: this repo
+already cross-builds Linux x64 artifacts (AppImage + deb) from a macOS host today (see
+"What was verified" below), because electron-builder's Linux packaging tools
+(`mksquashfs`, `fpm`) only need to run *on the host*, packing target-arch file bytes they
+never execute — verified directly against `app-builder-lib`'s `linux.js`/`appImageUtil.js`
+source. So cross-building arm64 from `ubuntu-latest` was genuinely plausible, not
+obviously broken. It was rejected anyway because AppImage's *static-runtime* toolset
+(the modern, non-FUSE2 default electron-builder can select) still depends on a
+correctly-matched runtime/`mksquashfs` pairing per architecture, and this is exactly the
+category of electron-builder Linux-arm64 cross-build bug documented in the wider
+ecosystem (arm64 targets silently containing x64 binaries) — a native runner sidesteps
+the entire question by making host arch and target arch the same thing, which is also
+consistent with how this workflow already treats macOS/Windows (one job per real target,
+never cross-built in CI even though `npm run dist` cross-builds them all locally for
+convenience).
+
+**Implementation, and one non-obvious electron-builder behavior found the hard way:**
+`electron-builder.yml`'s `linux.target` now lists `arch: [x64, arm64]` for both AppImage
+and deb. The natural-looking `electron-builder --linux --x64` / `--arm64` CLI flags do
+**not** restrict the build to that one arch when the config already declares an explicit
+`arch:` array per target — `computeArchToTargetNamesMap` (`app-builder-lib/out/targets/
+targetFactory.js`) only lets a CLI arch flag win when the raw CLI-supplied target map is
+non-empty; an explicit config-level `arch:` array always wins otherwise, so
+`--linux --arm64` on this repo's original config silently built *both* x64 and arm64 —
+confirmed by actually running it. The fix, also verified directly: the CLI's
+`target:arch` suffix syntax (`electron-builder --linux AppImage:arm64 deb:arm64`) *does*
+override the config, because it populates that same raw map with non-empty per-arch
+target-name lists, which short-circuits the config's own arch array entirely. `package.
+json`'s `dist:linux:x64` / `dist:linux:arm64` scripts use this syntax so each CI job (and
+anyone running them locally) builds only the one arch it's responsible for; plain
+`npm run dist:linux` / `npm run dist` still build both, matching today's "one local
+command, full matrix" convenience.
+
+**Update metadata needs no code change.** electron-builder's own arch-suffix convention
+(`getArchPrefixForUpdateFile` in `app-builder-lib/out/publish/updateInfoBuilder.js`)
+already leaves x64 filenames and `latest-linux.yml` untouched and adds an arm64-suffixed
+sibling (`latest-linux-arm64.yml`) — verified by inspecting a real build's output. On the
+client side, `electron-updater`'s `Provider.getChannelFilePrefix()`
+(`electron-updater/out/providers/Provider.js`) independently derives the identical
+`-arm64` suffix from `process.arch` when checking for updates on Linux. Both sides were
+already generic across every Linux arch electron-builder supports; nothing in this app's
+own code references an arch, hard-coded or otherwise.
+
+**Live verification, real aarch64 hardware (linuxvm, Ubuntu 26.04, 2026-08-02):**
+
+- `npm run dist:linux:arm64`, run *natively* on linuxvm (no cross-build at all), produced
+  a real `Claude Conduit-0.1.1-arm64.AppImage` (130,669,443 bytes) and `claude-
+  conduit_0.1.1_arm64.deb` (96,710,764 bytes). `file` confirms `ELF 64-bit LSB executable,
+  ARM aarch64`. `latest-linux-arm64.yml` was emitted alongside with the correct arm64
+  filenames and hashes.
+- The AppImage was extracted (`--appimage-extract`; this Ubuntu release ships FUSE3 only,
+  matching the README's existing FUSE2 caveat) and launched for real against a throwaway
+  `NIM_PROXY_TEST_HOME`, driven over CDP (the same technique NCOW-22 and NCOW-10.3 used).
+  Confirmed working end to end, live, on the packaged arm64 binary: prerequisite checks
+  (Node/Python/litellm all detected), a real NVIDIA key validated against the live API,
+  a real model catalog fetch, and real config generation (`config.yaml`, `litellm.env`,
+  `ecosystem.config.cjs`, `manifest.json`, a real `sk-litellm-...` master key) — all
+  through the actual packaged app's IPC surface, not a stand-in.
+- **`proxy.start()` itself failed — and the cause is a separate, pre-existing,
+  architecture-independent defect, not an arm64 problem.** pm2's managed-app launch
+  (`God`'s `ProcessContainerFork.js` wrapper, used for every pm2 app regardless of fork
+  vs. cluster mode) crashed in a restart loop with `Cannot find module '.../resources/
+  app.asar/node_modules/pm2/lib/ProcessContainerFork.js'` — a plain `node`
+  `MODULE_NOT_FOUND`, not an Electron-asar-aware one. `spawnDaemon()` in
+  `src/engine/pm2Control.js` already works around exactly this class of problem for the
+  *daemon* itself (comment there: "a path inside app.asar can be read but not executed as
+  a child process"), explicitly launching it via `process.execPath` +
+  `ELECTRON_RUN_AS_NODE=1` rather than pm2's own `launchDaemon()`. The generated
+  `ecosystem.config.cjs` (from `src/engine/configGen.js`) has no equivalent `interpreter`
+  override for the *managed app* pm2 forks on its behalf, so pm2 falls back to its
+  default `interpreter: "node"` — a literal, PATH-resolved system Node binary with zero
+  awareness of Electron's asar virtual filesystem. This reproduced consistently, is
+  unrelated to CPU architecture (it would hit an x64 packaged Linux build identically —
+  nobody had run *any* packaged Linux artifact's cold pm2 bootstrap before this), and is
+  out of this task's file scope (`configGen.js` / `pm2Control.js`, not
+  `electron-builder.yml`/CI/docs). Filed as a follow-up rather than fixed here — see the
+  handover for the recommended new task. The pm2 **daemon** itself cold-bootstrapped
+  correctly on this same packaged arm64 binary (confirmed via `pm2 list` against the
+  real shared `~/.pm2`), so the daemon-launch half of NCOW-22's fix is confirmed working
+  on a packaged arm64 build too; only the managed-app-launch half is newly found broken,
+  and only on packaged builds.
+- Left the machine clean afterward: crash-looped `litellm-nim` pm2 entry deleted, test
+  Electron process killed, throwaway `NIM_PROXY_TEST_HOME` removed. The shared `~/.pm2`
+  daemon itself was left running empty (bootstrapping one during cold-start verification
+  is expected, and this app never `pm2 kill`s the shared daemon — see CLAUDE.md).
+
 ---
 
 ## Decision 2 — no `curl … | sh` install script. Not now, and probably not ever.
@@ -157,9 +270,11 @@ was originally written for) still works and is documented here as a fallback for
 itself needs debugging, but it is no longer the recommended way to publish. Either way, a
 release must contain:
 
-1. The six artifacts from `npm run dist`.
+1. The eight artifacts from `npm run dist` (six before NCOW-25 added a linux-arm64
+   AppImage and deb alongside the existing linux-x64 pair).
 2. The update metadata electron-builder emits beside them — `latest.yml`,
-   `latest-mac.yml`, `latest-linux.yml` — plus the `.blockmap` files.
+   `latest-mac.yml`, `latest-linux.yml`, and (since NCOW-25) `latest-linux-arm64.yml` —
+   plus the `.blockmap` files.
 3. A `SHA256SUMS` file covering all of the above.
 4. Release notes that lead with the unsigned-build warning and link to the README's
    Install section.
@@ -239,14 +354,17 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
    doesn't match `v<package.json version>`, and pre-creates the draft release itself — see
    "The tag must match `package.json`'s version" and "Why the release is pre-created, not
    left to `electron-builder`" below for why both exist.
-2. Three matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`), gated on
-   `prepare`, each check out the tag, run `npm ci && npm test`, then run this repo's own
-   `dist:mac` / `dist:win` / `dist:linux` script with `-- --publish always` appended.
+2. Four matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`, and — since
+   NCOW-25 — `ubuntu-24.04-arm`), gated on `prepare`, each check out the tag, run
+   `npm ci && npm test`, then run this repo's own `dist:mac` / `dist:win` /
+   `dist:linux:x64` / `dist:linux:arm64` script with `-- --publish always` appended.
    electron-builder cannot cross-build a platform's native installer target on another OS
-   in CI the way `npm run dist` does locally from macOS (an NSIS `.exe` needs Windows, a
-   `.dmg`/ad-hoc-signed `.app` needs macOS), so each job publishes only its own platform's
-   artifacts — the same six artifacts `npm run dist` produces locally, split across three
-   runners instead of one. `npm test` runs plain `node --test` with no path argument —
+   (or, since NCOW-25, another CPU architecture) in CI the way `npm run dist` does locally
+   from macOS (an NSIS `.exe` needs Windows, a `.dmg`/ad-hoc-signed `.app` needs macOS),
+   so each job publishes only its own platform+arch's artifacts — the same eight
+   artifacts `npm run dist` produces locally (six from before NCOW-25 plus a linux-arm64
+   AppImage and deb), split across four runners instead of one. `npm test` runs plain
+   `node --test` with no path argument —
    Node's own built-in test runner recursively discovers `test/**/*.test.js` itself by
    default convention, so no shell ever needs to expand a glob. This replaced an earlier
    `test/**/*.test.js` glob baked directly into the npm script, which depended on
@@ -255,16 +373,16 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
    `script-shell`), and two real CI runs on `windows-latest` failed under different shells
    before the glob was removed from the script entirely rather than chasing a third shell
    that might expand it correctly. `node --test`'s own discovery is shell-independent, so
-   it behaves identically on all three runners.
+   it behaves identically on all four runners.
 3. `--publish always` is electron-builder's own GitHub-Releases publisher (see the
    "Asset names matter" note above for why this matters over any manual alternative). All
-   three jobs target the same tag; because `prepare` already created the draft release for
+   four jobs target the same tag; because `prepare` already created the draft release for
    that tag before any of them started, each job's own `getOrCreateRelease()` call finds
    it and reuses it rather than racing to create it independently (see below — this was
    not true in an earlier version of this workflow, and a real run proved why it matters).
-4. A `finalize` job (needs `prepare` and all three build jobs) downloads every uploaded
+4. A `finalize` job (needs `prepare` and all four build jobs) downloads every uploaded
    asset, computes a `SHA256SUMS` file over all of them (artifacts, `.blockmap`s, and the
-   three `latest*.yml` files), uploads that alongside, sets release notes from
+   four `latest*.yml` files), uploads that alongside, sets release notes from
    `.github/release-notes-template.md` (the unsigned-build warning + README link), and
    flips the release out of draft. A draft release is invisible to GitHub's
    `/releases/latest` endpoint, which is what `electron-updater`'s GitHub provider and this

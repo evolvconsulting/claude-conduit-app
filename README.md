@@ -116,12 +116,16 @@ that's the same warning one step earlier — the file is unsigned, not damaged.
 
 ### Linux
 
-Both artifacts are x86-64.
+Both x86-64 (`amd64`) and arm64 (`aarch64`) builds are published (since NCOW-25) — pick
+the pair matching your machine's `uname -m`. The arm64 artifacts carry an `-arm64` suffix
+(`Claude-Conduit-<version>-arm64.AppImage`,
+`claude-conduit_<version>_arm64.deb`); the x86-64 ones are unsuffixed, unchanged from
+before.
 
 **AppImage** — self-contained, no install:
 
 ```sh
-chmod +x Claude-Conduit-<version>.AppImage
+chmod +x Claude-Conduit-<version>.AppImage        # or the -arm64 build on aarch64
 ./Claude-Conduit-<version>.AppImage
 ```
 
@@ -137,7 +141,7 @@ If that fails with `dlopen(): error loading libfuse.so.2`, your distro ships FUS
 dependencies resolve:
 
 ```sh
-sudo apt install ./claude-conduit_<version>_amd64.deb
+sudo apt install ./claude-conduit_<version>_amd64.deb   # or _arm64.deb on aarch64
 ```
 
 No rpm is published; on Fedora/openSUSE use the AppImage.
@@ -156,8 +160,10 @@ Measured from a real `npm run dist` at 0.1.0:
 | macOS `.zip` (universal) | ~221 MB |
 | Windows installer `.exe` | ~102 MB |
 | Windows portable `.exe` | ~102 MB |
-| Linux `.AppImage` | ~131 MB |
-| Linux `.deb` | ~103 MB |
+| Linux `.AppImage` (x64) | ~131 MB |
+| Linux `.deb` (x64) | ~103 MB |
+| Linux `.AppImage` (arm64) | ~131 MB |
+| Linux `.deb` (arm64) | ~97 MB |
 
 Most of that is the bundled Chromium/Node runtime, and the macOS build carries **two**
 architectures. This is the accepted tradeoff for shipping something that runs with no
@@ -288,8 +294,10 @@ Packaging (electron-builder; config in `electron-builder.yml`):
 npm run pack          # unpacked app dir only, fastest way to sanity-check
 npm run dist:mac      # dmg + zip (universal)
 npm run dist:win      # NSIS installer + portable exe
-npm run dist:linux    # AppImage + deb
-npm run dist          # all three
+npm run dist:linux    # AppImage + deb, both x64 and arm64
+npm run dist:linux:x64    # AppImage + deb, x64 only
+npm run dist:linux:arm64  # AppImage + deb, arm64 only
+npm run dist          # all three platforms (Linux: both arches)
 ```
 
 Artifacts land in `dist/`, alongside the `latest*.yml` update metadata electron-builder
