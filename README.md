@@ -242,8 +242,7 @@ things that follow from it:
   still running, with no way to discover it through the UI. Since NCOW-24, the daemon's own
   copy of the interpreter means it's never *this app's own installed binary* left behind —
   only that daemon-owned copy under `~/.pm2/daemon-interpreter/` (see the table below),
-  which running the uninstaller again (once nothing is using it) cleans up like anything
-  else.
+  which is never cleaned up by uninstalling, no matter how many times you run it.
 - That daemon-owned copy is never deleted by an uninstall — see the "Where things live"
   table below for its size and lifetime.
 
