@@ -4,7 +4,7 @@ title: Bootstrapped pm2 daemon outlives the app and holds its own binary
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-04 09:16'
+updated_date: '2026-08-04 09:20'
 labels:
   - pm2
   - windows
@@ -127,4 +127,6 @@ about-dialog.js's GOTCHAS string ('leave its locked binary behind until you run 
 DESIGN.md and CLAUDE.md checked for the same claim -- both already accurate, no changes needed.
 
 npm test: 293/293, unchanged.
+
+Review pass 3 (opus, FINAL -- retry budget was at its last allowed pass): approve. All 6 ACs independently confirmed: #3 (the one withheld in pass 2) verified directly this pass -- both contradicting sentences in README.md and about-dialog.js corrected and cross-checked consistent with DESIGN.md/CLAUDE.md/the uninstall.js comment, no new overclaim introduced; #1/#2/#4 confirmed by combining this pass's doc read with the prior two passes' already-independently-verified live evidence (not redundantly re-run); #5/#6 verified directly (grep confirms no pm2 kill in src/, npm test 293/293). Scope confirmed clean: fix pass 2's commit (a54d24a) touches exactly the 2 files/2 sentences disclosed, cumulative diff still the same 7 files as review pass 1. Three non-blocking observations recorded, none blocking: about-dialog.js's daemon-interpreter mention is technically win32/linux-only but correctly scoped by its own leading clause; README's bullets 2/3 are now redundant (both correctly say never-cleaned-up) rather than contradictory; CLAUDE.md's stale '178 tests' claim (real count now 293) is pre-existing drift from many earlier waves, not introduced here.
 <!-- SECTION:NOTES:END -->
