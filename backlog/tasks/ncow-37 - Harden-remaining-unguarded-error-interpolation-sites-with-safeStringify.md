@@ -4,7 +4,7 @@ title: Harden remaining unguarded error-interpolation sites with safeStringify()
 status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-04 22:31'
+updated_date: '2026-08-04 22:38'
 labels: []
 dependencies:
   - NCOW-36
@@ -39,4 +39,6 @@ NCOW-36 introduced safeStringify()/describeThrownValue() in src/engine/configGen
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented by worker (worktree fix/NCOW-37-safestringify-remaining-sites, commit 08ea3b8, pushed to origin). Added safeReadProperty() helper + routed the restart-failed branch's error.code/error.message through the existing safeStringify(); exported safeStringify/describeThrownValue from configGen.js; autoUpdate.js's error handler now uses describeThrownValue(err) instead of bare String(err). 5 new adversarial tests added (3 in test/engine/configGen.test.js, 2 in test/main/autoUpdate.test.js) covering throwing getters and Object.create(null) shapes. npm test: 348/348 passing (run twice, consistent). Confirmed via git diff --stat that only the 4 in-scope files were touched.
+
+Review pass 1 (opus): verdict approve. All 4 ACs confirmed independently. Reviewer's own 38-case adversarial probe (Proxy get-traps, Symbol code/message, throwing Symbol.toPrimitive, unstringifiable values, cyclic refs, BigInt, falsy-but-not-nullish error values, etc.) found 0 failures against the fix and 21 failures against unpatched dev code, confirming the fix is structural not shape-specific. Reverting to dev code made exactly the 5 new tests fail (genuine regression coverage, not happy-path). npm test 348/348 (reviewer's own run, twice). Commit 08ea3b8 follows conventions, pushed to origin, diff confined to the 4 expected files. Non-blocking follow-up noted: src/main/autoUpdate.js's checkForUpdates() catch block (~lines 164-166) and its darwin-path result.error interpolation (~lines 139-140) have the same unguarded-interpolation shape and were reproduced to reject/throw on 3 of 4 hostile shapes -- out of this task's scope (AC#2 named only the electron-updater 'error' event handler) but a natural NCOW-38/39-style follow-up candidate.
 <!-- SECTION:NOTES:END -->
