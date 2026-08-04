@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:11'
+updated_date: '2026-08-04 21:16'
 labels: []
 dependencies:
   - NCOW-31
@@ -51,4 +51,22 @@ Evidence:
 Files touched: src/main/tray.js (new createTrayActions export), src/main/index.js (import + call-site wiring only), test/main/tray-actions.test.js (new), test/main/engine-context-config-regen.test.js (updated).
 
 Status: implemented, ready for review.
+
+Review verdict (pass 1): request_changes. AC#1 and AC#3 independently confirmed; AC#2 is NOT confirmed.
+
+AC#1 (confirmed): createTrayActions({ mutexes, handlers }) at src/main/tray.js:127-133 is a plain, dependency-injected, exported function with no electron dependency at module scope in a way that blocks requiring it standalone -- reviewer independently ran `node -e "require('./src/main/tray')"` and drove it directly with injected fakes.
+
+AC#3 (confirmed): npm test 336/336 (reviewer's own run, matches worker's claim). Old 3-regex NCOW-31 static check genuinely removed, superseded by a behavioral test + one narrower static pin. Reviewer confirmed the narrower static check is not vacuous (a mutation removing the mutex spread entirely, replacing with unlocked direct calls, breaks 1/17 tests).
+
+AC#2 (blocking finding, NOT confirmed): Reviewer reproduced review pass 2's EXACT nested-scope-shadowing mutation verbatim -- wrapping index.js's createTray({...}) call in a block scope that shadows `mutexes` with a freshly-created, private createDomainMutexes() set, giving the tray a fully unlocked, unshared lock. Ran npm test against this genuinely broken code: 336 pass / 0 fail. The identity gap the task exists to close did not close -- it moved from a 3-regex check to a 1-regex check, both equally blind to whether the `mutexes` identifier at the call site actually resolves to the shared instance. The new comment claiming this is proven via "the exact mutexes/handlers bindings destructured off createEngineContext()" overstates what the regex can establish.
+
+Reviewer independently confirmed the NEW behavioral test (test/main/tray-actions.test.js) IS genuinely mutex-identity-sensitive when the shadowing happens INSIDE createTrayActions itself (a different mutation: createTrayActions building its own private mutex set internally) -- 2/3 tests failed correctly for that case. The gap is specifically the outer index.js call-site shadow, which the behavioral test cannot see because it never touches index.js's actual source.
+
+Reviewer's recommended minimal in-scope fix (no need to touch engine-context.js): add a static assertion that index.js binds the `mutexes` identifier exactly once -- i.e. the only const/let/var mutexes in the file is the createEngineContext() destructure, with no reassignment anywhere. This is a source property a static check CAN legitimately prove (unlike "does this lock actually serialize," which is exactly why the behavioral test exists for the parts it CAN reach). Combined with the existing behavioral test, this closes the chain honestly. Noted alternative (crosses scope guard, not required): have the composition root return ready-made actions so no second `mutexes` binding exists at the call site at all.
+
+Mitigating context: the identical gap is pre-existing and already explicitly accepted for the ipc.js link (test/main/ipc-mutex.test.js:411-421, documented as "the one link in the chain the behavioural tests above cannot reach") -- NCOW-35 hasn't made anything worse, and the recommended fix would incidentally harden both links.
+
+Nits (non-blocking): replacement regex is order/shorthand-sensitive (fails on `{ handlers, mutexes }` or `{ mutexes: mutexes, handlers }`) -- acceptable brittleness, worth knowing; the "negative control" test in tray-actions.test.js is self-contained/always-passes documentation of test sensitivity, not itself a guard -- PR body shouldn't imply otherwise.
+
+Dispatching a fresh worker fix pass with these findings verbatim (fix-cycle 1 of 2 allowed retries).
 <!-- SECTION:NOTES:END -->
