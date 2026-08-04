@@ -70,12 +70,30 @@ if (!gotSingleInstanceLock) {
     // safeStorage must only be called after app.whenReady() — Linux backend
     // detection happens then.
     const { userDataDir, appDataDir } = resolveUserDataPaths();
-    const { handlers, pm2Control } = createEngineContext({
+    const { handlers, pm2Control, configRegeneration } = createEngineContext({
       safeStorage,
       userDataDir,
       appDataDir,
       broadcast: (channel, payload) => getMainWindow()?.webContents.send(channel, payload),
+      // NCOW-30: lets createEngineContext detect a generated config
+      // (ecosystem.config.cjs/run.js/manifest.json) that's stale relative to
+      // this launch and regenerate it — see engine-context.js.
+      appVersion: app.getVersion(),
     });
+
+    // Fire-and-forget, same as the auto-update check below: engine-context.js
+    // already resolves this to {regenerated:false, reason:'error', error}
+    // rather than rejecting, so nothing here can delay or fail startup — this
+    // exists purely so a failed regeneration/restart leaves a diagnostic
+    // trail instead of vanishing silently (the promise's only other consumer
+    // would otherwise be nothing at all).
+    configRegeneration
+      .then((result) => {
+        if (result?.reason === 'error') {
+          console.warn('[config-regen] stale-config regeneration failed:', result.error?.message);
+        }
+      })
+      .catch((err) => console.warn('[config-regen] stale-config regeneration failed unexpectedly:', err.message));
 
     // Created before registerIpcHandlers (and before autoUpdate below) so
     // both the sidebar Quit path and the update-install path can reuse the

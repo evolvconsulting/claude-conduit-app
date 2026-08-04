@@ -67,7 +67,15 @@ function resolveWindowsTestOverrides() {
 }
 
 /**
- * @param {{safeStorage: import('electron').safeStorage, userDataDir: string, appDataDir: string, broadcast: (channel: string, payload: any) => void}} deps
+ * @param {{safeStorage: import('electron').safeStorage, userDataDir: string, appDataDir: string, broadcast: (channel: string, payload: any) => void, appVersion?: string, pm2Control?: ReturnType<typeof createPm2Control>}} deps
+ *   appVersion is the currently-running app's version (main/index.js passes
+ *   app.getVersion()) — used only to detect a stale generated config (NCOW-30);
+ *   omitting it disables that check entirely, which is what every pre-existing
+ *   test that doesn't care about it relies on. pm2Control is an injectable
+ *   override purely for tests (see test/main/engine-context-config-regen.test.js)
+ *   so they can observe the NCOW-30 restart-on-regen wiring without a real pm2
+ *   daemon — every real caller (main/index.js) leaves it unset and gets the
+ *   genuine pm2-backed control created below.
  */
 function createEngineContext(deps) {
   const homedir = resolveHomedir();
@@ -102,7 +110,7 @@ function createEngineContext(deps) {
   // relying on pm2's own connect-time auto-launch (which hangs forever on
   // Windows, and elsewhere spawns a second copy of this app's own Electron
   // binary rather than the daemon — see pm2Control.js for the full trace).
-  const pm2Control = createPm2Control(require('pm2'), { probeDaemonAlive, spawnDaemon });
+  const pm2Control = deps.pm2Control ?? createPm2Control(require('pm2'), { probeDaemonAlive, spawnDaemon });
 
   let logTailUnsubscribe = null;
   // NCOW-17 AC#3: tracks the AbortController for whichever diagnostics run
@@ -124,6 +132,48 @@ function createEngineContext(deps) {
   function port() {
     return getManifest()?.port ?? DEFAULT_PORT;
   }
+
+  // NCOW-30: regenerate ecosystem.config.cjs/run.js/manifest.json whenever
+  // they were last produced by a different app version than the one
+  // currently running (or never stamped at all — every real pre-NCOW-30
+  // install), so a fix living only in configGen.js's generated output (e.g.
+  // NCOW-27, NCOW-28) actually reaches an install that completed setup
+  // before that fix shipped, without the user re-running setup. Runs on
+  // every launch; configGen.needsRegeneration() makes this a cheap read-only
+  // no-op once the manifest is already current. Fire-and-forget: this must
+  // never block or fail app startup, and any failure surfaces the same way
+  // an ordinary failed restart would — via the next status poll or manual
+  // Start click.
+  //
+  // Fix-pass regression: this manifest read happens synchronously, in the
+  // argument list, outside the .catch() below — readManifest() does a bare
+  // JSON.parse, so a truncated/corrupt manifest.json (exactly what a
+  // non-atomic writeManifest() can leave behind after a crash, power loss,
+  // or full disk — and every version upgrade is now a fresh writeManifest()
+  // call, per this same task) threw straight out of createEngineContext(),
+  // which app.whenReady().then(...) in index.js has no .catch() for. That
+  // left a windowless zombie process with no route to Setup/Uninstall.
+  // Treated the same as a missing manifest — needsRegeneration() already
+  // treats "no manifest" as nothing to regenerate, the conservative choice,
+  // since it just retries the read on the next launch instead of acting on
+  // partial content.
+  let manifestForRegenCheck;
+  try {
+    manifestForRegenCheck = getManifest();
+  } catch (err) {
+    manifestForRegenCheck = null;
+  }
+
+  const configRegeneration = configGen
+    .regenerateStaleConfig({
+      files,
+      manifest: manifestForRegenCheck,
+      currentVersion: deps.appVersion,
+      saveManifest,
+      getStatus: pm2Control.getStatus,
+      startOrRestart: pm2Control.startOrRestart,
+    })
+    .catch((err) => ({ regenerated: false, reason: 'error', error: err }));
 
   const handlers = {
     app: {
@@ -232,6 +282,11 @@ function createEngineContext(deps) {
           pm2_app: pm2Control.APP_NAME,
           cli_configured: existing?.cli_configured ?? false,
           secret_store_backend: 'electron-safeStorage',
+          // NCOW-30: stamps the app version that produced this generation of
+          // ecosystem.config.cjs/run.js, so a later launch under a newer app
+          // version can detect this content is stale and regenerate it — see
+          // configGen.needsRegeneration()/regenerateStaleConfig() above.
+          generated_by_version: deps.appVersion,
         });
         return { ok: true, data: { manifest, masterKey } };
       },
@@ -426,7 +481,7 @@ function createEngineContext(deps) {
     },
   };
 
-  return { handlers, pm2Control, files, configDir, homedir };
+  return { handlers, pm2Control, files, configDir, homedir, configRegeneration };
 }
 
 module.exports = { createEngineContext, DEFAULT_PORT };
