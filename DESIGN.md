@@ -397,6 +397,53 @@ The pm2 **daemon** is never killed. It runs against the shared default `PM2_HOME
 `litellm-nim` app is stopped, and the stop is bounded by a timeout so a wedged pm2 cannot
 make the app unquittable.
 
+**The daemon itself can still be running after quit — corrected by NCOW-24.** If
+`ensureConnected()` (`pm2Control.js`) had to bootstrap a pm2 daemon itself (`spawnDaemon()`,
+NCOW-22), that daemon is detached and long-lived by pm2's own design, independent of this
+app's `before-quit` handling above — stopping `litellm-nim` does not, and should not, stop
+the supervisor that (potentially) also supervises other things. NCOW-22 originally spawned
+that daemon using `process.execPath` — this app's own installed binary — as its Node
+interpreter (`ELECTRON_RUN_AS_NODE`), which meant the daemon kept that binary open for as
+long as it ran, indefinitely. NCOW-24's wave-6 review found this live on both platforms:
+on macOS the daemon reparented to pid 1 and `lsof` still showed it holding the app's own
+Electron Framework binary; on Windows, `Win32_Process` showed the daemon running as
+`electron.exe ...\node_modules\pm2\lib\Daemon.js` under the app's own exe.
+
+On win32/linux this is not just a cosmetic surprise: verified live on Windows against a
+real packaged NSIS install (not by code reading — see the task record), with a process
+still executing off the installed binary, both an NSIS silent reinstall (electron-updater's
+Windows update mechanism) and a silent uninstall report success while silently failing to
+touch the locked file. The reinstall leaves the old binary byte-for-byte and
+timestamp-unchanged; the uninstall deletes every *other* installed file, deregisters the
+Programs-and-Features entry (so Windows and the user both believe the app is gone), and
+leaves the locked, multi-hundred-MB binary behind — still running, with no UI path left to
+discover or stop it. macOS was never observed to actually fail an update/uninstall from
+this (POSIX doesn't block replacing or deleting a file a running process still holds open,
+unlike win32), only to leave the lingering-process surprise noted above.
+
+The fix (`resolveDaemonInterpreter()` in `pm2Control.js`, win32/linux only): before
+spawning the daemon, copy the interpreter — and the handful of companion files
+(`icudtl.dat`, `snapshot_blob.bin`, `v8_context_snapshot.bin`) Electron needs alongside its
+own executable even in `ELECTRON_RUN_AS_NODE` mode — into a private location under
+`pm2Home`, and hand *that* copy to the daemon instead of the installed binary itself.
+Verified live on Windows, end-to-end, against the real packaged NSIS installer/uninstaller:
+with a daemon-equivalent process running from the relocated copy, the installed binary
+could be overwritten, and a full silent uninstall removed every file (nothing left behind)
+while the still-running process was completely unaffected. Skipped on darwin: the installed
+binary there is one file deep inside a multi-file `.app` bundle, "copy the executable and
+its bundle" isn't the same small, flat operation it is on win32/linux, and — per the
+paragraph above — macOS was never the platform where this actually blocked anything.
+`resolveDaemonInterpreter()` falls back to `process.execPath` unchanged on any failure
+(never a new way for bootstrap itself to fail), and only applies to a daemon *this app*
+bootstraps — a pre-existing daemon this app merely connects to and adopts is left exactly
+as it was, since this app has no way to know (and no business assuming) what interpreter it
+was originally started with.
+
+None of this changes whether the daemon can outlive the app — it still can, by design, on
+every platform. What changed is that on win32/linux it no longer blocks updating or
+uninstalling the app while it does. See README.md's "Closing vs. quitting" section for the
+user-facing version of this.
+
 ---
 
 ## 8. Claude Desktop instructions (printed by Step 6, saved as `DESKTOP-SETUP.md`)

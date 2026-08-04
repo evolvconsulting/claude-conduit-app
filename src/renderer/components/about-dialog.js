@@ -23,6 +23,7 @@ const GOTCHAS = [
   'Reboot persistence: pm2 apps survive daemon restarts after save, but reboots need `pm2 startup`, run by you.',
   'Supply chain: never litellm 1.82.7/1.82.8 (PyPI malware) — this app blocks those versions.',
   'Quitting the app stops the proxy, so Claude Desktop and Claude Code have nothing to route to until you start it again.',
+  'A background pm2 process can outlive quitting (and even uninstalling) this app — same shared, persistent daemon model as the reboot-persistence note above. It no longer blocks updating or uninstalling on Windows/Linux.',
 ];
 
 let openDialog = null;

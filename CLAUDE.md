@@ -176,7 +176,19 @@ to `Runtime.exceptionThrown`, or renderer errors stay completely invisible.
   pm2 must never make the app unquittable.
 - **Never `pm2 kill` from this app.** pm2 runs against the shared default `PM2_HOME`
   (`~/.pm2`), so killing the daemon would stop every unrelated app the user supervises.
-  Stop the `litellm-nim` app only; the daemon is not ours.
+  Stop the `litellm-nim` app only; the daemon is not ours — even when *this app itself*
+  was the one that bootstrapped it (`pm2Control.js`'s `spawnDaemon()`, NCOW-22): the
+  moment it exists it's exactly as shared as one that pre-existed, since anything else on
+  the machine using the default `PM2_HOME` can register apps against it afterward, and
+  this app has no reliable, race-free way to prove it hasn't. **NCOW-24 nuance:** that
+  daemon is still detached and long-lived by pm2's own design regardless of who started
+  it, so it can keep running after this app quits or is even uninstalled — on win32/linux
+  this no longer blocks *updating or uninstalling this app*, because `spawnDaemon()` now
+  hands it a private copy of the interpreter (`resolveDaemonInterpreter()`) instead of
+  this app's own installed binary, so the installed binary is never the thing held open.
+  It's still a real, still-running, still app-sized process — this fix relocates what it
+  holds open, it does not stop it existing, and killing it remains exactly as forbidden as
+  before. See DESIGN.md section 7.4 and README.md's "Closing vs. quitting".
 - **The app is AGPL-3.0-or-later because pm2 is AGPL-3.0**, bundled, and linked through
   `require('pm2')` rather than a subprocess boundary. This is not a free choice — if pm2
   is ever swapped out, the licensing decision must be reopened deliberately. A test in

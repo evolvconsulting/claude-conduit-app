@@ -218,6 +218,31 @@ Only the `litellm-nim` app is stopped. The pm2 daemon itself is left alone, beca
 the shared one at `~/.pm2` and killing it would take down anything else you supervise
 with pm2.
 
+**A pm2 daemon process can keep running after you quit (NCOW-24).** If no pm2 daemon
+existed yet the first time this app needed one, it started one itself — and, like any pm2
+daemon, that process is detached and outlives whatever started it by design. In practice
+this means a background process can still be running after you quit, even after you
+uninstall. This is not a bug in the sense of something gone wrong: it's the same shared,
+persistent daemon model described under *Reboot persistence* below, and it's why `pm2 ls`
+can show apps from unrelated tools you've never opened this manager alongside. Two things
+that follow from it:
+
+- The daemon this app bootstraps runs as a private copy of this app's own runtime
+  (there's no separate, lighter interpreter to hand it), so it is genuinely the same
+  size as the app itself in Activity Monitor / Task Manager while it's running — not a
+  small background helper.
+- That copy lives outside this app's install location specifically so it never blocks
+  updating or uninstalling: before NCOW-24, a Windows install/uninstall could silently
+  fail to replace or remove the app's own binary while a daemon it had started was still
+  running against it — reporting success while actually leaving the old binary in place,
+  still running, with no way to discover it through the UI. Since NCOW-24, updating and
+  uninstalling on Windows and Linux are unaffected by whether such a daemon is running.
+
+If you don't want any pm2 daemon running at all, stop it the same way you would for any
+other pm2 daemon on your machine (e.g. `pm2 kill`, which is safe for *you* to run since it
+also affects everything else you supervise with pm2 — see CLAUDE.md's note on why this
+app never runs that command itself).
+
 ### Where things live
 
 | Path | What |
