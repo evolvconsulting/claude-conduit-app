@@ -1,9 +1,10 @@
 ---
 id: NCOW-31
 title: 'Serialize config-regeneration''s proxy restart, and retry a failed regeneration'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 06:27'
+updated_date: '2026-08-04 15:49'
 labels:
   - pm2
   - packaging
