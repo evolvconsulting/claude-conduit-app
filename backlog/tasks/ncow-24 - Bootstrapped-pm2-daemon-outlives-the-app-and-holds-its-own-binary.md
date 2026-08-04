@@ -4,7 +4,7 @@ title: Bootstrapped pm2 daemon outlives the app and holds its own binary
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-04 06:36'
+updated_date: '2026-08-04 07:33'
 labels:
   - pm2
   - windows
@@ -43,3 +43,29 @@ Relevant constraint: CLAUDE.md forbids 'pm2 kill' from this app, because pm2 run
 - [ ] #5 CLAUDE.md's no-pm2-kill constraint is respected by the fix, and any new nuance is documented there
 - [ ] #6 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Empirically characterize AC#1 on Windows via winvm before assuming the bootstrapped daemon blocks update/uninstall: reproduce the exact daemon-holds-own-binary spawn shape (ELECTRON_RUN_AS_NODE keep-alive against the installed exe) without touching the pre-existing shared pm2 daemon, and observe real copy/del/NSIS-silent-reinstall/NSIS-silent-uninstall behavior against it.
+2. Based on empirical findings, decide the AC#3 judgment call (relocate the daemon's interpreter vs. document-only) rather than presupposing the answer.
+3. Implement the fix, add regression tests, verify live on Windows against a real rebuilt packaged artifact, update documentation (README/DESIGN/CLAUDE.md/About dialog) to state accurately what persists and why, commit, push.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worker implementation complete (branch fix/NCOW-24-daemon-outlives-app, commits e5a3fe5 + 67a5434, pushed).
+
+AC#1/#4 (live Windows characterization): built a real dist:win NSIS installer/uninstaller natively on winvm. Reproduced the exact daemon-holds-own-binary spawn shape directly (ELECTRON_RUN_AS_NODE keep-alive holding the installed exe, byte-for-byte the same spawn shape spawnDaemon() uses) rather than fighting winvm's pre-existing shared pm2 daemon (which occupies pm2's hardcoded win32 named pipe regardless of PM2_HOME) -- the shared daemon (pid 8832) was never touched. With that process holding the exe: copy over it fails ('used by another process'), del fails ('Access is denied'), a real silent NSIS reinstall (/S) exits 0 but LastWriteTime never changes (silent no-op reporting success), and a real silent NSIS uninstall (/currentuser /S) exits 0, deletes every other file, deregisters the HKCU uninstall registry entry entirely -- but leaves the 225MB locked exe behind, still running, with no UI path to find it. Confirmed macOS was never functionally blocked (POSIX allows replacing a running executable's file), consistent with the original report.
+
+Fix: resolveDaemonInterpreter() in src/engine/pm2Control.js copies the interpreter plus icudtl.dat/snapshot_blob.bin/v8_context_snapshot.bin (empirically required -- a bare exe copy alone crashed with 'Invalid file descriptor to ICU data received') into <pm2Home>/daemon-interpreter/ on win32/linux; spawnDaemon() hands the daemon that copy instead of the installed binary. Falls back to execPath unchanged on any copy failure. Skipped on darwin (unverified bundle layout, and macOS was never the blocked platform). Never kills anything -- the no-pm2-kill constraint is untouched.
+
+Post-fix live re-verification on a rebuilt winvm artifact: with the keep-alive process running from the relocated copy, the original installed exe could be freely overwritten, and a full silent uninstall removed everything (directory gone entirely) while the still-running process was unaffected throughout. Shared daemon pid 8832 confirmed unchanged (dump.pm2) before and after.
+
+AC#3 judgment call: the daemon still outlives the app (unavoidable given the no-pm2-kill constraint) and is still app-sized (a copy of Electron, not a lightweight helper) -- documentation route taken (README.md, DESIGN.md sec 7.4, CLAUDE.md, About dialog's 'Things to know') stating accurately what persists and why, rather than falsely implying the process is gone.
+
+AC#6: 8 new tests in test/engine/pm2Control.test.js (copy / skip-redundant / re-copy-on-size-change / darwin-noop / failure-fallback for resolveDaemonInterpreter, plus 2 spawnDaemon integration tests). npm test: 290/290 locally (macOS) and on real Windows (18 pm2Control-relevant tests pass; 1 pre-existing unrelated failure caused by winvm's shared daemon occupying an un-guarded probe in that one test -- pre-existing gap, not introduced by this change, not present on a clean CI runner).
+
+Files touched: src/engine/pm2Control.js, test/engine/pm2Control.test.js, README.md, DESIGN.md, CLAUDE.md, src/renderer/components/about-dialog.js.
+<!-- SECTION:NOTES:END -->
