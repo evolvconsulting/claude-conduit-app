@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 00:45'
-updated_date: '2026-08-04 03:22'
+updated_date: '2026-08-04 03:34'
 labels:
   - pm2
   - packaging
@@ -57,3 +57,43 @@ if picked up alongside either.
 - [ ] #4 A regression test covers the stale-detection and regeneration logic
 - [ ] #5 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add a `generated_by_version` field to manifest.json, stamped by
+   config.generate() with the currently-running app version (deps.appVersion,
+   wired from main/index.js's app.getVersion()).
+2. Add three new exports to src/engine/configGen.js, all plain-Node/injectable
+   (no Electron imports):
+   - needsRegeneration(manifest, currentVersion): stale iff a manifest exists,
+     currentVersion is known, and manifest.generated_by_version !==
+     currentVersion (a missing field counts as stale -- every real v0.1.0/
+     v0.1.1 install today).
+   - resolveExistingNvidiaApiKey(litellmEnvPath): re-reads the NVIDIA key
+     straight out of the litellm.env already on disk, deliberately not via
+     secretStore/safeStorage, so a regeneration can't be blocked by an
+     unrelated keyring failure.
+   - regenerateStaleConfig(opts): orchestrates the check + re-render + stamp +
+     conditional restart.
+3. regenerateStaleConfig() re-runs generateAll() with the manifest's
+   already-recorded model/port/litellm-path, stamps generated_by_version via
+   injected saveManifest, then (AC#2) calls injected getStatus()/
+   startOrRestart() to restart the proxy IF it's currently running -- reusing
+   the exact mechanism handlers.proxy.start()/restart() already use, not a
+   bespoke restart path.
+4. Wire src/main/engine-context.js to call regenerateStaleConfig() once at
+   every launch (cheap no-op once current), fire-and-forget, exposed as
+   context.configRegeneration (a Promise) for observability/testing. Make
+   pm2Control optionally injectable via deps so tests never touch a real
+   system pm2 daemon (matches this repo's existing pm2Control.test.js/
+   shutdown.test.js convention -- engine-context.js was the one place that
+   still hardcoded the real module).
+5. Add regression tests (AC#4) covering staleness detection and the
+   regeneration/restart wiring.
+6. Verify AC#1/#2 live via NIM_PROXY_TEST_HOME + --dev (never the real config
+   dir): seed a fake home with a stale manifest + pre-NCOW-27-shaped
+   ecosystem.config.cjs, launch, confirm regeneration; separately verify a
+   running proxy survives regeneration with a clean restart, not corruption
+   or orphaning.
+<!-- SECTION:PLAN:END -->
