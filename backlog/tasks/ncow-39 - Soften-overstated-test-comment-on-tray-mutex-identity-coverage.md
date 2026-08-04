@@ -4,7 +4,7 @@ title: Soften overstated test comment on tray mutex-identity coverage
 status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-04 22:27'
+updated_date: '2026-08-04 22:32'
 labels: []
 dependencies:
   - NCOW-35
@@ -37,4 +37,6 @@ test/main/engine-context-config-regen.test.js has a block comment (around line 8
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented by worker (worktree fix/NCOW-39-soften-tray-chain-comment, commit 6d8c391, pushed to origin). Rewrote the comment at test/main/engine-context-config-regen.test.js lines ~789-800 to explicitly name the post-spread override gap and reference NCOW-38 as the task that would close it, rather than claiming the two existing checks 'close the chain honestly'. Verified comment-only via diff (no test() body touched). npm test: 343/343 passing.
+
+Review pass 1 (opus): verdict request_changes. AC#1 and AC#3 confirmed (343/343, own run; 'close the chain honestly' phrase removed). AC#2 not certified: the softened comment (lines 799-802) still makes a false positive claim -- that the two existing checks jointly prove the tray gets a genuinely shared mutexes/handlers pair -- which is false in 3 ways: (1) reviewer empirically reproduced a private, unshared 'handlers' binding (nested block shadowing) passing the full suite 343/343, since the static check only ever inspects the 'mutexes' identifier, never 'handlers'; (2) NCOW-35's own review notes already recorded 2 more residual gaps (property-level mutation of mutexes.proxy -- verified a REAL serialization break in that review, and parameter shadowing) neither of which this new wording mentions; (3) the sentence structure implies the post-spread-override gap (correctly described) is the ONLY remaining hole, when it is 1 of at least 3. Fix is comment-only: reshape lines 799-802's opening claim to match what the checks actually settle (mutexes single-binding only, not handlers), and list the property-mutation and parameter-shadowing gaps alongside the post-spread one. Diff scope, commit conventions, and push were all otherwise confirmed clean.
 <!-- SECTION:NOTES:END -->
