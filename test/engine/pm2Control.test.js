@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
-const { createPm2Control, probeDaemonAlive, spawnDaemon } = require('../../src/engine/pm2Control');
+const { createPm2Control, probeDaemonAlive, spawnDaemon, resolveDaemonInterpreter } = require('../../src/engine/pm2Control');
 
 function fakePm2({ apps = [] } = {}) {
   const calls = [];
@@ -427,6 +427,207 @@ test('spawnDaemon: on timeout, still kills the child when nothing is actually al
       /did not report ready/i
     );
     assert.ok(child.calls.includes('kill'), `expected the genuinely-failed child to be killed; calls: ${child.calls.join(', ')}`);
+  } finally {
+    fs.rmSync(pm2Home, { recursive: true, force: true });
+  }
+});
+
+// --- resolveDaemonInterpreter (NCOW-24) -----------------------------------
+//
+// Verified live on Windows against a real packaged NSIS install (see the
+// task record, not reproducible in a portable unit test): with the daemon
+// still executing off the installed binary, both an NSIS silent reinstall
+// and a silent uninstall report success while silently failing to touch the
+// locked file — the reinstall leaves it byte-for-byte unchanged, and the
+// uninstall deletes everything else, deregisters the Programs-and-Features
+// entry, and leaves that one binary behind, still running. These tests cover
+// the portable, deterministic part: that the function itself copies the
+// right files to the right place, skips redundant copies, stays a no-op on
+// darwin, and degrades to today's behaviour on any failure — not the
+// Windows-specific file-locking semantics that made the fix necessary in the
+// first place.
+
+function makeFakeInterpreterDir(fixtureDir, { withCompanions = true } = {}) {
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  const execPath = path.join(fixtureDir, 'fake-exe');
+  fs.writeFileSync(execPath, 'fake interpreter contents');
+  if (withCompanions) {
+    fs.writeFileSync(path.join(fixtureDir, 'icudtl.dat'), 'fake icu data');
+    fs.writeFileSync(path.join(fixtureDir, 'snapshot_blob.bin'), 'fake snapshot');
+    // v8_context_snapshot.bin deliberately omitted — companion copying must
+    // tolerate a partial set (e.g. a genuine Electron layout that lacks one)
+    // exactly as tolerantly as a plain `node` binary that has none at all.
+  }
+  return execPath;
+}
+
+test('resolveDaemonInterpreter: copies the executable and its companion files into pm2Home and returns the copy', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'));
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const result = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'win32' });
+
+    assert.equal(result, path.join(pm2Home, 'daemon-interpreter', 'fake-exe'));
+    assert.equal(fs.readFileSync(result, 'utf8'), 'fake interpreter contents');
+    assert.equal(fs.readFileSync(path.join(pm2Home, 'daemon-interpreter', 'icudtl.dat'), 'utf8'), 'fake icu data');
+    assert.equal(fs.readFileSync(path.join(pm2Home, 'daemon-interpreter', 'snapshot_blob.bin'), 'utf8'), 'fake snapshot');
+    // Never written at all when the source doesn't have it — not an empty file.
+    assert.equal(fs.existsSync(path.join(pm2Home, 'daemon-interpreter', 'v8_context_snapshot.bin')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: a plain interpreter with no companion files at all still copies cleanly', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'), { withCompanions: false });
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const result = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'linux' });
+
+    assert.equal(fs.readFileSync(result, 'utf8'), 'fake interpreter contents');
+    assert.equal(fs.readdirSync(path.dirname(result)).length, 1, 'no companion files should have been invented');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: skips a redundant copy once the destination already matches by size', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'));
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const first = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'win32' });
+    const beforeMtime = fs.statSync(first).mtimeMs;
+
+    // A later bootstrap attempt (e.g. a second cold start) must not
+    // needlessly re-copy a multi-hundred-MB binary every single time.
+    const second = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'win32' });
+    const afterMtime = fs.statSync(second).mtimeMs;
+
+    assert.equal(second, first);
+    assert.equal(afterMtime, beforeMtime, 'expected the existing copy to be left untouched, not rewritten');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: a source with a different size (e.g. after an app upgrade) is re-copied', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'));
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    resolveDaemonInterpreter(execPath, pm2Home, { platform: 'win32' });
+    fs.writeFileSync(execPath, 'a rebuilt interpreter with different content and length');
+    const result = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'win32' });
+
+    assert.equal(fs.readFileSync(result, 'utf8'), 'a rebuilt interpreter with different content and length');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: returns execPath unchanged on darwin without copying anything', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'));
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const result = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'darwin' });
+
+    assert.equal(result, execPath);
+    assert.equal(fs.existsSync(path.join(pm2Home, 'daemon-interpreter')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: falls back to execPath unchanged when the source cannot be read', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+    const missingExecPath = path.join(root, 'does-not-exist', 'fake-exe');
+
+    const result = resolveDaemonInterpreter(missingExecPath, pm2Home, { platform: 'win32' });
+
+    assert.equal(result, missingExecPath);
+    assert.equal(fs.existsSync(path.join(pm2Home, 'daemon-interpreter')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('spawnDaemon: with a real spawn, bootstraps using a private copy of execPath rather than execPath itself (NCOW-24)', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('rpc socket path is a fixed, shared named pipe on win32');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-spawn-interp-'));
+  const pm2Home = path.join(root, 'pm2home');
+  let pid;
+  try {
+    // The real interpreter has to actually be able to run Daemon.js, so this
+    // uses the real process.execPath (this test process's own real `node`)
+    // rather than a fake fixture — same trade-off the sibling "actually
+    // launches a real pm2 daemon" test above already makes, extended to
+    // assert on resolveDaemonInterpreter's wiring specifically. Forced to
+    // 'linux' rather than the real process.platform: on the one non-win32
+    // platform this project also runs live verification on (darwin), this
+    // path is a deliberate no-op (see resolveDaemonInterpreter's doc
+    // comment), which would make this assertion trivially fail there for a
+    // reason unrelated to what this test is actually checking.
+    const result = await spawnDaemon({ pm2Home, timeoutMs: 20_000, platform: 'linux' });
+    pid = result.pid;
+    assert.equal(await probeDaemonAlive({ pm2Home, timeoutMs: 2000 }), true);
+
+    const copiedInterpreter = path.join(pm2Home, 'daemon-interpreter', path.basename(process.execPath));
+    assert.ok(fs.existsSync(copiedInterpreter), 'expected a private copy of the interpreter under pm2Home');
+    assert.equal(fs.statSync(copiedInterpreter).size, fs.statSync(process.execPath).size);
+  } finally {
+    if (pid) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already exited.
+      }
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('spawnDaemon: a fake spawn override never touches the real filesystem for the interpreter (no wasted copy in tests)', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('rpc socket path is a fixed, shared named pipe on win32');
+    return;
+  }
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-spawn-fake-'));
+  const child = fakeChildProcess({ pid: 454545 });
+  let capturedInterpreter;
+  try {
+    await assert.rejects(
+      spawnDaemon({
+        pm2Home,
+        timeoutMs: 30,
+        spawn: (interpreter) => {
+          capturedInterpreter = interpreter;
+          return child;
+        },
+      }),
+      /did not report ready/i
+    );
+    assert.equal(capturedInterpreter, process.execPath);
+    assert.equal(fs.existsSync(path.join(pm2Home, 'daemon-interpreter')), false);
   } finally {
     fs.rmSync(pm2Home, { recursive: true, force: true });
   }
