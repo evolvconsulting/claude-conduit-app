@@ -147,6 +147,12 @@ test('renderRunLauncherJs: spawns a resolved .exe directly on win32, no cmd.exe 
 // /s /c "<joined>" with windowsVerbatimArguments) was verified live on
 // Windows by the NCOW-20 reviewer; what these tests confirm is that THIS
 // implementation of it is self-consistent and injection-safe.
+//
+// NOTE: this decoder deliberately assumes no argument contains an embedded
+// literal quote (it just strips each token's first and last character). The
+// embedded-quote cases below use the two stricter models that follow it
+// instead — assertCmdExeKeepsMetacharsQuoted() and parseArgvW() — because an
+// embedded quote is exactly where the two parsing layers disagree.
 function decodeCmdLine(joined) {
   assert.equal(joined[0], '"', 'expected the whole command to be wrapped in an outer quote pair (for /s to strip)');
   assert.equal(joined[joined.length - 1], '"', 'expected the whole command to be wrapped in an outer quote pair (for /s to strip)');
@@ -649,4 +655,194 @@ test('regenerateStaleConfig: no litellm.env on disk to reuse a key from — skip
 
   assert.deepEqual(result, { regenerated: false, reason: 'no-existing-secrets' });
   assert.equal(fs.existsSync(files.ecosystemConfig), false);
+});
+
+// NCOW-21 — the embedded-quote breakout, and the two-layer models that catch
+// it. A command line handed to `cmd.exe /d /s /c` is parsed TWICE, in order,
+// by two different sets of rules, and an escape has to satisfy both:
+//
+//   Layer 1, cmd.exe's own re-parse. It strips the outer quote pair (/s),
+//   then walks the rest toggling an "inside quotes" flag on every literal `"`.
+//   Backslashes mean NOTHING to it — `\"` is a literal backslash followed by
+//   a quote that toggles. Anything sitting outside quotes when a `& | < > ^
+//   ( )` shows up is real shell syntax and runs.
+//
+//   Layer 2, the spawned process's CommandLineToArgvW-style argv split, where
+//   backslashes DO escape (`\"` is a literal quote, 2n backslashes before a
+//   quote are n backslashes plus a delimiter) and `""` inside a quoted region
+//   is one literal embedded quote.
+//
+// cmdQuoteArg() used to escape an embedded quote as `\"` — correct for layer 2
+// only. Layer 1 toggled out of quotes on that quote and executed whatever
+// followed: `a"&echo,BREAKOUT>marker.txt&"b.yaml` created a real marker file
+// on a Windows VM, twice live-verified (once during NCOW-20's review, and
+// again as the "before" half of NCOW-21's A/B, where the shim received a
+// truncated argv of just ["--config","a\""] and cmd.exe ran the rest). The
+// `""` form fixes it: layer 1 toggles out and straight back in with nothing
+// exposed, layer 2 reads one embedded quote. Post-fix, the same payload
+// created no marker and arrived at the shim byte-for-byte intact.
+
+// Layer 1 model: does cmd.exe's own re-parse leave every metacharacter inside
+// a quoted region?
+function assertCmdExeKeepsMetacharsQuoted(joined) {
+  assert.equal(joined[0], '"', 'expected an outer quote pair for /s to strip');
+  assert.equal(joined[joined.length - 1], '"', 'expected an outer quote pair for /s to strip');
+  const inner = joined.slice(1, -1);
+
+  let inQuotes = false;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (c === '"') {
+      // Backslashes are NOT escapes at this layer — every literal quote
+      // toggles, no matter what precedes it.
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && '&|<>^()'.includes(c)) {
+      assert.fail(
+        `cmd.exe's own re-parse would treat ${c} at index ${i} as a live control character (outside quotes), in: ${inner}`
+      );
+    }
+  }
+  assert.equal(inQuotes, false, `expected cmd.exe's quote state to end balanced, in: ${inner}`);
+}
+
+// Layer 2 model: CommandLineToArgvW's rules, i.e. what the spawned process
+// actually receives as argv.
+function parseArgvW(joined) {
+  const s = joined.slice(1, -1); // /s strips the outer pair before anything else sees it
+  const argv = [];
+  let cur = '';
+  let inQuotes = false;
+  let started = false;
+  let i = 0;
+
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '\\') {
+      let n = 0;
+      while (s[i + n] === '\\') n++;
+      if (s[i + n] === '"') {
+        cur += '\\'.repeat(n >> 1); // 2n backslashes -> n backslashes
+        started = true;
+        if (n % 2 === 1) {
+          cur += '"'; // odd run: the quote is escaped
+          i += n + 1;
+        } else if (inQuotes && s[i + n + 1] === '"') {
+          cur += '"'; // "" inside quotes: one literal quote, still in quotes
+          i += n + 2;
+        } else {
+          inQuotes = !inQuotes;
+          i += n + 1;
+        }
+      } else {
+        cur += '\\'.repeat(n); // backslashes are literal unless a quote follows
+        started = true;
+        i += n;
+      }
+      continue;
+    }
+    if (c === '"') {
+      started = true;
+      if (inQuotes && s[i + 1] === '"') {
+        cur += '"';
+        i += 2;
+      } else {
+        inQuotes = !inQuotes;
+        i += 1;
+      }
+      continue;
+    }
+    if ((c === ' ' || c === '\t') && !inQuotes) {
+      if (started) {
+        argv.push(cur);
+        cur = '';
+        started = false;
+      }
+      i += 1;
+      continue;
+    }
+    cur += c;
+    started = true;
+    i += 1;
+  }
+  if (started) argv.push(cur);
+  return argv;
+}
+
+test('renderRunLauncherJs: an arg combining an embedded literal quote AND cmd.exe metacharacters cannot break out of the quoted region (NCOW-21)', () => {
+  // The exact payload that achieved live command execution on a Windows VM
+  // while cmdQuoteArg escaped embedded quotes as \" instead of "".
+  const payload = 'C:\\cfg\\a"&echo,BREAKOUT>marker.txt&"b.yaml';
+  const js = renderRunLauncherJs({
+    litellmEnvPath: '/cfg/litellm.env',
+    litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+    configYamlPath: payload,
+    port: 4000,
+  });
+  const { spawnCalls } = runGeneratedLauncher(js, { platform: 'win32', comSpec: 'C:\\Windows\\System32\\cmd.exe' });
+
+  assert.equal(spawnCalls.length, 1);
+  const [, args] = spawnCalls[0].args;
+  const joined = args[3];
+
+  // Layer 1: nothing after the embedded quote may end up outside quotes.
+  assertCmdExeKeepsMetacharsQuoted(joined);
+
+  // Layer 2: and the process still receives the payload verbatim, as inert data.
+  assert.deepEqual(parseArgvW(joined), [
+    'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+    '--config',
+    payload,
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '4000',
+  ]);
+
+  // Pin the construction itself: the embedded quote must be encoded as the
+  // cmd.exe-style doubled quote, never as a bare backslash-escaped quote
+  // (which is what layer 1 ignores).
+  assert.ok(joined.includes('a""&echo,BREAKOUT>marker.txt&""b.yaml'),
+    `expected the embedded quotes to be doubled ("") rather than backslash-escaped, in: ${joined}`);
+  assert.ok(!joined.includes('a\\"'),
+    `expected no MSVCRT-style \\" escape for the embedded quote, in: ${joined}`);
+});
+
+test('renderRunLauncherJs: embedded quotes adjacent to backslash runs still survive both parsing layers (NCOW-21)', () => {
+  // The doubled-quote rule has to compose with the pre-existing
+  // backslash-doubling rule: a backslash immediately before an embedded quote
+  // would otherwise be read by layer 2 as escaping it, and a trailing
+  // backslash run would escape the closing quote. Both realistic in Windows
+  // paths, and both combined here with live metacharacters.
+  const cases = [
+    'a\\"&echo,B1>m1.txt&"b',                          // single backslash before an embedded quote
+    'a\\\\"&echo,B2>m2.txt&"b\\\\',                    // even backslash run + trailing backslashes
+    'C:\\Program Files (x86)\\a"&&echo,B3>m3.txt||x&"b\\config.yaml', // spaces, parens, || &&
+    '"&echo,B4>m4.txt&"',                              // leading and trailing quotes
+    'x""&echo,B5>m5.txt&""y',                          // already-doubled quotes in the input
+    'a"&echo,B6>m6.txt&',                              // unbalanced (odd) quote count
+  ];
+
+  for (const payload of cases) {
+    const js = renderRunLauncherJs({
+      litellmEnvPath: '/cfg/litellm.env',
+      litellmAbsPath: 'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+      configYamlPath: payload,
+      port: 4000,
+    });
+    const { spawnCalls } = runGeneratedLauncher(js, { platform: 'win32', comSpec: 'C:\\Windows\\System32\\cmd.exe' });
+    const joined = spawnCalls[0].args[1][3];
+
+    assertCmdExeKeepsMetacharsQuoted(joined);
+    assert.deepEqual(parseArgvW(joined), [
+      'C:\\Users\\jeremy\\.local\\bin\\litellm.cmd',
+      '--config',
+      payload,
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '4000',
+    ], `argv round-trip failed for payload: ${JSON.stringify(payload)} (joined: ${joined})`);
+  }
 });
