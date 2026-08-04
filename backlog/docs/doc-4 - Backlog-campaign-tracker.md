@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 06:36'
+updated_date: '2026-08-04 09:24'
 ---
 # Backlog campaign tracker
 
@@ -288,12 +288,33 @@ deferred to lower-priority-but-more-scoped work each time the winvm slot was con
 confirmed reachable now and NCOW-24's own ACs require live Windows verification regardless of
 what else is picked.
 
+As of wave 13 settlement (2026-08-04): **NCOW-24 is Done** (see Resolved) — merged, PR #21 ->
+`4441f40`. Took 3 opus review passes: pass 1 found the fix broke Linux daemon bootstrap entirely
+(a missing `libffmpeg.so` companion file), found the recorded "NSIS update is blocked"
+characterization did not actually reproduce (only uninstall does, intermittently), and found no
+integrity check against a partially-copied companion file — all three fixed in fix pass 1 with
+live re-verification on both a real Linux container and winvm. Pass 2 independently re-verified
+all three fixes with different reproductions than pass 1 (linux-arm64 instead of x64, genuine
+signed release installers, a different corrupted file) and found one remaining documentation-only
+inconsistency between two docs, fixed in fix pass 2. Pass 3 (final) approved with all 6 ACs
+independently confirmed. npm test 293/293, re-verified after rebase onto dev (one earlier local
+run showed 292/293 before a rebase-triggered re-run came back clean twice in a row — treated as a
+flaky/timing-sensitive result, not a regression, consistent with this campaign's prior flaky-test
+notes).
+
+Two tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-31. **CHECK winvm
+REACHABILITY FIRST** if picking up NCOW-21 — not re-checked since this wave's dispatch (confirmed
+reachable then). NCOW-31 needs no VM to start. A fresh file-citation check at the next wave should
+confirm whether they still conflict now that NCOW-24 (which conflicted with both) is done — NCOW-21
+touches `configGen.js`/`test/engine/configGen.test.js`; NCOW-31 touches `engine-context.js`,
+`configGen.js`, and `ipc.js` — so a `configGen.js` conflict between them likely still holds, but
+re-verify rather than assume.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
-| 6 | NCOW-24 | pm2/release | none | Dispatched | 13 | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
 | 14 | NCOW-31 | pm2/packaging | none | To Do | | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
 
 ## Resolved
@@ -314,6 +335,7 @@ what else is picked.
 | 11 | NCOW-28 | Done, 2026-08-03, wave 11 | Added PYTHONIOENCODING: 'utf-8' to configGen.js's renderEcosystemConfigCjs() generated env object for the managed litellm-nim pm2 entry, alongside NCOW-27's ELECTRON_RUN_AS_NODE. Fixes litellm's startup banner crashing with UnicodeEncodeError on Windows' default cp1252 stdout codepage (previously timed out as HEALTH_CHECK_TIMEOUT under pm2) -- blocked every packaged Windows install even after NCOW-27's fix. Opus review independently confirmed all 5 ACs with an A/B control on a real Windows VM (winvm): a matched no-fix build reproduced the exact crash/crash-loop (HEALTH_CHECK_TIMEOUT, restarts 3->4, the exact UnicodeEncodeError string), the fix build ran proxy.start/stop/restart cleanly with a real LLM completion before and after restart. Mutation-tested the regression test (fails without the fix, passes with it). npm test 259/259 (261/261 after rebase onto NCOW-29). Squash-merged PR #18 -> dev @ a6d80ea. |
 | 12 | NCOW-29 | Done, 2026-08-03, wave 11 | apiKey.validateAndSave in engine-context.js now propagates secretStore.save()'s {ok:false, error} instead of discarding it and always reporting success. No renderer change needed -- setup-view.js already branched on result.ok and rendered result.error?.message in its existing .fail span, gated on wiz.apiKeyValidated. Opus review independently reproduced the bug and fix live on a headless Linux box (linuxvm) with a genuine, unforced ENCRYPTION_UNAVAILABLE precondition (no desktop D-Bus session, confirmed with a standalone probe): before the fix, the setup UI showed a misleading pass state with Continue enabled despite the key never being persisted (getMasked() null, generate() NO_KEY); after, a clear .fail error with Continue disabled; a happy-path control (XDG_CURRENT_DESKTOP=GNOME) confirmed normal key persistence still works. npm test 260/260 (261/261 after rebase onto NCOW-28). Squash-merged PR #19 -> dev @ 230ca0d. Two adjacent findings recorded on the task but out of scope: an identical swallowed-failure pattern in secretStore.js's importFromExistingEnvFile() (confirmed by the wave integration review to be dead code, zero production callers) and a pre-existing, environment-specific flaky pm2Control test on Linux (confirmed unrelated to this change, its own orphaned daemon cleaned up by the reviewer). |
 | 14 | NCOW-30 | Done, 2026-08-04, wave 12 | Fixed the gap where an existing install never regenerated its generated ecosystem.config.cjs/run.js/manifest.json across app upgrades. manifest.json now records generated_by_version; configGen.js's needsRegeneration()/regenerateStaleConfig() detect a version mismatch (or absent/corrupt stamp) and re-render from the manifest's already-recorded settings, restarting the proxy via the app's existing getStatus()/startOrRestart() mechanism if it's currently running; engine-context.js runs this once at every launch, fire-and-forget. Two opus review passes: pass 1 request_changes -- found a real blocking regression via live A/B testing (a corrupt/truncated manifest.json, which this task's own write path can itself produce on a crash/power-loss, threw past createEngineContext()'s constructor and silently prevented the app from ever opening a window); fix pass made the manifest read resilient (falls back to null/absent, matching the existing missing-manifest treatment) plus added failure logging, a dev/nightly staleness caveat comment, and 4 new tests. Pass 2 approve -- independently re-verified the fix with two different corruption shapes, re-confirmed AC#1/#2/#4/#5 live (an old-shaped install regenerates on launch with all prior state and real keys preserved; a running proxy is cleanly restarted onto the regenerated config, not corrupted or orphaned), reviewed AC#3 by inspection (pm2Control.js untouched, no NCOW-24 overlap). npm test 282/282 (261 baseline + 21 new), re-verified after rebase onto dev. Squash-merged PR #20 -> dev @ 6485ff2. Two non-blocking follow-up candidates (background restart not serialized behind ipc.js's proxy mutex; a failed restart isn't retried since the version stamp is written before the restart attempt) were user-approved and filed together as NCOW-31. Housekeeping: a stray, harmless litellm-nim artifact entry the wave-1-review's live testing had left in the user's real shared pm2 daemon (dump.pm2) was found and cleaned up by the orchestrator between review passes. |
+| 15 | NCOW-24 | Done, 2026-08-04, wave 13 | Fixed the bootstrapped pm2 daemon (spawned via ELECTRON_RUN_AS_NODE when no daemon exists) locking this app's own installed binary indefinitely, since it used that binary as the daemon's interpreter. Live characterization on a real Windows VM found an NSIS update is NOT blocked (NSIS renames the locked image aside via PendingFileRenameOperations, which Windows permits on a locked file) but an NSIS uninstall IS blocked, intermittently (exits 0, deregisters the app, deletes every other file, leaves the locked exe running with no UI path back to it -- unless a preceding update already relocated the original image). resolveDaemonInterpreter() in pm2Control.js now copies the interpreter plus required companion files (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, libffmpeg.so on Linux) into `<pm2Home>/daemon-interpreter/` on win32/linux, staged atomically so a crash mid-copy never leaves a broken half-copy reused silently; spawnDaemon() hands the daemon this relocated copy instead of the live installed binary. Never kills anything -- the no-pm2-kill constraint is untouched, the daemon still outlives the app by design, it just no longer locks the installed file. README/DESIGN.md/CLAUDE.md/About dialog now accurately document what persists after quit/uninstall and why (the ~227MiB relocated copy is never cleaned up by any uninstall path). Three opus review passes: pass 1 request_changes -- found the initial fix broke Linux daemon bootstrap entirely (missing libffmpeg.so, live-reproduced in a real Linux container), found the recorded Windows characterization inaccurate (only uninstall is blocked, not update), found no integrity check against a partially-copied companion file. Pass 2 -- independently re-verified all three fixes with different reproductions (linux-arm64 instead of x64, genuine signed release installers, a different corrupted file), confirmed all fixed; withheld on one remaining doc-only inconsistency between README and the About dialog. Pass 3 (final, would have auto-escalated on another request_changes per the 2-retry cap) approved with all 6 ACs independently confirmed. npm test 293/293, re-verified after rebase onto dev (one earlier local run showed 292/293, resolved as flaky on two clean re-runs, not a regression). Squash-merged PR #21 -> dev @ 4441f40. |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -752,3 +774,68 @@ across 4 waves)*
   User approved filing the two deferred/newly-surfaced findings together as one combined task --
   created as **NCOW-31** (LOW: a narrow, recoverable race plus a non-retry gap, neither user-facing
   today). Session continues; ready set for the next wave is {NCOW-21, NCOW-24, NCOW-31}.
+
+
+- 2026-08-04 — wave 13 (task: NCOW-24): restore 7 found zero drift against the wave-12 handover
+  (dev/origin/dev in sync at `ba04f9d`, clean tree, no leftover worktrees/branches/PRs, all 3
+  treehouse leases available). winvm re-confirmed reachable. A fresh, real (not cluster-tag)
+  file-citation check against `grep` found NCOW-24 (`engine-context.js`, `pm2Control.js`) and
+  NCOW-31 (`engine-context.js`, `configGen.js`, `ipc.js`) share `engine-context.js` — a confirmed
+  conflict, not the "probable" one flagged at wave 12 settlement — and NCOW-21 (`configGen.js`)
+  conflicts with NCOW-31 on the same file; NCOW-21 and NCOW-24 additionally both need the single
+  live-winvm slot. All three ready tasks conflicted pairwise, so the wave shrank to one:
+  **NCOW-24** — the only HIGH-priority task left in the queue, queued since wave 6 and repeatedly
+  deferred to lower-priority-but-more-scoped work every time the winvm slot was contended.
+
+  Implemented: characterized the daemon-file-lock behavior empirically on winvm rather than
+  assuming (per AC#1) — found a real NSIS silent update actually succeeds against a locked exe
+  (Windows permits renaming a running image; NSIS moves it aside and queues a delete via
+  `PendingFileRenameOperations`), while a real NSIS silent uninstall genuinely fails to remove the
+  locked exe, intermittently (only when a preceding update hasn't already relocated it).
+  `resolveDaemonInterpreter()`/`spawnDaemon()` in `pm2Control.js` now relocate the daemon's
+  interpreter into `<pm2Home>/daemon-interpreter/` so the *installed* file is never the one held
+  open. Documentation (README/DESIGN.md/CLAUDE.md/About dialog) updated to state accurately what
+  persists after quit/uninstall and why.
+
+  Took all 3 allowed opus review passes (the maximum before auto-escalation on retry-budget
+  exhaustion): pass 1 `request_changes` — live-reproduced that the initial fix's companion-file
+  list omitted `libffmpeg.so`, silently breaking pm2 cold-bootstrap on every shipped Linux target
+  (the exact case NCOW-22 exists to fix); live-reproduced that the recorded "NSIS update is
+  blocked" claim did not actually hold (the implementer's supporting evidence — an unchanged
+  reinstall `LastWriteTime` — was confounded, since NSIS preserves archive timestamps regardless
+  of locking; the reviewer ran the missing unlocked control and got the identical result); and
+  live-reproduced that a partially-copied companion file (e.g. a crash mid-copy) was silently
+  reused forever with no self-heal. Fix pass 1 added `libffmpeg.so` to the companion list
+  (live-verified in a real Ubuntu container against a genuine Electron Linux binary, both `ldd`-
+  and real-daemon-bootstrap level), corrected the characterization everywhere it appeared to
+  "update: not blocked; uninstall: blocked, intermittently", and made the copy operation
+  integrity-checked and atomic (stage-then-rename, so a crash mid-copy can't leave a
+  looks-complete-but-broken state). Pass 2 independently re-verified all three fixes with
+  deliberately different reproductions than pass 1 used (linux-arm64 instead of x64, genuine
+  signed 0.1.0/0.1.1 release installers instead of dev builds, FileId/registry tracking instead of
+  timestamps, a different corrupted companion file) — all three confirmed genuinely fixed —  but
+  found one last documentation-only defect: README and the About dialog each still asserted a
+  false "you can clean it up by running uninstall again" remedy that contradicted the correct
+  claim ("never removed") stated elsewhere in the same documents. Fix pass 2 corrected exactly
+  those two sentences (no code-logic or test changes). Pass 3 (final) approved: both corrected
+  sentences read accurately and consistently across all four touched docs, no scope creep in the
+  fix-pass-2 commit, all 6 ACs independently confirmed.
+
+  npm test 293/293, re-verified after rebase onto dev — one earlier local run on the rebased branch
+  came back 292/293; two immediate re-runs came back clean, so this was treated as a flaky/timing-
+  sensitive result rather than a real regression (this campaign has seen isolated flaky pm2-related
+  tests before, e.g. wave 11's note on a Linux-only flake). Rebased cleanly onto origin/dev (solo
+  wave, no sibling to conflict with). Squash-merged PR #21 -> dev @ `4441f40`. Worktree released
+  back to the treehouse pool, branch deleted (local + remote). No wave-level integration review
+  needed (solo wave, same as waves 3/10/12). Shared pm2 daemons on both this Mac and winvm confirmed
+  untouched (pid, `dump.pm2` byte-identical) throughout all three review passes.
+
+  Process note: review pass 2's returned report triggered the harness's own prompt-injection
+  pattern-match (tag: "settings-json"), same false-positive class as wave 9's NCOW-23 review —
+  flagged transparently to the user, inspected, and confirmed benign (the flagged text was the
+  reviewer legitimately reporting real config-file hash checks it ran to prove nothing sensitive
+  was touched, not an embedded instruction). Nothing in the report was treated as a directive.
+
+  Two tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-31. Ready set for the next
+  wave should be recomputed fresh rather than assumed — NCOW-24, which conflicted with both, is now
+  done, but NCOW-21/NCOW-31 likely still conflict with each other on `configGen.js`.
