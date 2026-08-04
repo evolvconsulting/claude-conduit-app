@@ -1,9 +1,10 @@
 ---
 id: NCOW-34
 title: Document the deliberate shutdown-mutex carve-out in README/DESIGN.md
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
+updated_date: '2026-08-04 20:57'
 labels: []
 dependencies:
   - NCOW-31
