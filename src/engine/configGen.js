@@ -537,6 +537,92 @@ function needsRegeneration(manifest, currentVersion) {
  * @param {{warn: Function, info: Function}} [opts.logger]
  * @returns {Promise<{regenerated: boolean, restarted?: boolean, reason?: string, error?: any}>}
  */
+async function regenerateStaleConfig(opts) {
+  const {
+    files,
+    manifest,
+    currentVersion,
+    saveManifest,
+    getStatus,
+    startOrRestart,
+    runProxyOperation = (fn) => fn(),
+    logger = console,
+  } = opts;
+
+  if (!needsRegeneration(manifest, currentVersion)) return { regenerated: false, reason: 'up-to-date' };
+
+  const apiKey = resolveExistingNvidiaApiKey(files.litellmEnv);
+  if (!apiKey) return { regenerated: false, reason: 'no-existing-secrets' };
+  if (!manifest.litellm_path) return { regenerated: false, reason: 'no-litellm-path' };
+
+  generateAll({
+    files,
+    primaryModelId: manifest.primary_model,
+    smallModelId: manifest.small_model,
+    nimBaseUrl: manifest.nim_base_url ?? undefined,
+    port: manifest.port,
+    litellmAbsPath: manifest.litellm_path,
+    nvidiaApiKey: apiKey,
+  });
+
+  // NCOW-30 AC#2: a live proxy from a previous session must pick up the
+  // regenerated ecosystem.config.cjs, not keep running whatever pm2 already
+  // loaded into memory. NCOW-31: serialized, and its outcome reported rather
+  // than assumed. The throw is caught INSIDE the critical section so the
+  // section's own value is always a plain outcome record — the lock releases
+  // either way (see mutex.js: the chain is advanced with `.catch(() => {})`,
+  // so there is no release to leak), but keeping the throw local means the
+  // decision logic below has exactly one shape to read.
+  const attempt = await runProxyOperation(async () => {
+    const status = await getStatus();
+    if (status.status !== 'running') return { attempted: false };
+    try {
+      return { attempted: true, result: await startOrRestart({
+        ecosystemConfigPath: files.ecosystemConfig,
+        port: manifest.port,
+        outLog: files.outLog,
+        errLog: files.errLog,
+      }) };
+    } catch (err) {
+      return { attempted: true, thrown: err };
+    }
+  });
+
+  if (attempt.thrown) {
+    // pm2Control only ever throws real Errors in practice, but guard the
+    // `.message` access too (not just the return-shape branch below) so a
+    // thrown non-Error value logs its own string form instead of the literal
+    // text "(undefined)". describeThrownValue() (NCOW-36) additionally
+    // guarantees this line can never itself throw — e.g. `throw
+    // Object.create(null)` makes bare `String()` throw — which would
+    // otherwise make regenerateStaleConfig() reject instead of logging.
+    const thrownMessage = describeThrownValue(attempt.thrown);
+    logger.warn(
+      `[config-regen] proxy restart THREW after regenerating config (${thrownMessage}); ` +
+        `leaving manifest unstamped so the next launch retries regeneration`
+    );
+    return { regenerated: false, reason: 'restart-error', error: attempt.thrown };
+  }
+
+  if (attempt.attempted && !attempt.result?.ok) {
+    // startOrRestart()'s other failure shape: a normal return, no throw. The
+    // ?? fallback covers a future/unexpected falsy-ok return with no error
+    // object rather than logging "undefined: undefined".
+    const error = attempt.result?.error ?? { code: 'RESTART_FAILED', message: 'proxy restart reported failure' };
+    logger.warn(
+      `[config-regen] proxy restart FAILED after regenerating config (${error.code}: ${error.message}); ` +
+        `leaving manifest unstamped so the next launch retries regeneration`
+    );
+    return { regenerated: false, reason: 'restart-failed', error };
+  }
+
+  saveManifest({ generated_by_version: currentVersion });
+  logger.info(
+    `[config-regen] regenerated config for version ${currentVersion}` +
+      (attempt.attempted ? ' and restarted the running proxy' : ' (proxy was not running; no restart needed)')
+  );
+  return { regenerated: true, restarted: attempt.attempted === true };
+}
 
 /**
  * Converts any value to an actual string, structurally — every branch either
@@ -641,93 +727,6 @@ function describeThrownValue(thrown) {
   } catch {
     return '[unstringifiable thrown value]';
   }
-}
-
-async function regenerateStaleConfig(opts) {
-  const {
-    files,
-    manifest,
-    currentVersion,
-    saveManifest,
-    getStatus,
-    startOrRestart,
-    runProxyOperation = (fn) => fn(),
-    logger = console,
-  } = opts;
-
-  if (!needsRegeneration(manifest, currentVersion)) return { regenerated: false, reason: 'up-to-date' };
-
-  const apiKey = resolveExistingNvidiaApiKey(files.litellmEnv);
-  if (!apiKey) return { regenerated: false, reason: 'no-existing-secrets' };
-  if (!manifest.litellm_path) return { regenerated: false, reason: 'no-litellm-path' };
-
-  generateAll({
-    files,
-    primaryModelId: manifest.primary_model,
-    smallModelId: manifest.small_model,
-    nimBaseUrl: manifest.nim_base_url ?? undefined,
-    port: manifest.port,
-    litellmAbsPath: manifest.litellm_path,
-    nvidiaApiKey: apiKey,
-  });
-
-  // NCOW-30 AC#2: a live proxy from a previous session must pick up the
-  // regenerated ecosystem.config.cjs, not keep running whatever pm2 already
-  // loaded into memory. NCOW-31: serialized, and its outcome reported rather
-  // than assumed. The throw is caught INSIDE the critical section so the
-  // section's own value is always a plain outcome record — the lock releases
-  // either way (see mutex.js: the chain is advanced with `.catch(() => {})`,
-  // so there is no release to leak), but keeping the throw local means the
-  // decision logic below has exactly one shape to read.
-  const attempt = await runProxyOperation(async () => {
-    const status = await getStatus();
-    if (status.status !== 'running') return { attempted: false };
-    try {
-      return { attempted: true, result: await startOrRestart({
-        ecosystemConfigPath: files.ecosystemConfig,
-        port: manifest.port,
-        outLog: files.outLog,
-        errLog: files.errLog,
-      }) };
-    } catch (err) {
-      return { attempted: true, thrown: err };
-    }
-  });
-
-  if (attempt.thrown) {
-    // pm2Control only ever throws real Errors in practice, but guard the
-    // `.message` access too (not just the return-shape branch below) so a
-    // thrown non-Error value logs its own string form instead of the literal
-    // text "(undefined)". describeThrownValue() (NCOW-36) additionally
-    // guarantees this line can never itself throw — e.g. `throw
-    // Object.create(null)` makes bare `String()` throw — which would
-    // otherwise make regenerateStaleConfig() reject instead of logging.
-    const thrownMessage = describeThrownValue(attempt.thrown);
-    logger.warn(
-      `[config-regen] proxy restart THREW after regenerating config (${thrownMessage}); ` +
-        `leaving manifest unstamped so the next launch retries regeneration`
-    );
-    return { regenerated: false, reason: 'restart-error', error: attempt.thrown };
-  }
-
-  if (attempt.attempted && !attempt.result?.ok) {
-    // startOrRestart()'s other failure shape: a normal return, no throw. The
-    // ?? fallback covers a future/unexpected falsy-ok return with no error
-    // object rather than logging "undefined: undefined".
-    const error = attempt.result?.error ?? { code: 'RESTART_FAILED', message: 'proxy restart reported failure' };
-    logger.warn(
-      `[config-regen] proxy restart FAILED after regenerating config (${error.code}: ${error.message}); ` +
-        `leaving manifest unstamped so the next launch retries regeneration`
-    );
-    return { regenerated: false, reason: 'restart-failed', error };
-  }
-
-  saveManifest({ generated_by_version: currentVersion });
-  logger.info(
-    `[config-regen] regenerated config for version ${currentVersion}` +
-      (attempt.attempted ? ' and restarted the running proxy' : ' (proxy was not running; no restart needed)')
-  );
-  return { regenerated: true, restarted: attempt.attempted === true };
 }
 
 module.exports = {

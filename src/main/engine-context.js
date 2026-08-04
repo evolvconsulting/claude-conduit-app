@@ -188,7 +188,7 @@ function createEngineContext(deps) {
   // reaches pm2Control directly and stays that way on purpose — CLAUDE.md's
   // standing constraint is that a wedged pm2 must never make the app
   // unquittable, and queueing the shutdown stop behind a lock a background
-  // restart can hold for up to 60s is precisely how it would become
+  // restart can hold for 60s+ is precisely how it would become
   // unquittable. That stop is bounded by its own timeout instead. So "quit
   // during a background restart" remains unserialized, by choice; a Stop or
   // Restart clicked from the window or tray, which is the recoverable-but-

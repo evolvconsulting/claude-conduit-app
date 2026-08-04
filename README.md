@@ -224,7 +224,8 @@ clicking them in quick succession queues instead of racing. Quitting skips that 
 purpose: a background restart can hold it for a minute or more, and making the quit-time
 stop wait its turn would risk leaving a wedged pm2 in charge of whether the app can
 close at all — the one outcome this app will not allow. The quit-time stop instead talks
-to pm2 directly and relies on its own timeout, as described above.
+to pm2 directly and relies on its own timeout: `shutdown.js` bounds the stop at 15 seconds,
+so a wedged pm2 can't hold up the exit either way.
 
 **A pm2 daemon process can keep running after you quit (NCOW-24).** If no pm2 daemon
 existed yet the first time this app needed one, it started one itself — and, like any pm2
