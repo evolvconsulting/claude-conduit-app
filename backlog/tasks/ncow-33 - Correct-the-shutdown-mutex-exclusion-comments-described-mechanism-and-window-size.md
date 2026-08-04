@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-04 21:03'
+updated_date: '2026-08-04 21:06'
 labels: []
 dependencies:
   - NCOW-31
@@ -48,4 +48,14 @@ Evidence:
 - After (corrected): stop() calls getStatus() first and is skipped via its own precondition when status is 'not-installed' (nothing errors/gets caught); added the symmetric case of a stop landing just before deleteAppIfPresent() succeeding but being undone by the following pm2.start(); window described as a full getStatus+delete round trip against the pm2 daemon, can run well over a second, citing autoUpdate.js's own 1s+ getStatus comment.
 
 Status: implemented, ready for review.
+
+Review verdict: approve. Both AC #1 and AC #2 independently confirmed.
+
+AC #1 (mechanism/window accuracy): reviewer independently verified every technical claim against real code -- shutdown.js's stopProxyForShutdown() genuinely checks getStatus() first and returns early on non-'running' (pm2Control.stop() never reached); pm2Control.js's startOrRestart()/deleteAppIfPresent()/getStatus() confirm 'not-installed' is reported during the delete-to-start gap; the added symmetric race (stop landing before deleteAppIfPresent(), later undone by pm2.start()) is real; autoUpdate.js:166-167 genuinely documents getStatus() taking 1s+ to connect, grounding the "not milliseconds" correction.
+
+AC #2 (comment-only, no behavior change): git diff --stat shows engine-context.js only (18 insertions/9 deletions). Reviewer went further -- stripped all full-line // comments from both revisions and confirmed byte-identical output (17544 bytes each), i.e. zero executable change. Reviewer independently re-ran npm test: 333/333 passed.
+
+Findings: three non-blocking nits only (inherited "stop()" vs actual stopProxyForShutdown() naming, a minor tension in retained lead-in phrasing, window described as narrower than the true full span) -- none require changes.
+
+Approved for merge. Reviewer confirmed dev has moved 3 commits ahead (backlog-handover bookkeeping only, no src/ touched) -- merge will be clean, not fast-forward.
 <!-- SECTION:NOTES:END -->
