@@ -218,6 +218,14 @@ Only the `litellm-nim` app is stopped. The pm2 daemon itself is left alone, beca
 the shared one at `~/.pm2` and killing it would take down anything else you supervise
 with pm2.
 
+**Quitting mid-restart is deliberately not queued behind the Start/Stop/Restart lock
+(NCOW-31, NCOW-34).** The window/tray Start, Stop, and Restart buttons share one lock so
+clicking them in quick succession queues instead of racing. Quitting skips that lock on
+purpose: a background restart can hold it for a minute or more, and making the quit-time
+stop wait its turn would risk leaving a wedged pm2 in charge of whether the app can
+close at all — the one outcome this app will not allow. The quit-time stop instead talks
+to pm2 directly and relies on its own timeout, as described above.
+
 **A pm2 daemon process can keep running after you quit (NCOW-24).** If no pm2 daemon
 existed yet the first time this app needed one, it started one itself — and, like any pm2
 daemon, that process is detached and outlives whatever started it by design. In practice
