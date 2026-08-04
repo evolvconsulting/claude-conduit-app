@@ -4,7 +4,7 @@ title: Harden configGen's thrown-value logging guard against unstringifiable thr
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:19'
+updated_date: '2026-08-04 21:25'
 labels: []
 dependencies:
   - NCOW-31
@@ -78,4 +78,20 @@ Evidence:
 - Confirmed the pre-existing 12-shape AC#2 sweep and retry/no-stamp guarantees still pass unmodified in logic.
 
 Status: fix pass 1 implemented, ready for review pass 2.
+
+Review verdict (pass 2): approve. All 3 ACs independently confirmed. Findings A and B from pass 1 are genuinely CLOSED -- reviewer confirmed this is a structural fix, not a moved goalpost: the function's return-type contract changed from "returns whatever .message was" to "returns a genuine typeof === 'string'" via the new safeStringify() helper, plus an outer try/catch backstop. Reviewer actively tried to falsify the "structurally cannot throw" claim with 27 direct + 33 end-to-end adversarial shapes (hostile Proxies, throwing traps, stack-overflowing toString, self-referential inspect output, etc.) -- zero throws, zero non-string returns across all of them.
+
+Non-vacuity proof: reviewer replayed the new tests against the pre-fix source (428d62c) and confirmed 8 rejections there that all pass at HEAD (d830627) -- the tests genuinely discriminate, not passing vacuously.
+
+AC#2 re-verified for ALL 12 original adversarial shapes end-to-end (not spot-checked) -- all correct, manifest unstamped in every case. Falsy-message preservation ({message: 0} -> "0", {message: ''} -> "", {message: false} -> "false", {message: NaN} -> "NaN") confirmed for real, not just claimed.
+
+npm test: 339/339 (reviewer's own independent run).
+
+Non-blocking findings for future follow-up (not required for this task):
+- minor: orphaned JSDoc block for regenerateStaleConfig -- the doc comment now sits ~105 lines above the function it documents, since pass 1 inserted two helper functions between them. Cosmetic.
+- minor: the adjacent "restart-failed" branch (a different code path, not touched by this task) still has an unguarded `${error.code}: ${error.message}` interpolation that can reject the same way for a hostile pm2Control-returned error object -- reviewer confirmed live (Symbol code, null-proto message, throwing code getter all reject with no log line). Out of scope for NCOW-36 (that branch handles a RETURNED error object, not a THROWN value, and pm2Control's own output is far less arbitrary than an arbitrary thrown value) but safeStringify() now makes it a one-line fix if wanted.
+- nit: identical unhardened pattern at src/main/autoUpdate.js:100 (`err?.message ?? String(err)` in an error handler that promises "never throw").
+- One residual theoretical limit noted explicitly as non-blocking: an infinitely-LOOPING (not recursing) toString would hang inside String() -- a try/catch can't fix a hang, but the claim made ("cannot throw") still stands; the recursive/stack-overflow case was tested and degrades cleanly.
+
+Approved for merge. Suggested (not yet created, needs user approval per campaign convention): a small follow-up task to harden the restart-failed branch and autoUpdate.js:100 with the same safeStringify() pattern -- will propose to user before creating.
 <!-- SECTION:NOTES:END -->
