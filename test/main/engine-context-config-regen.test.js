@@ -539,7 +539,83 @@ test('createEngineContext: AC#1 — a user-initiated proxy op taking context.mut
   });
 });
 
-test('createEngineContext: negative control — the same scenario WITHOUT the shared lock interleaves, proving the test above measures the lock', async () => {
+test('createEngineContext: NCOW-31 fix pass 2 (reviewer finding B1) — the tray path (mutexes.proxy.run(...) wrapping handlers.proxy.*, exactly as main/index.js now wires onStart/onStop/onRestart) also cannot interleave with the background regeneration restart', async () => {
+  await withFakeHome(async (homeDir) => {
+    seedStaleInstall(homeDir);
+    const order = [];
+    const restartGate = deferred();
+
+    const pm2Control = {
+      APP_NAME: 'litellm-nim',
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => {
+        order.push('bg-restart:enter');
+        // Stands in for startOrRestart()'s up-to-60s health-check window —
+        // exactly the window NCOW-31 exists to cover.
+        await restartGate.promise;
+        order.push('bg-restart:exit');
+        return { ok: true };
+      },
+      stop: async () => {
+        order.push('tray-stop:pm2.stop');
+      },
+    };
+
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir: path.join(homeDir, 'userData'),
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+      logger: recordingLogger(),
+    });
+
+    // Before fix pass 2, main/index.js's createTray({ onStop }) called
+    // handlers.proxy.stop() directly — no ipcMain, therefore no lock (see the
+    // review's finding B1: tray.js only enables Stop/Restart when
+    // status.status === 'running', which is exactly this restart's own
+    // precondition). It now wraps every tray callback in
+    // `mutexes.proxy.run(() => handlers.proxy.X())`, the same primitive
+    // registerIpcHandlers() decorates the IPC handlers with and
+    // regenerateStaleConfig()'s own restart takes via `runProxyOperation`.
+    // This reproduces that exact call shape off the real context, rather than
+    // requiring main/index.js itself (which touches electron.app at module
+    // scope and can't load under plain `node --test` — see the static
+    // source-check test below for the half of this fix that can only be
+    // verified by reading index.js's actual source).
+    const trayStop = context.mutexes.proxy.run(() => {
+      order.push('tray-stop:enter');
+      return context.handlers.proxy.stop();
+    });
+
+    // Wait for the restart to be genuinely in flight (a condition, not a fixed
+    // number of microtask turns — the latter would make this test's *setup*
+    // timing-sensitive), then let everything else that CAN progress, progress.
+    while (!order.includes('bg-restart:enter')) await new Promise((r) => setImmediate(r));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    assert.deepEqual(
+      order,
+      ['bg-restart:enter'],
+      'the tray Stop must be queued behind the in-flight background restart, not interleaved with it'
+    );
+
+    restartGate.resolve();
+    const regen = await context.configRegeneration;
+    await trayStop;
+
+    assert.deepEqual(regen, { regenerated: true, restarted: true });
+    assert.deepEqual(order, [
+      'bg-restart:enter',
+      'bg-restart:exit',
+      'tray-stop:enter',
+      'tray-stop:pm2.stop',
+    ]);
+  });
+});
+
+test('createEngineContext: negative control — calling the handler with NO lock at all still interleaves, proving the assertion technique above would have caught a real race (not a false negative)', async () => {
   await withFakeHome(async (homeDir) => {
     seedStaleInstall(homeDir);
     const order = [];
@@ -555,7 +631,7 @@ test('createEngineContext: negative control — the same scenario WITHOUT the sh
         return { ok: true };
       },
       stop: async () => {
-        order.push('user-stop:pm2.stop');
+        order.push('unlocked-stop:pm2.stop');
       },
     };
 
@@ -573,14 +649,22 @@ test('createEngineContext: negative control — the same scenario WITHOUT the sh
     // middle" means exactly that.
     while (!order.includes('bg-restart:enter')) await new Promise((r) => setImmediate(r));
 
-    // Calling the handler directly — i.e. the pre-NCOW-31 world, where the
-    // background restart held no lock the IPC layer could contend with.
+    // Deliberately bypasses BOTH locked call paths this task closes (ipc.js's
+    // IPC-mediated handler above, and now main/index.js's tray wiring in the
+    // test above) by invoking the raw handler with no lock in between at all.
+    // This is not a description of any real call path left in the app after
+    // fix pass 2 — every real caller now goes through one of the two locked
+    // tests above. It exists purely so this suite proves its own
+    // interleave-detection technique (wait for bg-restart:enter, then assert
+    // `order`) actually catches a genuine race, ruling out the two tests above
+    // passing merely because nothing in this test setup could ever interleave
+    // regardless of locking.
     await context.handlers.proxy.stop();
 
     assert.deepEqual(
       order,
-      ['bg-restart:enter', 'user-stop:pm2.stop'],
-      'unlocked, the Stop lands in the middle of the restart — the race this task closes'
+      ['bg-restart:enter', 'unlocked-stop:pm2.stop'],
+      'called with no lock, the Stop lands in the middle of the restart — proving this test methodology would have caught the race the two locked tests above close'
     );
     assert.equal(order.includes('bg-restart:exit'), false, 'the restart really was still running when the Stop landed');
 
@@ -661,4 +745,37 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
   assert.match(source, /const \{ handlers, pm2Control, configRegeneration, mutexes \} = createEngineContext/);
   assert.match(source, /configRegeneration[\s\S]{0,200}console\.warn/, 'expected configRegeneration to be observed and logged on failure');
+});
+
+// NCOW-31 fix pass 2 (reviewer finding B1): the tray's Start/Stop/Restart used
+// to call handlers.proxy.* directly, bypassing ipcMain and therefore the
+// mutex entirely — the interleave-detection mechanism itself is proven
+// separately, behaviourally, by the "tray path" test above (it reproduces the
+// exact `mutexes.proxy.run(...)` call shape off a real context); this test
+// only has to prove index.js's actual createTray({...}) call site really uses
+// that shape, since index.js can't be required under plain `node --test` (see
+// the comment above the previous test).
+test('index.js: the tray Start/Stop/Restart callbacks are wrapped in the proxy mutex, not calling handlers.proxy.* directly', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+  const trayCallAt = source.indexOf('createTray({');
+  assert.ok(trayCallAt > -1, 'expected to find the createTray({...}) call');
+  const trayCallEnd = source.indexOf('});', trayCallAt);
+  assert.ok(trayCallEnd > -1, 'expected the createTray({...}) call to close with });');
+  const trayBlock = source.slice(trayCallAt, trayCallEnd);
+
+  assert.match(
+    trayBlock,
+    /onStart:\s*\(\)\s*=>\s*mutexes\.proxy\.run\(\(\)\s*=>\s*handlers\.proxy\.start\(\)\)/,
+    'tray Start must be serialized behind mutexes.proxy, not call handlers.proxy.start() unlocked'
+  );
+  assert.match(
+    trayBlock,
+    /onStop:\s*\(\)\s*=>\s*mutexes\.proxy\.run\(\(\)\s*=>\s*handlers\.proxy\.stop\(\)\)/,
+    'tray Stop must be serialized behind mutexes.proxy, not call handlers.proxy.stop() unlocked'
+  );
+  assert.match(
+    trayBlock,
+    /onRestart:\s*\(\)\s*=>\s*mutexes\.proxy\.run\(\(\)\s*=>\s*handlers\.proxy\.restart\(\)\)/,
+    'tray Restart must be serialized behind mutexes.proxy, not call handlers.proxy.restart() unlocked'
+  );
 });

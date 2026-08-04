@@ -175,9 +175,20 @@ if (!gotSingleInstanceLock) {
       showDashboard: () => showMainWindow('dashboard'),
       showDiagnostics: () => showMainWindow('diagnostics'),
       quit: () => app.quit(),
-      onStart: () => handlers.proxy.start(),
-      onStop: () => handlers.proxy.stop(),
-      onRestart: () => handlers.proxy.restart(),
+      // NCOW-31 fix pass 2 (reviewer finding B1): these used to call
+      // handlers.proxy.* directly, which goes around ipcMain entirely and
+      // therefore around the mutex above -- tray.js only enables Stop/Restart
+      // when status.status === 'running', i.e. exactly the precondition the
+      // background stale-config restart's up-to-60s health-check window holds
+      // the lock under, so a tray click in that window could still interleave
+      // with it even after AC#1's IPC-side fix. mutexes.proxy.run(...) is the
+      // same primitive registerIpcHandlers() decorates the IPC handlers with
+      // (mutex.js) and configGen.regenerateStaleConfig()'s own restart uses via
+      // engine-context.js's `runProxyOperation` -- routing the tray through it
+      // too is what makes all three call paths contend for one shared lock.
+      onStart: () => mutexes.proxy.run(() => handlers.proxy.start()),
+      onStop: () => mutexes.proxy.run(() => handlers.proxy.stop()),
+      onRestart: () => mutexes.proxy.run(() => handlers.proxy.restart()),
     });
 
     stopStatusPoller = startStatusPoller({
