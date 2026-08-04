@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-04 20:57'
+updated_date: '2026-08-04 21:03'
 labels: []
 dependencies:
   - NCOW-31
@@ -24,3 +24,28 @@ NCOW-31's fix pass 1 corrected engine-context.js's comment on why shutdown.js's 
 - [ ] #1 engine-context.js's comment on the deliberate shutdown-mutex exclusion accurately describes the mechanism (stop() is skipped via its own getStatus() precondition, not an error-and-swallow) and the real window size (a getStatus+delete round-trip against the pm2 daemon, not literally milliseconds)
 - [ ] #2 No behavior change -- this is a comment-only correction
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read engine-context.js's existing "Deliberately NOT covered" comment block.
+2. Read shutdown.js's stopProxyForShutdown() -- confirm it calls getStatus() first and only calls pm2Control.stop() when status is 'running'; anything else returns early, no error path.
+3. Read pm2Control.js's startOrRestart()/getStatus() -- confirm getStatus() reports 'not-installed' during the delete-to-start gap, not an error.
+4. Read autoUpdate.js's comment on proxy.getStatus() taking 1s+ to connect, to ground the "not milliseconds" correction.
+5. Rewrite the comment to describe: stop() skipped via its own getStatus() precondition (not error-and-swallow); the symmetric case of a stop landing just before deleteAppIfPresent() succeeding but being undone by the following pm2.start(); and the real window size (a full getStatus+delete round trip, potentially 1s+, not millisecond-wide).
+6. Run npm test to confirm no behavior change; commit and push.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worker implementation complete on branch fix/NCOW-33-shutdown-mutex-comment-accuracy (commit 10c2b9e), pushed to origin.
+
+Evidence:
+- npm test: 333/333 passed (CLAUDE.md's "178 tests" figure is stale relative to this worktree's current state).
+- git diff -- src/main/engine-context.js: comment-only change (18 insertions, 9 deletions, all within // lines), no executable code touched.
+- Before (wrong claims): "it errors on an app pm2 no longer knows about -- an error createProxyShutdown() already swallows by design"; "This is a millisecond-wide window".
+- After (corrected): stop() calls getStatus() first and is skipped via its own precondition when status is 'not-installed' (nothing errors/gets caught); added the symmetric case of a stop landing just before deleteAppIfPresent() succeeding but being undone by the following pm2.start(); window described as a full getStatus+delete round trip against the pm2 daemon, can run well over a second, citing autoUpdate.js's own 1s+ getStatus comment.
+
+Status: implemented, ready for review.
+<!-- SECTION:NOTES:END -->
