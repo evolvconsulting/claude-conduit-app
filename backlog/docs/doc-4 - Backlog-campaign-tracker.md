@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 15:48'
+updated_date: '2026-08-04 15:49'
 ---
 # Backlog campaign tracker
 
@@ -333,15 +333,19 @@ commit and the incident + the duplicate's (corroborating, non-authoritative) fin
 by the orchestrator itself instead. Full detail is on NCOW-21's own Implementation Notes.
 
 One task remains queued, not blocked by a dependency: NCOW-31. It needs no VM to start. Since
-NCOW-21 (which shared `configGen.js` with it) is now merged, NCOW-31 is the sole ready task —
-wave 15 will be a solo dispatch by default unless a fresh file-citation check at that restore finds
-something new to run alongside it (nothing else is queued today).
+NCOW-21 (which shared `configGen.js` with it) is now merged, NCOW-31 is the sole ready task.
+
+**Wave 15 dispatch (2026-08-04):** re-confirmed via a fresh bulk-list (`backlog task list
+--exclude-status Done --plain`) immediately after wave 14 settlement — NCOW-31 is the only
+agent-resolvable ready task; NCOW-7/11/13/14/15 remain deliberately excluded per the Confirmed-at-
+init/restore-1 decisions (see Not queued). No conflict graph needed for a field of one. **Wave 15 =
+NCOW-31 alone.**
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 14 | NCOW-31 | pm2/packaging | none | To Do | | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
+| 14 | NCOW-31 | pm2/packaging | none | Dispatched | 15 | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
 
 ## Resolved
 
