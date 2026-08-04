@@ -4,7 +4,7 @@ title: Harden configGen's thrown-value logging guard against unstringifiable thr
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:07'
+updated_date: '2026-08-04 21:13'
 labels: []
 dependencies:
   - NCOW-31
@@ -48,4 +48,20 @@ Evidence:
 Noted but out of scope (pre-existing, not a regression): "if (attempt.thrown)" is a truthiness check that predates this task, so falsy thrown values (null/undefined/0/false/NaN) don't enter the THREW branch -- they fall through to the separate "restart reported failure, no error object" branch, already covered by an existing test and still leaving the manifest unstamped. Table-driven test asserts the correct differing reason/message shape for those five cases.
 
 Status: implemented, ready for review.
+
+Review verdict (pass 1): request_changes. All 3 ACs confirmed as literally written (reviewer independently ran the full suite, reproduced 333 baseline vs 336 with new tests, confirmed the 3 new tests fail against pre-fix source, verified Object.create(null) genuinely throws pre-fix and is readable post-fix, and ran a 19-shape adversarial probe plus 7-shape live run through the real regenerateStaleConfig() confirming the manifest is NEVER stamped across all shapes including the ones that still reject) -- but flagged two blocking-but-small findings that undermine the helper's own "can never throw" guarantee:
+
+Finding A (blocking, small): describeThrownValue()'s layer 1 (`if (message != null) return message;`) has no type check, so a non-string .message (e.g. {message: Symbol('x')}, {message: Object.create(null)}, {message: {toString(){throw}}}) is returned verbatim, and the CALLER's template interpolation then throws -- regenerateStaleConfig() still rejects and the warn line is lost. Confirmed live against the real exported function for all 3 sub-cases.
+
+Finding B (blocking, small): the deep fallback's own template literal (`[unstringifiable thrown value: typeof ...${ctorName ...}]`) is unguarded -- a value with a throwing util.inspect.custom AND Symbol.toPrimitive AND a constructor.name that is itself unstringifiable (Symbol or null-proto) reaches this line and throws, falsifying the "every layer wrapped so the function itself can never throw" claim. Confirmed live for two variants.
+
+Reviewer's recommended fix (1-3 lines): type-check layer 1 output and funnel every return path through one safe stringifier, or wrap the whole function body in an outer try/catch returning a fixed fallback string on any internal throw -- turning "handled shapes we thought of" into a total guarantee. Care needed: don't naively require typeof message === 'string' and reject non-string -- must still coerce falsy-but-present messages like '' or 0 (NCOW-31's own deliberate behavior), not downgrade them to a generic fallback.
+
+Also flagged nits (non-blocking): 3 dead "eslint-disable" comments referencing a linter that doesn't exist anywhere in this repo (no config, no dependency, no lint script) -- should be removed; AC#1's null-prototype test only asserts absence-of-badness, not the actual rendered message content -- consider asserting the message text itself (e.g. matches /Object: null prototype/).
+
+Confirmed pre-existing, correctly out of scope, NOT a gap: the "if (attempt.thrown)" truthiness check (git blame: NCOW-31's own commit d0e2362, already on dev before this branch) -- falsy thrown values fall through to a different, already-safe "restart-failed" branch and stay unstamped; this is a no-regression AC and is satisfied.
+
+Retry-safety guarantee (manifest never stamped) confirmed preserved even for the shapes that still reject.
+
+Dispatching a fresh worker fix pass with these findings verbatim (fix-cycle 1 of 2 allowed retries).
 <!-- SECTION:NOTES:END -->
