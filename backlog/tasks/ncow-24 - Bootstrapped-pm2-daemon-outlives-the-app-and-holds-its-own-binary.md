@@ -4,7 +4,7 @@ title: Bootstrapped pm2 daemon outlives the app and holds its own binary
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-04 08:47'
+updated_date: '2026-08-04 09:13'
 labels:
   - pm2
   - windows
@@ -104,4 +104,17 @@ Finding 7 (test gaps): added a companion-file-list test using a realistic Linux 
 Finding 8: no action (correctly out of scope).
 
 npm test: 293/293. Shared pm2 daemons on both this Mac and winvm (pid 8832, dump.pm2 sha unchanged) confirmed untouched throughout. All winvm test artifacts (installed builds, verify dirs, old-install temp folder) cleaned up afterward.
+
+Review pass 2 (opus): request_changes. Independently re-verified AC#1/#2/#4/#5/#6 (AC#3 withheld) with a DIFFERENT reproduction than pass 1/the fix worker (linux-arm64 instead of x64; genuine signed 0.1.0/0.1.1 release installers instead of dev-built ones; FileId/PendingFileRenameOperations tracking instead of LastWriteTime; a different companion file corrupted for the integrity test). All three of pass 1's blocking findings confirmed FIXED in the code:
+- Finding 1 (Linux): confirmed live on linux-arm64 (a different shipped target than the fix worker's x64) -- old companion list exec fails exit 127 'libffmpeg.so...', new list runs a genuine pm2 daemon end-to-end (probeDaemonAlive() -> true, /proc/<pid>/exe pointing at the relocated copy).
+- Finding 2 (Windows characterization): confirmed both halves independently -- update succeeds via rename-aside (same FileId relocated to %TEMP%\ns*.tmp\old-install\, new PendingFileRenameOperations entry, matches exactly), uninstall on a fresh install leaves the locked exe as the one file that survives (555->1) with the registry entry deregistered; intermittency confirmed (post-update, a subsequent uninstall removes everything).
+- Finding 3 (integrity): confirmed on real win32 NTFS with a different corrupted file (v8_context_snapshot.bin) -- 5/5 repair cycles healed with zero temp leftovers; forced failure with a live holder falls back to execPath cleanly and heals next call once the holder exits.
+- New tests confirmed NOT vacuous: reverting only the libffmpeg.so list entry fails test 23; running the new test file against the genuine pre-fix module fails tests 23/24/25.
+npm test 293/293 independently re-run.
+
+ONE narrow blocking finding remains (B1, documentation-only, AC#3): README's own bullets contradict each other -- one says the daemon-owned copy under ~/.pm2/daemon-interpreter/ 'cleans up like anything else' when 'running the uninstaller again (once nothing is using it)', while the very next bullet and the table both correctly say 'never deleted by an uninstall' / 'nothing removes it' (matching uninstall.js's own comment, which is accurate -- NSIS/uninstall.js never touches ~/.pm2 at all). Related: about-dialog.js's new GOTCHAS string says a fresh uninstall 'can still leave its locked binary behind until you run uninstall again' -- but the reviewer's own live run shows the uninstaller deletes itself as part of removing everything else, so 'run uninstall again' isn't reachable without a reinstall first. Two sentences to fix; the rest of AC#3's content (what persists, why, ~227MiB, corrected update/uninstall framing) was independently confirmed accurate.
+
+Two LOW non-blocking findings recorded, no action required this pass: (N1) the integrity check is presence-only, not size/content-verified, so a truncated (not just missing) companion file is still accepted -- the atomic staging already eliminates this code's own ability to produce that state, so this is a residual, not a reproduced defect; (N2) on win32 a needed re-copy can't proceed while the existing copy is locked (rmSync fails), so it silently falls back to execPath for that one bootstrap attempt then self-heals later -- observed live, correctly self-limiting.
+
+Shared pm2 daemons on both this Mac (pid 1479) and winvm (pid 8832) independently confirmed byte-identical/PID-identical before and after this review pass, same as pass 1.
 <!-- SECTION:NOTES:END -->
