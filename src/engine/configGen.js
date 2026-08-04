@@ -609,8 +609,17 @@ async function regenerateStaleConfig(opts) {
     // ?? fallback covers a future/unexpected falsy-ok return with no error
     // object rather than logging "undefined: undefined".
     const error = attempt.result?.error ?? { code: 'RESTART_FAILED', message: 'proxy restart reported failure' };
+    // NCOW-37: unlike attempt.thrown above, `error` here is pm2Control's own
+    // RETURNED failure object, never a thrown value — but it is exactly as
+    // exposed to a hostile/malformed shape as a thrown value is (a throwing
+    // `.code`/`.message` getter, or a field whose bare String() itself throws,
+    // e.g. Object.create(null)). Read and stringify both fields through the
+    // same safe guards describeThrownValue() uses internally, rather than
+    // interpolating them raw, so this line can't throw in place of logging.
+    const errorCode = safeStringify(safeReadProperty(error, 'code'));
+    const errorMessage = safeStringify(safeReadProperty(error, 'message'));
     logger.warn(
-      `[config-regen] proxy restart FAILED after regenerating config (${error.code}: ${error.message}); ` +
+      `[config-regen] proxy restart FAILED after regenerating config (${errorCode}: ${errorMessage}); ` +
         `leaving manifest unstamped so the next launch retries regeneration`
     );
     return { regenerated: false, reason: 'restart-failed', error };
@@ -652,6 +661,27 @@ function safeStringify(value) {
     } catch {
       return '[unstringifiable value]';
     }
+  }
+}
+
+/**
+ * Reads `obj[key]` without letting a hostile getter's throw escape. This is
+ * the same guard describeThrownValue() applies internally to `.message`
+ * alone; pulled out as its own helper (NCOW-37) for callers that need to read
+ * more than one property safely — e.g. regenerateStaleConfig()'s
+ * 'restart-failed' branch above, which logs both `.code` and `.message` off
+ * pm2Control's own RETURNED failure object (not a thrown value, but exactly
+ * as exposed to a hostile/malformed shape).
+ *
+ * @param {*} obj
+ * @param {string} key
+ * @returns {*}
+ */
+function safeReadProperty(obj, key) {
+  try {
+    return obj?.[key];
+  } catch {
+    return undefined;
   }
 }
 
@@ -739,4 +769,6 @@ module.exports = {
   resolveExistingNvidiaApiKey,
   needsRegeneration,
   regenerateStaleConfig,
+  safeStringify,
+  describeThrownValue,
 };

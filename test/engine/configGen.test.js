@@ -819,6 +819,122 @@ test('regenerateStaleConfig: a falsy-ok restart return with no error object stil
   assert.doesNotMatch(logger.warned[0], /undefined/);
 });
 
+// NCOW-37 — NCOW-36's reviewer found this branch (unlike attempt.thrown just
+// above, already hardened by describeThrownValue()) still interpolated
+// `error.code`/`error.message` directly. `error` here is pm2Control's own
+// RETURNED failure object, not a thrown value, but it is exposed to exactly
+// the same class of hostile/malformed shape: a throwing `.code`/`.message`
+// getter, or a field whose bare String() itself throws (e.g.
+// Object.create(null)). These tests mirror NCOW-36's own adversarial style
+// against this specific branch.
+
+test('regenerateStaleConfig: NCOW-37 — a restart-failed error with a throwing .message getter is logged safely instead of throwing', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  const logger = recordingLogger();
+
+  const hostileError = {
+    code: 'HEALTH_CHECK_TIMEOUT',
+    get message() {
+      throw new Error('message getter exploded');
+    },
+  };
+
+  // Must not reject — awaiting it directly is the test.
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp'); },
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => ({ ok: false, error: hostileError }),
+    logger,
+  });
+
+  assert.equal(result.regenerated, false);
+  assert.equal(result.reason, 'restart-failed');
+  assert.equal(logger.warned.length, 1);
+  assert.match(logger.warned[0], /FAILED/);
+  assert.match(logger.warned[0], /HEALTH_CHECK_TIMEOUT/);
+  assert.doesNotMatch(logger.warned[0], /message getter exploded/);
+});
+
+test('regenerateStaleConfig: NCOW-37 — a restart-failed error with a throwing .code getter is logged safely instead of throwing', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  const logger = recordingLogger();
+
+  const hostileError = {
+    get code() {
+      throw new Error('code getter exploded');
+    },
+    message: 'litellm did not become healthy in time.',
+  };
+
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp'); },
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => ({ ok: false, error: hostileError }),
+    logger,
+  });
+
+  assert.equal(result.regenerated, false);
+  assert.equal(result.reason, 'restart-failed');
+  assert.equal(logger.warned.length, 1);
+  assert.match(logger.warned[0], /FAILED/);
+  assert.match(logger.warned[0], /litellm did not become healthy in time\./);
+  assert.doesNotMatch(logger.warned[0], /code getter exploded/);
+});
+
+test('regenerateStaleConfig: NCOW-37 — a restart-failed error whose .code/.message fields are themselves unstringifiable no longer throws', async () => {
+  const hostileShapes = [
+    {
+      label: 'message is a null-prototype object',
+      value: { code: 'E_PM2', message: Object.create(null) },
+      messageIncludes: 'Object: null prototype',
+    },
+    {
+      label: 'code is a null-prototype object',
+      value: { code: Object.create(null), message: 'litellm did not become healthy in time.' },
+      messageIncludes: 'Object: null prototype',
+    },
+    {
+      label: 'the whole error object is Object.create(null) (no fields at all)',
+      value: Object.create(null),
+      messageIncludes: 'undefined: undefined',
+    },
+  ];
+
+  for (const { label, value, messageIncludes } of hostileShapes) {
+    const { files, manifest } = makeStaleInstallFixture();
+    const logger = recordingLogger();
+
+    // Must not reject — pre-fix, a null-prototype .code/.message would have
+    // made the bare template-literal interpolation throw
+    // ("Cannot convert object to primitive value").
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => { throw new Error(`must not stamp for ${label}`); },
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => ({ ok: false, error: value }),
+      logger,
+    });
+
+    assert.equal(result.regenerated, false, label);
+    assert.equal(result.reason, 'restart-failed', label);
+    assert.equal(logger.warned.length, 1, label);
+    assert.equal(typeof logger.warned[0], 'string', `${label}: logged message must be a string`);
+    assert.match(logger.warned[0], /FAILED/, label);
+    assert.ok(
+      logger.warned[0].includes(messageIncludes),
+      `${label}: expected warning to include ${JSON.stringify(messageIncludes)}, got: ${logger.warned[0]}`
+    );
+  }
+});
+
 // NCOW-36 — NCOW-31 review pass 2 probed 12 adversarial thrown values against
 // `attempt.thrown?.message ?? String(attempt.thrown)` and found it genuinely
 // fixed every real shape pm2Control can produce, but with one contrived

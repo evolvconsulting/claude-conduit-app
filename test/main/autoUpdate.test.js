@@ -144,6 +144,51 @@ test('checkForUpdates: an electron-updater error event degrades gracefully', asy
   assert.match(deps.statuses.at(-1).message, /ERR_CONNECTION_REFUSED/);
 });
 
+// NCOW-37: this handler's own comment promises "log it, tell the renderer,
+// never throw" — but it used to fall back to a bare `String(err)`, which
+// itself throws on a hostile/malformed error value (e.g. one created via
+// Object.create(null), which has no Object.prototype to inherit toString
+// from) or on an object whose `.message` getter throws. `fakeAutoUpdater()`'s
+// `emit()` calls listeners synchronously with no try/catch of its own, so if
+// the handler itself throws, that throw propagates straight out of this test
+// — these tests mirror NCOW-36's adversarial style against configGen.js.
+
+test('checkForUpdates: an electron-updater error event with a null-prototype error value degrades gracefully instead of throwing', async () => {
+  const { autoUpdater } = fakeAutoUpdater();
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+
+  await createAutoUpdate(deps).checkForUpdates();
+
+  // Must not throw — calling emit() directly is the test. Pre-fix, bare
+  // String(Object.create(null)) would have thrown here instead of the
+  // handler logging and broadcasting an 'error' status.
+  assert.doesNotThrow(() => autoUpdater.emit('error', Object.create(null)));
+
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+test('checkForUpdates: an electron-updater error event with a throwing .message getter degrades gracefully instead of throwing', async () => {
+  const { autoUpdater } = fakeAutoUpdater();
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+
+  await createAutoUpdate(deps).checkForUpdates();
+
+  const hostileError = {
+    get message() {
+      throw new Error('message getter exploded');
+    },
+  };
+
+  // Must not throw — `err?.message` alone does not guard a throwing getter;
+  // only a try/catch around the read does.
+  assert.doesNotThrow(() => autoUpdater.emit('error', hostileError));
+
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+  assert.doesNotMatch(deps.statuses.at(-1).message, /message getter exploded/);
+});
+
 test('checkForUpdates: a rejecting checkForUpdates() degrades gracefully instead of throwing', async () => {
   const { autoUpdater } = fakeAutoUpdater();
   autoUpdater.checkForUpdates = async () => {

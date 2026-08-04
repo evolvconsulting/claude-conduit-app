@@ -26,6 +26,8 @@
  * other module under src/main/ and src/engine/.
  */
 
+const { describeThrownValue } = require('../engine/configGen');
+
 const DEFAULT_REPO = 'evolvconsulting/claude-conduit';
 
 /**
@@ -96,8 +98,16 @@ function createAutoUpdate(deps) {
       // electron-updater's own error event — e.g. no publish config resolved
       // (an unpackaged/dev checkout), a bad network, or a corrupt download.
       // Same contract as every other failure mode: log it, tell the
-      // renderer, never throw.
-      const message = err?.message ?? String(err);
+      // renderer, never throw. NCOW-37: `err?.message ?? String(err)` is
+      // exactly the unguarded pattern NCOW-36 hardened configGen.js away
+      // from — a thrown/emitted Object.create(null) makes bare String()
+      // itself throw, and a throwing `.message` getter breaks even the
+      // optional-chaining read, either of which would make this "never
+      // throw" handler throw. Reuse configGen.js's describeThrownValue()
+      // (identical safe-stringification contract: prefer a real `.message`,
+      // coerced safely, else fall back to safely stringifying the whole
+      // value) instead of re-deriving the same guard here.
+      const message = describeThrownValue(err);
       log(`electron-updater error, degrading gracefully: ${message}`);
       emit({ state: 'error', message });
     });
