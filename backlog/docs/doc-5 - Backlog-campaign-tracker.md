@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-04 20:05'
+updated_date: '2026-08-04 20:58'
 ---
 # Backlog campaign tracker
 
@@ -54,21 +54,38 @@ behaviorally significant, touches live uninstall/auto-update proxy-stop paths) l
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-Informational hint only: as of init (2026-08-04), 5 ready (NCOW-32/33/34/35/36), 0 blocked
-within this round's queue, 5 excluded pending human decomposition (see Not queued).
-NCOW-33 and NCOW-32 share the `proxy-mutex` cluster and both plausibly touch
-`engine-context.js` — expect them to land in different waves even though neither depends on
-the other in Backlog's own Dependencies field.
+As of wave 1 dispatch (2026-08-04): 4 dispatched (NCOW-34/33/36/35), 1 ready-but-deferred
+(NCOW-32, held out of wave 1 by conflicts), 0 blocked, 5 excluded pending human decomposition
+(see Not queued).
+
+Wave 1 conflict graph (file-citation read against real code, not just cluster labels):
+NCOW-34 = README.md/DESIGN.md only. NCOW-33 = engine-context.js comment only (lines ~187-204).
+NCOW-36 = src/engine/configGen.js only. NCOW-35 = src/main/tray.js (new/extracted factory) +
+src/main/index.js (createTray call site, ~lines 174-197) + a new/updated test file. NCOW-32 =
+src/main/engine-context.js (uninstall handler, ~lines 521-527) + src/main/index.js (autoUpdate's
+stopProxyForShutdown wiring, ~lines 102-130) + possibly src/main/autoUpdate.js. Confirmed
+conflicts: NCOW-32↔NCOW-33 (both touch engine-context.js — matches the prior round's note) AND
+**NCOW-32↔NCOW-35 (both touch src/main/index.js — a new finding this restore; index.js already
+destructures `mutexes` from createEngineContext and uses it in the tray creation block, so
+NCOW-32's mutex-wrap of the autoUpdate stopProxyForShutdown call and NCOW-35's tray-factory
+extraction are two edits to the same file)**. NCOW-34/33/36/35 are mutually conflict-free
+(4 disjoint file sets) and form wave 1; NCOW-32 is deferred to wave 2 regardless — it would
+have been excluded by the engine-context.js conflict with NCOW-33 alone, but the index.js
+finding means it stays deferred as a solo wave 2 even after wave 1 fully lands.
+
+None of wave 1's four tasks require live-verifying the running app/proxy (NCOW-35's new
+behavioral test fakes electron in require.cache the way `ipc-mutex.test.js` already does,
+per its own AC #1 — no live app needed) — no Shared Machine State conflicts this wave.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-34 | docs | NCOW-31 (Done) | To Do | | README/DESIGN.md doc-only update, no code |
-| 2 | NCOW-33 | proxy-mutex | NCOW-31 (Done) | To Do | | Comment-only correction in engine-context.js, no behavior change |
-| 3 | NCOW-36 | configgen | NCOW-31 (Done) | To Do | | Harden thrown-value logging guard against unstringifiable throws |
-| 4 | NCOW-35 | tray | NCOW-31 (Done) | To Do | | Extract tray actions into a testable factory, matching menu.js precedent |
-| 5 | NCOW-32 | proxy-mutex | NCOW-31 (Done) | To Do | | Serialize Uninstall + auto-update proxy-stop against the shared proxy mutex |
+| 1 | NCOW-34 | docs | NCOW-31 (Done) | Dispatched | 1 | README/DESIGN.md doc-only update, no code |
+| 2 | NCOW-33 | proxy-mutex | NCOW-31 (Done) | Dispatched | 1 | Comment-only correction in engine-context.js, no behavior change |
+| 3 | NCOW-36 | configgen | NCOW-31 (Done) | Dispatched | 1 | Harden thrown-value logging guard against unstringifiable throws |
+| 4 | NCOW-35 | tray | NCOW-31 (Done) | Dispatched | 1 | Extract tray actions into a testable factory, matching menu.js precedent |
+| 5 | NCOW-32 | proxy-mutex | NCOW-31 (Done) | To Do | | Serialize Uninstall + auto-update proxy-stop against the shared proxy mutex — deferred to wave 2 (conflicts with NCOW-33 via engine-context.js AND NCOW-35 via index.js) |
 
 ## Resolved
 
@@ -91,4 +108,8 @@ the other in Backlog's own Dependencies field.
 
 ## Wave log
 
-(none yet — this round's queue was just created at init, 2026-08-04)
+- 2026-08-04 — wave 1 dispatched (tasks: NCOW-34, NCOW-33, NCOW-36, NCOW-35): ground-truth
+  drift check found no leftover branches/worktrees/PRs from prior init; treehouse pool had 3
+  available (unleased) trees. File-citation conflict read found a new NCOW-32↔NCOW-35
+  conflict via src/main/index.js not previously noted (see Frontier). Wave dispatch in
+  progress — worktree setup and worker dispatch follow this tracker update.
