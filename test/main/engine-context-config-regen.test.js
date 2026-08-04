@@ -796,20 +796,53 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // source property a static check can legitimately settle, unlike "does this
 // lock actually serialize" (which only the behavioural test can reach).
 //
-// NCOW-35 review (NCOW-39 follow-up): together these two checks prove the
-// tray gets a genuinely shared `mutexes`/`handlers` pair when
-// createTrayActions({ mutexes, handlers }) is spread into createTray({...}),
-// but they do NOT close the chain fully. Both are blind to a plain object
-// literal override: if a future edit adds its own `onStart`/`onStop`/
-// `onRestart` key to the createTray({...}) object literal AFTER the
-// `...createTrayActions({ mutexes, handlers })` spread, plain JS object
-// semantics let that later key silently win, discarding the mutex-wrapped
-// action the spread contributed — with `mutexes` still bound exactly once
-// and the spread text still present verbatim, so neither check would notice.
-// Closing that residual gap needs a check that looks at what wins *after*
-// the spread, not just that the spread and the binding are present; NCOW-38
-// tracks adding that guard. Until it lands, treat this pair as proving lock
-// identity, not full tray-wiring safety.
+// NCOW-35 review (NCOW-39 follow-up, fix pass 2): together these two checks
+// prove something narrower than earlier wording here claimed. The
+// behavioural test (test/main/tray-actions.test.js) proves
+// createTrayActions({ mutexes, handlers }) serializes through WHATEVER
+// mutex set it is handed, with a negative control confirming a private,
+// internally-constructed mutex set fails the test — but it imports tray.js
+// directly, so it says nothing about what index.js itself passes in. The
+// static check just below proves only that the `mutexes` identifier —
+// specifically `mutexes`, not `handlers` — is declared/bare-reassigned
+// exactly once anywhere in index.js. Neither check, nor the pair together,
+// closes the full chain; several separately-identified gaps remain outside
+// what a text-only check over a file that can't be required under
+// node --test can reach:
+//
+// - `handlers` has no equivalent single-binding check at all. The static
+//   check's one mention of `handlers` only confirms that mutexes' sole
+//   declaration happens to be the
+//   `const { handlers, pm2Control, configRegeneration, mutexes } =`
+//   destructure — it does nothing to forbid a SECOND, shadowing `handlers`
+//   binding wrapped around createTray({...}), giving the tray a private,
+//   unshared `handlers`. (Confirmed: wrapping the createTray({...}) call in
+//   a nested block that declares its own private
+//   `const handlers = { proxy: {...} }` passes the full suite.)
+// - Property-level mutation of `mutexes.proxy` (e.g. reassigning it to a
+//   fresh `createDomainMutex()` between registerIpcHandlers() and
+//   createTray({...})) is invisible to both checks — `mutexes` is still
+//   declared exactly once and the spread text is still present verbatim —
+//   yet NCOW-35's own review verified this is a REAL serialization break
+//   (tray Stop ran while an IPC restart was still in-flight), and it passed
+//   the full suite anyway.
+// - Parameter shadowing, e.g. wrapping the whole call as
+//   `((mutexes) => createTray({ ...createTrayActions({ mutexes, handlers })
+//   }))(privateMutexSet)`, is the same nested-scope-shadowing class the
+//   static check exists to catch, just introduced via a function parameter
+//   instead of a declaration or reassignment — also passes the full suite.
+// - A plain object literal override is a fourth, separate gap: if a future
+//   edit adds its own `onStart`/`onStop`/`onRestart` key to the
+//   createTray({...}) object literal AFTER the
+//   `...createTrayActions({ mutexes, handlers })` spread, plain JS object
+//   semantics let that later key silently win, discarding the mutex-wrapped
+//   action the spread contributed — with `mutexes` still bound exactly once
+//   and the spread text still present verbatim, so neither check would
+//   notice. NCOW-38 tracks adding a guard for this specific case.
+//
+// Until NCOW-38 (and equivalent guards for the other gaps above) land,
+// treat this pair as proving lock identity for what they can see, not full
+// tray-wiring safety.
 test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
   assert.match(
