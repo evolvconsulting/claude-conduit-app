@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-02 14:12'
-updated_date: '2026-08-04 15:30'
+updated_date: '2026-08-04 15:31'
 labels: []
 dependencies: []
 priority: low
@@ -47,3 +47,23 @@ Both findings were verified via live testing against the real Windows VM (winvm)
 6. Add 2 regression tests to test/engine/configGen.test.js covering an arg combining an embedded quote and a cmd.exe metacharacter, checked against both cmd.exe's own re-parse model and CommandLineToArgvW rules. Mutation-test by reverting only the escape rule to dev's original and confirming exactly those 2 tests fail.
 7. Run npm test, commit in 2 logical commits, push the branch.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-21-cmd-exe-embedded-quote-escaping (dev @ a7aa4e7), commits 228de79 + caa8681, pushed.
+
+AC#1 (live winvm A/B, real exploit): generated the actual run.js from the real module with exploit payload a"&echo,BREAKOUT>marker.txt&"b.yaml as configYamlPath, plus a litellm.cmd shim capturing received argv. PRE-FIX: marker.txt created (10 bytes, BREAKOUT), shim argv truncated to ["--config","a\""], cmd.exe ran a 3rd chained garbage command -- confirmed the live breakout. POST-FIX: marker absent, shim argv delivered the full payload byte-for-byte as inert data with all subsequent args intact. Then ran 10 further adversarial payloads (bare quote, single/even/odd backslash runs, leading/trailing quotes, already-doubled input, ^&, |, &&/||, Program Files (x86) with quote+metachars) with exact byte-level argv round-trip comparison -- all 10 exact, zero marker files. Confirmed the exploit-tested launcher is byte-identical to what the committed generator produces.
+
+AC#2: 2 new tests in test/engine/configGen.test.js, checked against two independent reference models (cmd.exe's own re-parse toggle rule; CommandLineToArgvW's ""-inside-quotes rule). Mutation-tested: reverting only the escape rule to a byte-faithful copy of dev's original makes exactly those 2 tests fail (all pre-existing tests, including the old metachar test, still pass) -- confirms the old suite structurally could not have caught this.
+
+AC#3: JSDoc + generated inline comment rewritten -- no longer claims arbitrary-content correctness unconditionally; explicitly states embedded quotes are covered only since this fix via the doubled-quote form, flags the code as load-bearing security logic, names %VAR%-expansion as the one documented residual gap, and corrects the misattribution (the superseded caret-based pass never closed the embedded-quote hole -- the breakout reproduced identically with or without it, since the actual cause was cmdQuoteArg's backslash-doubling).
+
+AC#4: npm test 295/295 (293 baseline + 2 new), re-run after the final commit.
+
+Scope check: grepped src/test/docs/README.md/DESIGN.md for cmdQuoteArg and the overstated wording -- only src/engine/configGen.js and test/engine/configGen.test.js matched; no other files touched.
+
+Non-blocking note for reviewer: the pre-existing decodeCmdLine() test helper can't model embedded quotes (only strips first/last char per token) -- left in place for existing tests with a comment pointing embedded-quote cases at the two new stricter models instead.
+
+winvm cleaned (C:\Users\jdnewhouse\ncow21 removed, marker files gone, only the pre-existing pm2 daemon PID 8832 still running, untouched). One harmless local leftover outside the repo: /tmp/ncow21 (the harness), sandbox denied its own rm -rf -- safe to delete manually.
+<!-- SECTION:NOTES:END -->
