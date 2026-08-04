@@ -4,7 +4,7 @@ title: 'Serialize config-regeneration''s proxy restart, and retry a failed regen
 status: In Progress
 assignee: []
 created_date: '2026-08-04 06:27'
-updated_date: '2026-08-04 18:47'
+updated_date: '2026-08-04 18:48'
 labels:
   - pm2
   - packaging
@@ -87,3 +87,27 @@ from a thrown error).
 7. Regression tests for both ACs, including a negative control proving the pre-fix code actually interleaves (so the test measures the lock, not luck), and mutation-testing 10 distinct reverts against the new tests.
 8. npm test, commit in 2 logical commits, push.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-31-serialize-config-regen-restart (dev @ 6d0c0ce), commits 5e263eb (mutex extraction) + ec4e676 (serialization + retry fix), pushed. Continued a prior worker session that crashed mid-implementation on a connection error -- its src/main/mutex.js was verified complete/correct and kept as-is; its in-progress ipc.js wiring was finished and hardened (allowlist inverted to a fail-safe denylist).
+
+AC#1 (mutex serialization): npm test 331/331 (295 baseline + 36 new), 5 consecutive clean runs, no flake. test/main/ipc-mutex.test.js seeds require.cache with a fake electron so the REAL registered ipc.js handlers are driven, not a source regex -- proves start/stop/restart serialize against each other and against a background op holding an injected lock, while getStatus/getRecentLogs still resolve mid-restart (the blank-window requirement). test/main/engine-context-config-regen.test.js drives the real createEngineContext end-to-end: a user-initiated stop cannot interleave with an in-flight background restart (asserted exact event order), and a lock pre-held before createEngineContext runs blocks regeneration from even reaching getStatus until released. A NEGATIVE CONTROL confirms the identical scenario against the pre-fix handler actually interleaves, so the test measures the lock, not luck.
+
+AC#2 (retry-safe stamping, both failure shapes): thrown-error path logs reason 'restart-error', never calls saveManifest, manifest.json on disk stays unstamped; the {ok:false,error:{code:'HEALTH_CHECK_TIMEOUT'}} shape (previously never even inspected) logs 'restart-failed' with the error code preserved, also unstamped; a third falsy-ok-with-no-error shape logs 'RESTART_FAILED' rather than any 'undefined' string. Retry verified at both configGen and engine-context level across three successive fresh contexts reading the same manifest.json back off disk (fail -> still stale -> retry succeeds -> up-to-date). Retry idempotency pinned: a failed restart's already-regenerated files are byte-identical on the successful retry and LITELLM_MASTER_KEY is preserved (a rotation here would silently break Claude Desktop/Code configs carrying the old key).
+
+AC#3 (regression tests): see AC#1/#2 evidence above -- both (a) and (b) covered with negative controls. Mutation-tested 10 distinct reverts (ipc.js ignoring injected mutexes; unlocking proxy start/stop; locking getStatus/getRecentLogs; unlocking testConnection/log-tail; configGen bypassing runProxyOperation; engine-context omitting the injection; restamping before the restart -- the original bug; ignoring the {ok:false} shape -- the other half of the bug; the mutex chain dropping its .catch(()=>{}) error-swallow; index.js stopping passing mutexes through) -- each caught by a specific test, none silent.
+
+AC#4: npm test 331/331.
+
+Reviewer-anticipating checks already run: confirmed a thrown error during the restart still releases the mutex (no explicit release to leak, via .catch(()=>{}) on the chain) across async throw, sync throw, .run() rejection, and a throwing IPC handler not wedging a queued background op. Confirmed mutex.js imports with ZERO require() calls (asserted programmatically, comments stripped first since the header prose legitimately names 'electron' while explaining why the module itself never may) and that requiring engine-context.js never puts an electron entry in require.cache.
+
+Two items flagged transparently by the implementer for reviewer attention:
+1. src/main/index.js was touched (8 lines) despite being outside the task's stated file scope -- necessary because without it registerIpcHandlers builds its own private lock set and the entire mechanism is inert in the real app.
+2. shutdown.js's before-quit proxy stop was deliberately left UNSERIALIZED against this lock -- queueing it behind a background restart holding the lock for up to 60s would make the app unquittable while wedged, which CLAUDE.md forbids outright. Left as a documented deliberate choice in engine-context.js, not a silent gap; covering quit too would need its own task and a different mechanism (cancel the in-flight restart rather than queue behind it).
+
+Also fixed two pre-existing test fakes that returned undefined from startOrRestart() (which the new {ok:false} handling correctly read as failure) to return the real {ok:true} contract instead of accommodating the wrong shape, per CLAUDE.md's standing warning about a fake masking a real bug.
+
+No live proxy/winvm run -- pure concurrency/logic fix, tested via the same mocking patterns pm2Control.test.js/engine-context-config-regen.test.js already use.
+<!-- SECTION:NOTES:END -->
