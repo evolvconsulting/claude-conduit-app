@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:20'
+updated_date: '2026-08-04 21:28'
 labels: []
 dependencies:
   - NCOW-31
@@ -82,4 +82,19 @@ Evidence:
 Only lasting change: test/main/engine-context-config-regen.test.js. index.js was temporarily mutated for verification only and confirmed reverted before commit.
 
 Status: fix pass 1 implemented, ready for review pass 2.
+
+Review verdict (pass 2): approve (with one minor finding). All 3 ACs confirmed in substance.
+
+Finding F1 from pass 1 is CLOSED for the exact mutation it named and for the general declaration/reassignment-rebinding class: reviewer reproduced it, confirmed the new check fails the FULL suite (not just the isolated test file), then tried 5 more variations:
+- Caught correctly: a `let` + bare reassignment variant; a renamed-binding variant (mutexes: trayMutexes); a differently-shaped IPC-side shadow (already caught by a pre-existing NCOW-31 test).
+- False positive (fails safe): an unrelated LATER helper function in index.js declaring its own unrelated local `mutexes` -- rejected as suspicious even though harmless. Acceptable over-strictness for a small composition-root file.
+- NOT caught (residual gap, minor): (B) property-level mutation `mutexes.proxy = require('./mutex').createDomainMutex()` between registerIpcHandlers and createTray -- reviewer empirically verified this is a REAL serialization break (tray Stop ran while an IPC restart was still in-flight) and it passes 337/337; (C) a post-spread key override (`onStop: () => handlers.proxy.stop()` after `...createTrayActions(...)`) silently re-opens NCOW-31's own finding B1 with a green suite -- the most realistic accidental-regression shape of the set; (G) parameter-shadowing (`((mutexes) => createTray({...}))(privateMutexSet)`) is literally the same nested-scope-shadowing class AC#2 names, done via a function parameter instead of a declaration -- also passes 337/337.
+
+Reviewer's judgment for approving anyway rather than a 3rd request_changes cycle: pass 1's OWN prescribed minimal fix ("a source property a static check CAN legitimately prove") was implemented faithfully and correctly for exactly the property it named; a text-only check over a file that can't be required under node --test (electron.app at module scope) cannot do AST/scope resolution without a new parser dependency; and continuing to escalate to newly-invented adversarial variants each round would be an unbounded arms race rather than a convergent review.
+
+Also found: the fix pass's updated comment claims the two checks "close the chain honestly" -- reviewer judges this still overstated given B/C/G above, and suggests softening to state plainly that parameter shadowing and property-level mutation remain outside what a text check can reach. Reviewer changed nothing (comment left as-is).
+
+npm test: 337/337 (reviewer's own independent run, multiple times across mutation/revert cycles). AC#1 and AC#3 spot-checked, no regression (fix pass touched zero source files, only the test file).
+
+Approved for merge. Suggested (not yet created, needs user approval per campaign convention): (1) a follow-up task to guard the tray call site against the post-spread bypass (assert no onStart/onStop/onRestart key appears after the createTrayActions spread) -- the likeliest real accidental regression; (2) soften the "close the chain honestly" comment wording. Will propose both to user before creating/editing.
 <!-- SECTION:NOTES:END -->
