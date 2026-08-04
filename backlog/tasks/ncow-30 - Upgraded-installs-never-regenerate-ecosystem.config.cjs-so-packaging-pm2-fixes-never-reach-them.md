@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 00:45'
-updated_date: '2026-08-04 03:48'
+updated_date: '2026-08-04 03:56'
 labels:
   - pm2
   - packaging
@@ -187,4 +187,38 @@ daemon (dump.pm2), pointing at a now-deleted scratchpad path -- reviewer
 deliberately did not touch the shared daemon and used an isolated PM2_HOME
 for its own testing instead. This needs cleanup by the orchestrator (main
 checkout, not a subagent) before wave settlement.
+
+Fix pass 1 (worker, wave 12), addressing review pass 1's request_changes.
+
+BLOCKING fix: src/main/engine-context.js's manifest read (getManifest()) was
+called synchronously in the argument list building the
+regenerateStaleConfig() call, outside the .catch() chain -- a corrupt/
+truncated manifest.json threw a SyntaxError straight out of
+createEngineContext(), which app.whenReady().then(...) has no catch for.
+Wrapped that read in a local try/catch, falling back to null on failure
+(same treatment needsRegeneration() already gives a genuinely missing
+manifest). Verified live A/B with the same truncated-manifest scenario the
+reviewer used: pre-fix reproduced the exact crash (0 renderers, the same
+UnhandledPromiseRejectionWarning at the same call sites); post-fix launched
+normally (1 renderer, landed at #setup, no unhandled rejection).
+
+Non-blocking findings: (1) silent-failure logging -- addressed, index.js now
+destructures configRegeneration and console.warns on a {reason:'error'}
+resolution plus a .catch() backstop, mirroring the existing auto-update
+startup-check pattern; (2) mutex serialization for the background restart --
+deliberately left unaddressed and explicitly flagged rather than silently
+dropped: the proxy mutex is constructed entirely inside ipc.js at handler-
+registration time, with no reference engine-context.js can currently reuse;
+sharing it would need exporting the mutex factory and restructuring both
+modules' composition -- judged out of scope for a fix pass, worth a future
+task if this ever manifests; (3) version-equality dev/nightly caveat --
+addressed with a one-line doc comment on needsRegeneration(); (4) untested
+branches -- addressed, 4 new tests covering the corrupt-manifest regression,
+the no-litellm-path skip branch, a failed-restart-during-regeneration case
+(configRegeneration resolves with reason:'error', never rejects), and a
+static check that index.js observes/logs it.
+
+npm test: 282/282 (278 baseline + 4 new). Committed separately as 0832188
+(not amended onto 20f84bb), pushed to origin/fix/NCOW-30-regenerate-
+configs-on-upgrade.
 <!-- SECTION:NOTES:END -->
