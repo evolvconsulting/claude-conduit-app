@@ -1,10 +1,10 @@
 ---
 id: NCOW-34
 title: Document the deliberate shutdown-mutex carve-out in README/DESIGN.md
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-04 21:05'
+updated_date: '2026-08-04 21:47'
 labels: []
 dependencies:
   - NCOW-31
@@ -19,7 +19,7 @@ NCOW-31 deliberately excluded shutdown.js's before-quit proxy stop from the new 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 README.md and/or DESIGN.md section 7.4 record that the before-quit proxy stop is deliberately NOT serialized against the proxy mutex, and why (never make the app unquittable), consistent with engine-context.js's own comment
+- [x] #1 README.md and/or DESIGN.md section 7.4 record that the before-quit proxy stop is deliberately NOT serialized against the proxy mutex, and why (never make the app unquittable), consistent with engine-context.js's own comment
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -53,3 +53,9 @@ Findings (non-blocking, reviewer chose approve despite these):
 
 Approved for merge.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Documented the deliberate shutdown-mutex carve-out in both README.md's "Closing vs. quitting" section and DESIGN.md section 7.4, consistent with engine-context.js's own code comment. Verified by independent review (model: opus): the new doc text was checked against the real engine-context.js comment, shutdown.js, index.js's tray mutex wiring, and ipc.js's UNSERIALIZED_METHODS, and npm test was independently re-run (333/333 passed at review time). A wave-level integration review later found and fixed one small consistency issue: a dangling "as described above" cross-reference in README.md (no earlier README text described the referenced timeout) was corrected to name shutdown.js's 15s timeout inline (see follow-up commit e9fe0a7, filed against this and two sibling tasks).
+<!-- SECTION:FINAL_SUMMARY:END -->

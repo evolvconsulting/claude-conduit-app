@@ -3,10 +3,10 @@ id: NCOW-33
 title: >-
   Correct the shutdown-mutex-exclusion comment's described mechanism and window
   size
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-04 21:06'
+updated_date: '2026-08-04 21:47'
 labels: []
 dependencies:
   - NCOW-31
@@ -21,8 +21,8 @@ NCOW-31's fix pass 1 corrected engine-context.js's comment on why shutdown.js's 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 engine-context.js's comment on the deliberate shutdown-mutex exclusion accurately describes the mechanism (stop() is skipped via its own getStatus() precondition, not an error-and-swallow) and the real window size (a getStatus+delete round-trip against the pm2 daemon, not literally milliseconds)
-- [ ] #2 No behavior change -- this is a comment-only correction
+- [x] #1 engine-context.js's comment on the deliberate shutdown-mutex exclusion accurately describes the mechanism (stop() is skipped via its own getStatus() precondition, not an error-and-swallow) and the real window size (a getStatus+delete round-trip against the pm2 daemon, not literally milliseconds)
+- [x] #2 No behavior change -- this is a comment-only correction
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -59,3 +59,9 @@ Findings: three non-blocking nits only (inherited "stop()" vs actual stopProxyFo
 
 Approved for merge. Reviewer confirmed dev has moved 3 commits ahead (backlog-handover bookkeeping only, no src/ touched) -- merge will be clean, not fast-forward.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Corrected engine-context.js's shutdown-mutex-exclusion comment to accurately describe the mechanism (stop() is skipped via its own getStatus() precondition when status is not 'running', not an error-and-swallow) and the real window size (a full getStatus+delete round-trip against the pm2 daemon, potentially 1s+, not literally milliseconds), plus the previously-missing symmetric race (a stop landing just before deleteAppIfPresent() succeeding but being undone by the following pm2.start()). Comment-only, no behavior change. Verified by independent review (model: opus): every technical claim was independently checked against shutdown.js, pm2Control.js, and autoUpdate.js's real source; the comment-only claim was verified byte-for-byte (stripping all // comments from both revisions produced identical output); npm test independently re-run (333/333 passed).
+<!-- SECTION:FINAL_SUMMARY:END -->

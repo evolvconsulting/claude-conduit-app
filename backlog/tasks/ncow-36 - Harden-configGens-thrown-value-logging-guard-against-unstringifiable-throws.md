@@ -1,10 +1,10 @@
 ---
 id: NCOW-36
 title: Harden configGen's thrown-value logging guard against unstringifiable throws
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:25'
+updated_date: '2026-08-04 21:47'
 labels: []
 dependencies:
   - NCOW-31
@@ -19,9 +19,9 @@ NCOW-31's fix pass corrected regenerateStaleConfig()'s thrown-value logging so a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A thrown null-prototype object (or any other value String() can't safely stringify) produces a readable log message instead of causing regenerateStaleConfig() to reject
-- [ ] #2 All 12 of review pass 2's previously-probed thrown-value shapes (Error, plain string, array, Symbol, plain object, null, undefined, 0, false, etc.) continue to log sensibly and continue to leave the manifest unstamped on failure
-- [ ] #3 npm test passes
+- [x] #1 A thrown null-prototype object (or any other value String() can't safely stringify) produces a readable log message instead of causing regenerateStaleConfig() to reject
+- [x] #2 All 12 of review pass 2's previously-probed thrown-value shapes (Error, plain string, array, Symbol, plain object, null, undefined, 0, false, etc.) continue to log sensibly and continue to leave the manifest unstamped on failure
+- [x] #3 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -95,3 +95,9 @@ Non-blocking findings for future follow-up (not required for this task):
 
 Approved for merge. Suggested (not yet created, needs user approval per campaign convention): a small follow-up task to harden the restart-failed branch and autoUpdate.js:100 with the same safeStringify() pattern -- will propose to user before creating.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened regenerateStaleConfig()'s thrown-value logging guard with a safeStringify()/describeThrownValue() helper that structurally cannot throw for any input (typeof-string passthrough -> String() -> util.inspect() -> fixed fallback, plus an outer try/catch backstop), replacing a version that still threw on Object.create(null) and similar unstringifiable shapes. Went through two review rounds: the first fix pass (a single null-prototype special case) was found by review to still leak on adjacent shapes (non-string .message, unstringifiable constructor.name); the merged version is a structural fix, not another special case. Verified by independent review (model: opus, 2 passes): 60+ adversarial probes (hostile Proxies, throwing traps, stack-overflowing toString, self-referential inspect output) found no remaining gap; non-vacuity confirmed by replaying the new tests against the pre-fix source (8 genuine failures there, 0 at HEAD); all 12 of the original adversarial thrown-value shapes re-verified end-to-end with the manifest confirmed unstamped in every case; falsy-message preservation ({message: 0} -> "0", not a generic fallback) confirmed. npm test: 339/339 passed at final review (343/343 after later rebase). Two non-blocking follow-up candidates noted (not created as tasks): the same unguarded-interpolation pattern in the adjacent restart-failed branch, and in autoUpdate.js:100.
+<!-- SECTION:FINAL_SUMMARY:END -->

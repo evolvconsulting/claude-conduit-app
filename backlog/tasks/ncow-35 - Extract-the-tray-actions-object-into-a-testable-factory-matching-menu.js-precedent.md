@@ -3,10 +3,10 @@ id: NCOW-35
 title: >-
   Extract the tray actions object into a testable factory, matching menu.js
   precedent
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:28'
+updated_date: '2026-08-04 21:48'
 labels: []
 dependencies:
   - NCOW-31
@@ -21,9 +21,9 @@ NCOW-31's fix pass wrapped the tray's Start/Stop/Restart callbacks in the shared
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tray'\''s action callbacks (or an equivalent seam) are extracted into an exported, independently constructible unit that a test can drive directly with a real mutex set, the way ipc-mutex.test.js already fakes electron in require.cache to drive the real ipc.js
-- [ ] #2 A behavioral test (not a source-check regex) proves the tray'\''s wiring shares the SAME mutex instance as ipc.js and engine-context.js, catching the nested-scope-shadowing mutation class review pass 2 identified
-- [ ] #3 npm test passes, and the existing tray-mutex regression test from NCOW-31 either upgrades to use the new seam or is superseded by it
+- [x] #1 The tray'\''s action callbacks (or an equivalent seam) are extracted into an exported, independently constructible unit that a test can drive directly with a real mutex set, the way ipc-mutex.test.js already fakes electron in require.cache to drive the real ipc.js
+- [x] #2 A behavioral test (not a source-check regex) proves the tray'\''s wiring shares the SAME mutex instance as ipc.js and engine-context.js, catching the nested-scope-shadowing mutation class review pass 2 identified
+- [x] #3 npm test passes, and the existing tray-mutex regression test from NCOW-31 either upgrades to use the new seam or is superseded by it
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -98,3 +98,9 @@ npm test: 337/337 (reviewer's own independent run, multiple times across mutatio
 
 Approved for merge. Suggested (not yet created, needs user approval per campaign convention): (1) a follow-up task to guard the tray call site against the post-spread bypass (assert no onStart/onStop/onRestart key appears after the createTrayActions spread) -- the likeliest real accidental regression; (2) soften the "close the chain honestly" comment wording. Will propose both to user before creating/editing.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extracted the tray's Start/Stop/Restart action callbacks out of index.js's inline createTray({...}) call into an exported, independently constructible createTrayActions({ mutexes, handlers }) in src/main/tray.js, matching the menu.js/buildMenuTemplate precedent. Added a genuine behavioral test (test/main/tray-actions.test.js) proving the tray shares the SAME mutex instance as ipc.js/engine-context.js via serialization ordering (not source-text matching), superseding NCOW-31's static-regex-only regression test. A follow-up fix pass added a static check that index.js binds the `mutexes` identifier exactly once (no shadowing declaration or bare reassignment), closing the specific nested-scope-shadowing mutation the original review named. Verified by independent review (model: opus, 2 passes): reviewer independently reproduced the exact original mutation and confirmed the fix catches it against the full test suite; reviewer also probed further adversarial variants (parameter shadowing, property-level mutation, a post-spread key override) and found the guard doesn't catch every conceivable variant, but judged this a reasonable stopping point since the fix faithfully implements the specific property a text-only check (index.js can't be required under plain node --test) can legitimately prove, and closing further variants would need AST/scope analysis this project has no parser dependency for. npm test: 337/337 at final review (343/343 after later rebase). Two non-blocking follow-up candidates noted (not created as tasks): a guard against the post-spread bypass, and softening an overstated code comment.
+<!-- SECTION:FINAL_SUMMARY:END -->
