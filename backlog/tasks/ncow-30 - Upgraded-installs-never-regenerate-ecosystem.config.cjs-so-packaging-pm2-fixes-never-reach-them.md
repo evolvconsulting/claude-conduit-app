@@ -3,9 +3,10 @@ id: NCOW-30
 title: >-
   Upgraded installs never regenerate ecosystem.config.cjs, so packaging/pm2
   fixes never reach them
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 00:45'
+updated_date: '2026-08-04 03:22'
 labels:
   - pm2
   - packaging
