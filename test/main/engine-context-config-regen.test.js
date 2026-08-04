@@ -769,13 +769,35 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // identity proof — that the tray, ipc.js, and engine-context.js all contend
 // for one shared mutex instance, and that a shadowed/private set is
 // detectably different — is now a BEHAVIOURAL test against the real seam, in
-// test/main/tray-actions.test.js. index.js itself still can't be required
-// under plain `node --test` (electron.app at module scope), so this file
-// keeps one narrow static check: that index.js's createTray({...}) call
-// actually spreads createTrayActions({ mutexes, handlers }) into it, using the
-// exact `mutexes`/`handlers` bindings destructured off createEngineContext()
-// above (not a differently-named or reassigned pair) — the one link the
-// behavioural test can't reach from outside index.js.
+// test/main/tray-actions.test.js.
+//
+// NCOW-35 fix pass (mandatory review): that behavioural test, and the
+// call-site regex below, each reach only part of the chain. The behavioural
+// test proves createTrayActions({ mutexes, handlers }) shares a lock with
+// ipc.js/engine-context.js whenever it is invoked with the SAME `mutexes`
+// binding — but it imports tray.js directly and cannot see what identifier
+// index.js itself passes in. The call-site regex below only confirms the
+// text `...createTrayActions({ mutexes, handlers })` appears inside the
+// createTray({...}) call; it is blind to whether `mutexes` resolves to the
+// shared instance or a private one, exactly as review pass 2's original
+// `mutexes.proxy.run(...)` regex was. A nested block scope wrapped around
+// createTray({...}) that shadows `mutexes` with its own
+// `require('./mutex').createDomainMutexes()` right before spreading it in
+// passes both checks and still leaves the tray fully unlocked — this was
+// reproduced against a real reviewer pass and confirmed to slip through
+// npm test unnoticed.
+//
+// index.js itself can't be required under plain `node --test` (electron.app
+// at module scope), so this file closes the gap with a second, file-wide
+// static check just below: that the `mutexes` identifier is bound exactly
+// once anywhere in index.js — the createEngineContext() destructure at the
+// top of whenReady() — with no other declaration and no bare reassignment.
+// "Is this identifier rebound or re-declared anywhere in this file" is a
+// source property a static check can legitimately settle, unlike "does this
+// lock actually serialize" (which only the behavioural test can reach).
+// Neither check proves full identity alone; together — the behavioural test
+// for what it CAN reach, the single-binding check for what it CAN'T — they
+// close the chain honestly.
 test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
   assert.match(
@@ -794,5 +816,56 @@ test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ m
     trayBlock,
     /\.\.\.createTrayActions\(\{\s*mutexes,\s*handlers\s*\}\)/,
     'createTray({...}) must spread createTrayActions({ mutexes, handlers }) in, using those exact bindings'
+  );
+});
+
+// NCOW-35 fix pass (mandatory review, finding F1): the check above is a
+// call-site regex — it cannot tell a genuinely shared `mutexes` from one
+// shadowed by a nested block scope wrapped around the whole createTray({...})
+// call, e.g.:
+//
+//   let tray;
+//   {
+//     const mutexes = require('./mutex').createDomainMutexes();
+//     tray = createTray({ ...createTrayActions({ mutexes, handlers }) });
+//   }
+//
+// That reproduces the exact mutation class review pass 2 identified for the
+// old inline `mutexes.proxy.run(...)` wiring — the identity gap didn't close
+// when that wiring moved into createTrayActions(), it just moved with it —
+// and it passed the call-site regex (and the full suite) before this test
+// existed. Checking "is `mutexes` rebound or re-declared anywhere in this
+// file" is something a static check CAN legitimately settle (unlike lock
+// behaviour), so this asserts index.js binds the identifier exactly once —
+// the createEngineContext() destructure — with no shadowing re-declaration
+// and no bare reassignment anywhere else in the file.
+test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration or bare reassignment anywhere else in the file', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+
+  // Every place `mutexes` is *bound* to a value via a declaration keyword:
+  // the bare form (`const mutexes = ...`) or the destructured form
+  // (`const { ..., mutexes, ... } = ...`).
+  const declarationPattern = /\b(?:const|let|var)\s+(?:\{[^{}]*\bmutexes\b[^{}]*\}|mutexes\b)\s*=/g;
+  const declarations = source.match(declarationPattern) ?? [];
+  assert.equal(
+    declarations.length,
+    1,
+    `expected exactly one declaration binding "mutexes" in index.js (the createEngineContext() destructure), found ${declarations.length}: ${JSON.stringify(declarations)}`
+  );
+  assert.match(
+    declarations[0],
+    /const \{ handlers, pm2Control, configRegeneration, mutexes \}\s*=$/,
+    'the sole "mutexes" binding must be the createEngineContext() destructure, not some other declaration'
+  );
+
+  // A bare reassignment (`mutexes = ...`, no declaration keyword) rebinds the
+  // identifier just as effectively as a shadowing re-declaration, and is
+  // equally invisible to a regex scoped to the createTray({...}) call site.
+  const bareAssignmentPattern = /(?<!(?:const|let|var)\s+)\bmutexes\s*=(?!=)/g;
+  const bareAssignments = source.match(bareAssignmentPattern) ?? [];
+  assert.equal(
+    bareAssignments.length,
+    0,
+    `expected no bare "mutexes = ..." reassignment anywhere in index.js, found: ${JSON.stringify(bareAssignments)}`
   );
 });
