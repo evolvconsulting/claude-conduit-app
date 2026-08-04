@@ -3,10 +3,10 @@ id: NCOW-30
 title: >-
   Upgraded installs never regenerate ecosystem.config.cjs, so packaging/pm2
   fixes never reach them
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 00:45'
-updated_date: '2026-08-04 04:11'
+updated_date: '2026-08-04 04:13'
 labels:
   - pm2
   - packaging
@@ -51,11 +51,11 @@ if picked up alongside either.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The app detects when its own generated ecosystem.config.cjs/run.js/manifest.json are stale relative to the currently-running app version (or otherwise out of date) and regenerates them, verified live: an install that completed setup on an older build and is then upgraded in place ends up with fresh, current-version generated files without the user re-running setup
-- [ ] #2 The regeneration is safe against a currently-running proxy: it does not corrupt or orphan a live litellm process, and any necessary restart to pick up the new config is handled the same way this app already handles other proxy-affecting changes
-- [ ] #3 Coordinate with NCOW-24 if the fix touches the same daemon-lifecycle code, and with NCOW-10's auto-update path if regeneration should be triggered by (or verified across) an auto-update rather than only at every app launch
-- [ ] #4 A regression test covers the stale-detection and regeneration logic
-- [ ] #5 npm test passes
+- [x] #1 The app detects when its own generated ecosystem.config.cjs/run.js/manifest.json are stale relative to the currently-running app version (or otherwise out of date) and regenerates them, verified live: an install that completed setup on an older build and is then upgraded in place ends up with fresh, current-version generated files without the user re-running setup
+- [x] #2 The regeneration is safe against a currently-running proxy: it does not corrupt or orphan a live litellm process, and any necessary restart to pick up the new config is handled the same way this app already handles other proxy-affecting changes
+- [x] #3 Coordinate with NCOW-24 if the fix touches the same daemon-lifecycle code, and with NCOW-10's auto-update path if regeneration should be triggered by (or verified across) an auto-update rather than only at every app launch
+- [x] #4 A regression test covers the stale-detection and regeneration logic
+- [x] #5 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -268,3 +268,42 @@ Housekeeping: reviewer's own test artifacts (fake homes, isolated
 /tmp/n30pm2 pm2 daemon) fully removed; zero litellm-nim entries left on the
 real shared pm2 daemon; real config dir untouched.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed the gap where an existing install never regenerated its generated
+ecosystem.config.cjs/run.js/manifest.json across app upgrades, so
+NCOW-27/28-class fixes silently never reached a user who had already
+completed setup (true of both real published releases, v0.1.0 and v0.1.1).
+manifest.json now records generated_by_version; configGen.js's
+needsRegeneration()/regenerateStaleConfig() detect a version mismatch (or
+absent/corrupt stamp) and re-render from the manifest's already-recorded
+settings, restarting the proxy via the app's existing
+getStatus()/startOrRestart() mechanism if it's currently running;
+engine-context.js runs this once at every launch, fire-and-forget.
+
+Two review passes (opus). Pass 1 (request_changes) found one blocking
+regression via live A/B testing: a corrupt/truncated manifest.json (which
+this task's own write path can itself produce on a crash/power-loss) threw
+past createEngineContext()'s constructor, silently preventing the app from
+ever opening a window. Fixed by making that read resilient (falls back to
+null/absent, matching the existing missing-manifest treatment). Pass 2
+(approve) independently re-verified the fix with two different corruption
+shapes, re-confirmed AC#1/#2/#4/#5 live (an old-shaped install regenerates
+on launch with all prior state and real keys preserved; a running proxy is
+cleanly restarted onto the regenerated config, not corrupted or orphaned),
+and reviewed AC#3 by inspection (pm2Control.js untouched, no NCOW-24
+overlap; auto-update's relaunch-then-launch-time-regeneration satisfies the
+AC's own wording). npm test 282/282 (261 baseline + 21 new), re-verified
+after rebase onto dev. Squash-merged PR #20 -> dev @ 6485ff2.
+
+Two non-blocking follow-up candidates recorded on the task, not yet filed
+as a new task pending user approval: (1) the background restart isn't
+serialized behind ipc.js's proxy-domain mutex (a narrow, recoverable race
+requiring an upgrade launch + an already-running proxy + a Stop/Quit click
+inside the restart window); (2) a failed restart's own error isn't
+distinguished from a health-check-timeout-shaped {ok:false} return, and
+generated_by_version is stamped before the restart attempt, so a failed
+restart isn't retried on the next launch.
+<!-- SECTION:FINAL_SUMMARY:END -->
