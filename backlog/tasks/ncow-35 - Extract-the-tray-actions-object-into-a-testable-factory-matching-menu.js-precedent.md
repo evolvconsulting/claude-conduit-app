@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:16'
+updated_date: '2026-08-04 21:20'
 labels: []
 dependencies:
   - NCOW-31
@@ -69,4 +69,17 @@ Mitigating context: the identical gap is pre-existing and already explicitly acc
 Nits (non-blocking): replacement regex is order/shorthand-sensitive (fails on `{ handlers, mutexes }` or `{ mutexes: mutexes, handlers }`) -- acceptable brittleness, worth knowing; the "negative control" test in tray-actions.test.js is self-contained/always-passes documentation of test sensitivity, not itself a guard -- PR body shouldn't imply otherwise.
 
 Dispatching a fresh worker fix pass with these findings verbatim (fix-cycle 1 of 2 allowed retries).
+
+Fix pass 1 complete on branch feat/NCOW-35-tray-actions-factory (commit 4840a7a, on top of 53242ea), pushed to origin.
+
+Fix: added a static regex-based check to test/main/engine-context-config-regen.test.js verifying `mutexes` is bound exactly once in src/main/index.js (the single createEngineContext() destructure), with no shadowing re-declaration and no bare reassignment anywhere else in the file. Kept the existing call-site regex (still catches full removal of the mutex wiring). Updated the overstated comment block to describe what the behavioral test + new static check establish TOGETHER, rather than implying either alone proves full identity.
+
+Evidence:
+- Worker reproduced the reviewer's exact mutation (block-scoped shadowed mutexes around the createTray call) and confirmed the NEW check fails as expected ("expected exactly one declaration... found 2") while the OLD call-site regex still passed on the broken code -- directly confirming the reviewer's point that the old check alone is blind to this class of bug, and that the new check closes it.
+- Reverted the reproduction, confirmed clean diff.
+- npm test: 337/337 passed (336 + 1 new).
+
+Only lasting change: test/main/engine-context-config-regen.test.js. index.js was temporarily mutated for verification only and confirmed reverted before commit.
+
+Status: fix pass 1 implemented, ready for review pass 2.
 <!-- SECTION:NOTES:END -->
