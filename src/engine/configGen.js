@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const { inspect } = require('node:util');
 const { securePrivateFile } = require('./platform');
 
 /**
@@ -536,6 +537,112 @@ function needsRegeneration(manifest, currentVersion) {
  * @param {{warn: Function, info: Function}} [opts.logger]
  * @returns {Promise<{regenerated: boolean, restarted?: boolean, reason?: string, error?: any}>}
  */
+
+/**
+ * Converts any value to an actual string, structurally — every branch either
+ * returns a genuine `typeof === 'string'` result or falls through to the
+ * next, so this itself can never throw. Used everywhere describeThrownValue
+ * would otherwise have handed a caller a non-string (e.g. a `.message` that
+ * is a Symbol) or built a template literal out of an unvetted value.
+ *
+ * `String()` is tried before `util.inspect()` because it is specifically
+ * permitted to convert a Symbol (unlike template-literal interpolation,
+ * which throws on one) and gives the more natural rendering for anything
+ * with a well-behaved `toString`/`valueOf`. `inspect()` is the fallback
+ * because it reflects on a value's own properties without invoking any
+ * user-defined `toString`/`valueOf`/`Symbol.toPrimitive`, so it survives
+ * null-prototype objects and hostile stringifiers alike.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function safeStringify(value) {
+  if (typeof value === 'string') return value;
+  try {
+    return String(value);
+  } catch {
+    try {
+      return inspect(value);
+    } catch {
+      return '[unstringifiable value]';
+    }
+  }
+}
+
+/**
+ * NCOW-36: review pass 2 on NCOW-31 probed 12 adversarial thrown values
+ * against `attempt.thrown?.message ?? String(attempt.thrown)` and found one
+ * regression: `throw Object.create(null)` has no `Object.prototype` to
+ * inherit `toString` from, so `String()` itself throws
+ * ("Cannot convert object to primitive value") — which made
+ * regenerateStaleConfig() reject instead of logging a readable failure and
+ * leaving the manifest safely unstamped.
+ *
+ * Fix-pass 2 (same task, later review round) found the first hardening pass
+ * incomplete in two ways, both closed here structurally rather than with
+ * another one-off special case:
+ *
+ *  - Layer 1 returned `.message` verbatim once it was non-null, with no type
+ *    check — so a hostile `{ message: Symbol('x') }` (or `Object.create(null)`,
+ *    or a `.message` with a throwing `toString`) sailed through this function
+ *    untouched and then blew up at the *caller's* template-literal
+ *    interpolation site instead, which is the exact "reject instead of a
+ *    logged failure" failure mode this task exists to eliminate. Every return
+ *    path now funnels through safeStringify() above, so whatever comes back is
+ *    guaranteed to be a real string — `.message` values that are already
+ *    strings (including falsy-but-present ones like `''` or `0`, per NCOW-31)
+ *    pass through unchanged; anything else is coerced the same safe way.
+ *  - The deep fallback's own template literal interpolated `ctorName` directly.
+ *    A value with a throwing `[util.inspect.custom]`, a throwing
+ *    `Symbol.toPrimitive`, *and* an unstringifiable `constructor.name` (a
+ *    Symbol, or another null-prototype object) reached that line with
+ *    `ctorName` truthy but itself unstringifiable, and the interpolation threw
+ *    — falsifying this function's own "can never throw" claim. `ctorName` is
+ *    now run through safeStringify() before it ever reaches a template
+ *    literal.
+ *
+ * The outer try/catch is a structural backstop on top of both fixes above,
+ * not a substitute for them: with every interpolated value already routed
+ * through safeStringify(), nothing inside this function should be able to
+ * throw at all, but the wrapper turns that into a real guarantee — including
+ * against some future edit that adds one more raw interpolation — rather
+ * than an invariant that has to be re-verified by inspection every time this
+ * function changes.
+ *
+ * @param {*} thrown
+ * @returns {string}
+ */
+function describeThrownValue(thrown) {
+  try {
+    let message;
+    try {
+      message = thrown?.message;
+    } catch {
+      message = undefined;
+    }
+    if (message != null) return safeStringify(message);
+
+    try {
+      return String(thrown);
+    } catch {
+      try {
+        return inspect(thrown);
+      } catch {
+        let ctorName;
+        try {
+          ctorName = thrown?.constructor?.name;
+        } catch {
+          ctorName = undefined;
+        }
+        const ctorNameText = ctorName ? safeStringify(ctorName) : '';
+        return `[unstringifiable thrown value: typeof ${typeof thrown}${ctorNameText ? `, constructor ${ctorNameText}` : ''}]`;
+      }
+    }
+  } catch {
+    return '[unstringifiable thrown value]';
+  }
+}
+
 async function regenerateStaleConfig(opts) {
   const {
     files,
@@ -591,8 +698,11 @@ async function regenerateStaleConfig(opts) {
     // pm2Control only ever throws real Errors in practice, but guard the
     // `.message` access too (not just the return-shape branch below) so a
     // thrown non-Error value logs its own string form instead of the literal
-    // text "(undefined)".
-    const thrownMessage = attempt.thrown?.message ?? String(attempt.thrown);
+    // text "(undefined)". describeThrownValue() (NCOW-36) additionally
+    // guarantees this line can never itself throw — e.g. `throw
+    // Object.create(null)` makes bare `String()` throw — which would
+    // otherwise make regenerateStaleConfig() reject instead of logging.
+    const thrownMessage = describeThrownValue(attempt.thrown);
     logger.warn(
       `[config-regen] proxy restart THREW after regenerating config (${thrownMessage}); ` +
         `leaving manifest unstamped so the next launch retries regeneration`
