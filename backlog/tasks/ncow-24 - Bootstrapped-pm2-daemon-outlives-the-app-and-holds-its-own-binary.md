@@ -4,7 +4,7 @@ title: Bootstrapped pm2 daemon outlives the app and holds its own binary
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-04 09:13'
+updated_date: '2026-08-04 09:16'
 labels:
   - pm2
   - windows
@@ -117,4 +117,14 @@ ONE narrow blocking finding remains (B1, documentation-only, AC#3): README's own
 Two LOW non-blocking findings recorded, no action required this pass: (N1) the integrity check is presence-only, not size/content-verified, so a truncated (not just missing) companion file is still accepted -- the atomic staging already eliminates this code's own ability to produce that state, so this is a residual, not a reproduced defect; (N2) on win32 a needed re-copy can't proceed while the existing copy is locked (rmSync fails), so it silently falls back to execPath for that one bootstrap attempt then self-heals later -- observed live, correctly self-limiting.
 
 Shared pm2 daemons on both this Mac (pid 1479) and winvm (pid 8832) independently confirmed byte-identical/PID-identical before and after this review pass, same as pass 1.
+
+Fix pass 2 (worker, in response to review pass 2's single B1 finding) complete -- commit a54d24a on fix/NCOW-24-daemon-outlives-app, pushed. Documentation-only, no code logic touched.
+
+README.md's contradictory bullet ('running the uninstaller again ... cleans up like anything else') rewritten to 'which is never cleaned up by uninstalling, no matter how many times you run it' -- now consistent with the very next bullet and the table.
+
+about-dialog.js's GOTCHAS string ('leave its locked binary behind until you run uninstall again') rewritten to state plainly that uninstall completes and deregisters cleanly, the daemon-owned copy under ~/.pm2/daemon-interpreter/ is what's left, with no in-app way to remove it -- drops the false 'run uninstall again' remedy the reviewer found unreachable.
+
+DESIGN.md and CLAUDE.md checked for the same claim -- both already accurate, no changes needed.
+
+npm test: 293/293, unchanged.
 <!-- SECTION:NOTES:END -->
