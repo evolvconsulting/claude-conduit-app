@@ -18,6 +18,11 @@ const { uninstall: runUninstall } = require('../engine/uninstall');
 const manifestStore = require('../engine/manifest');
 const { migrateLegacyConfigDir } = require('../engine/configDirMigration');
 const { migrateLegacyKeyFile, LEGACY_PRODUCT_NAME } = require('../engine/userDataMigration');
+// NCOW-31: deliberately NOT require('./ipc') — that pulls ipcMain/app/shell off
+// `electron` at module scope and this file is required directly by plain
+// `node --test` suites. mutex.js requires nothing at all, which is what lets
+// both files share one set of locks. See mutex.js's header.
+const { createDomainMutexes } = require('./mutex');
 
 const DEFAULT_PORT = 4000;
 
@@ -76,6 +81,14 @@ function resolveWindowsTestOverrides() {
  *   so they can observe the NCOW-30 restart-on-regen wiring without a real pm2
  *   daemon — every real caller (main/index.js) leaves it unset and gets the
  *   genuine pm2-backed control created below.
+ *
+ *   NCOW-31: `mutexes` and `logger` are likewise test-only overrides. Real
+ *   callers leave both unset, getting a fresh createDomainMutexes() (returned
+ *   on the context for main/index.js to hand to registerIpcHandlers) and
+ *   `console`. A test that injects `mutexes` can pre-load the proxy lock to
+ *   observe contention; one that injects `logger` can assert on the
+ *   success-vs-failure logging of a background restart without capturing
+ *   process stdout.
  */
 function createEngineContext(deps) {
   const homedir = resolveHomedir();
@@ -164,6 +177,37 @@ function createEngineContext(deps) {
     manifestForRegenCheck = null;
   }
 
+  // NCOW-31 AC#1: the single set of per-domain locks for this whole app
+  // instance. Created here, handed back on the returned context, and passed
+  // straight into registerIpcHandlers() by main/index.js — so the background
+  // restart below and a user-clicked Start/Stop/Restart contend for the *same*
+  // proxy lock. Two separately-constructed sets would look identical and
+  // serialize nothing across the two paths.
+  //
+  // Deliberately NOT covered: main/shutdown.js's before-quit proxy stop. It
+  // reaches pm2Control directly and stays that way on purpose — CLAUDE.md's
+  // standing constraint is that a wedged pm2 must never make the app
+  // unquittable, and queueing the shutdown stop behind a lock a background
+  // restart can hold for up to 60s is precisely how it would become
+  // unquittable. That stop is bounded by its own timeout instead. So "quit
+  // during a background restart" remains unserialized, by choice; a Stop or
+  // Restart clicked from the window or tray, which is the recoverable-but-
+  // confusing case NCOW-31 was filed for, is now serialized.
+  //
+  // The worst case this leaves is worse than "a Stop that doesn't stick"
+  // (NCOW-31's own description of the pre-fix risk, written before this
+  // exclusion existed): pm2Control.startOrRestart() (pm2Control.js) calls
+  // deleteAppIfPresent() before pm2.start(). If shutdown.js's stop() lands in
+  // that specific gap, it errors on an app pm2 no longer knows about — an
+  // error createProxyShutdown() already swallows by design (it must quit
+  // regardless) — and startOrRestart()'s pm2.start() then runs anyway, right
+  // after the app decided to quit. The proxy can outlive the quit, which is
+  // the exact outcome NCOW-4 ("closing hides, quitting stops the proxy") means
+  // to prevent. This is a millisecond-wide window, pre-existing on dev, and
+  // out of scope for this task to close — see NCOW-31's review notes for the
+  // follow-up.
+  const mutexes = deps.mutexes ?? createDomainMutexes();
+
   const configRegeneration = configGen
     .regenerateStaleConfig({
       files,
@@ -172,6 +216,8 @@ function createEngineContext(deps) {
       saveManifest,
       getStatus: pm2Control.getStatus,
       startOrRestart: pm2Control.startOrRestart,
+      runProxyOperation: (fn) => mutexes.proxy.run(fn),
+      logger: deps.logger ?? console,
     })
     .catch((err) => ({ regenerated: false, reason: 'error', error: err }));
 
@@ -481,7 +527,7 @@ function createEngineContext(deps) {
     },
   };
 
-  return { handlers, pm2Control, files, configDir, homedir, configRegeneration };
+  return { handlers, pm2Control, files, configDir, homedir, configRegeneration, mutexes };
 }
 
 module.exports = { createEngineContext, DEFAULT_PORT };

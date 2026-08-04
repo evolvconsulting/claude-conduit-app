@@ -70,7 +70,7 @@ if (!gotSingleInstanceLock) {
     // safeStorage must only be called after app.whenReady() — Linux backend
     // detection happens then.
     const { userDataDir, appDataDir } = resolveUserDataPaths();
-    const { handlers, pm2Control, configRegeneration } = createEngineContext({
+    const { handlers, pm2Control, configRegeneration, mutexes } = createEngineContext({
       safeStorage,
       userDataDir,
       appDataDir,
@@ -147,6 +147,12 @@ if (!gotSingleInstanceLock) {
         check: () => autoUpdate.checkForUpdates(),
         install: () => autoUpdate.installUpdateAndRestart(),
       },
+    }, {
+      // NCOW-31: the very locks createEngineContext already used for its own
+      // launch-time stale-config restart. Passing them — rather than letting
+      // registerIpcHandlers build its own private set — is the entire reason a
+      // user-clicked Stop can't interleave with that background restart.
+      mutexes,
     });
     createMainWindow();
 
@@ -169,9 +175,20 @@ if (!gotSingleInstanceLock) {
       showDashboard: () => showMainWindow('dashboard'),
       showDiagnostics: () => showMainWindow('diagnostics'),
       quit: () => app.quit(),
-      onStart: () => handlers.proxy.start(),
-      onStop: () => handlers.proxy.stop(),
-      onRestart: () => handlers.proxy.restart(),
+      // NCOW-31 fix pass 2 (reviewer finding B1): these used to call
+      // handlers.proxy.* directly, which goes around ipcMain entirely and
+      // therefore around the mutex above -- tray.js only enables Stop/Restart
+      // when status.status === 'running', i.e. exactly the precondition the
+      // background stale-config restart's up-to-60s health-check window holds
+      // the lock under, so a tray click in that window could still interleave
+      // with it even after AC#1's IPC-side fix. mutexes.proxy.run(...) is the
+      // same primitive registerIpcHandlers() decorates the IPC handlers with
+      // (mutex.js) and configGen.regenerateStaleConfig()'s own restart uses via
+      // engine-context.js's `runProxyOperation` -- routing the tray through it
+      // too is what makes all three call paths contend for one shared lock.
+      onStart: () => mutexes.proxy.run(() => handlers.proxy.start()),
+      onStop: () => mutexes.proxy.run(() => handlers.proxy.stop()),
+      onRestart: () => mutexes.proxy.run(() => handlers.proxy.restart()),
     });
 
     stopStatusPoller = startStatusPoller({
