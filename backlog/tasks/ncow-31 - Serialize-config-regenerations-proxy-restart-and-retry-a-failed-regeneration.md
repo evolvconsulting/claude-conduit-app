@@ -1,10 +1,10 @@
 ---
 id: NCOW-31
 title: 'Serialize config-regeneration''s proxy restart, and retry a failed regeneration'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 06:27'
-updated_date: '2026-08-04 19:22'
+updated_date: '2026-08-04 19:24'
 labels:
   - pm2
   - packaging
@@ -69,10 +69,10 @@ from a thrown error).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The background restart triggered by stale-config regeneration is serialized against the same proxy-domain mutex ipc.js already uses for user-initiated start/stop/restart, so the two can never interleave
-- [ ] #2 A failed or timed-out restart (both the thrown-error shape and pm2Control.startOrRestart()'s {ok:false, error} return shape) is logged distinctly from success, and does NOT cause generated_by_version to be stamped -- so the next app launch retries regeneration instead of silently treating it as done
-- [ ] #3 A regression test covers: (a) the mutex actually prevents an interleaved user-initiated proxy operation during a background restart, (b) a failed/timed-out restart is retried on the next launch rather than silently skipped
-- [ ] #4 npm test passes
+- [x] #1 The background restart triggered by stale-config regeneration is serialized against the same proxy-domain mutex ipc.js already uses for user-initiated start/stop/restart, so the two can never interleave
+- [x] #2 A failed or timed-out restart (both the thrown-error shape and pm2Control.startOrRestart()'s {ok:false, error} return shape) is logged distinctly from success, and does NOT cause generated_by_version to be stamped -- so the next app launch retries regeneration instead of silently treating it as done
+- [x] #3 A regression test covers: (a) the mutex actually prevents an interleaved user-initiated proxy operation during a background restart, (b) a failed/timed-out restart is retried on the next launch rather than silently skipped
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -131,3 +131,9 @@ Also found the fix-pass-1 comment correction (engine-context.js's shutdown-exclu
 
 Integration check (light, campaign-final): confirmed the fix-pass delta (~13 changed source lines total) doesn't touch any NCOW-21/24/23/30 code paths -- npm test 333/333, re-run independently twice plus once more under a mutation. Real ~/.config/claude-conduit/ SHA-256-verified identical before and after every live-harness run this pass (all harnesses stayed in scratchpad, none written to the repo, all hard-asserted their resolved config dir was the fake mkdtemp home before writing anything).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extracted the per-domain proxy mutex from ipc.js into a new electron-free shared module (src/main/mutex.js) so both ipc.js and engine-context.js's launch-time stale-config regeneration can construct/share the same lock -- closing the race where a background restart (triggered by NCOW-30's regeneration mechanism) could interleave with a user-initiated proxy start/stop/restart. generated_by_version is now stamped only after a confirmed-successful restart; both failure shapes (a thrown error, and pm2Control.startOrRestart()'s {ok:false,error} return e.g. HEALTH_CHECK_TIMEOUT) are distinctly logged and correctly leave the manifest unstamped so the next launch retries. Two opus review passes: pass 1 request_changes -- found the tray's Start/Stop/Restart bypassed the mutex entirely (index.js wired them directly to the handlers, no lock), a real reachable interleave; fix pass wrapped the tray callbacks in the same lock plus corrected two non-blocking comment/logging issues. Pass 2 approve, all 4 ACs independently confirmed, including a 120-iteration randomized-interleaving fuzz against the real shared lock (zero interleaves; the pre-fix negative control interleaves reliably) and 12 adversarial thrown-value probes for the retry-logging fix. npm test 333/333, re-verified after rebase. Squash-merged PR #23 -> dev @ d0e2362. Non-blocking follow-ups surfaced by review, not yet filed pending user decision: the uninstall/update IPC domains have no mutex at all (Uninstall's pm2Control.remove() could race an in-flight background restart); a comment-only nuance on the shutdown-race window's actual mechanism; README/DESIGN.md don't yet record the deliberate shutdown-mutex carve-out.
+<!-- SECTION:FINAL_SUMMARY:END -->
