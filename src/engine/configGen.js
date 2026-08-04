@@ -497,6 +497,32 @@ function needsRegeneration(manifest, currentVersion) {
  * required at the top of this module) so this stays plain-Node and testable
  * without a real pm2 daemon, matching every other engine/ module.
  *
+ * NCOW-31 (two fixes, both in the restart path below):
+ *
+ * 1. The status check and the restart it decides on run inside a single
+ *    `runProxyOperation()` critical section, so this background restart cannot
+ *    interleave with a user-initiated Start/Stop/Restart (which take the same
+ *    lock in main/ipc.js). Injected rather than imported for the reason
+ *    main/mutex.js documents at length: this is an engine/ module and has no
+ *    business knowing which main-process domain owns the lock. The default is
+ *    an unlocked passthrough, which is exactly the pre-NCOW-31 behaviour and
+ *    keeps every caller that doesn't care (including plain unit tests) working.
+ *    Locking the *whole* check-then-restart rather than just the restart also
+ *    closes the smaller TOCTOU inside this function: a Stop landing between
+ *    getStatus() and startOrRestart() would otherwise have this path restart a
+ *    proxy the user just asked to stop.
+ *
+ * 2. `generated_by_version` is stamped only AFTER a confirmed-successful
+ *    restart. It used to be stamped before the restart was even attempted, so
+ *    any failure left the manifest looking current and the next launch skipped
+ *    regeneration forever. Both of startOrRestart()'s failure shapes count as
+ *    failure here — a genuine throw, and its ordinary
+ *    `{ok: false, error: {code: 'HEALTH_CHECK_TIMEOUT'}}` return (only the
+ *    former was even logged before). Leaving the manifest unstamped is what
+ *    makes the next launch retry: generateAll() is idempotent (it reuses the
+ *    existing master key), so a retry rewrites byte-identical content and
+ *    re-attempts the restart.
+ *
  * @param {object} opts
  * @param {import('./paths').getFilePaths extends (...a: any) => infer R ? R : never} opts.files
  * @param {object|null} opts.manifest
@@ -504,10 +530,23 @@ function needsRegeneration(manifest, currentVersion) {
  * @param {(patch: object) => object} opts.saveManifest
  * @param {() => Promise<{status: string}>} opts.getStatus
  * @param {(opts: {ecosystemConfigPath: string, port: number, outLog: string, errLog: string}) => Promise<any>} opts.startOrRestart
- * @returns {Promise<{regenerated: boolean, reason?: string}>}
+ * @param {(fn: () => Promise<any>) => Promise<any>} [opts.runProxyOperation]
+ *   Runs its callback inside the shared proxy-domain critical section. Must
+ *   propagate both the resolved value and any rejection.
+ * @param {{warn: Function, info: Function}} [opts.logger]
+ * @returns {Promise<{regenerated: boolean, restarted?: boolean, reason?: string, error?: any}>}
  */
 async function regenerateStaleConfig(opts) {
-  const { files, manifest, currentVersion, saveManifest, getStatus, startOrRestart } = opts;
+  const {
+    files,
+    manifest,
+    currentVersion,
+    saveManifest,
+    getStatus,
+    startOrRestart,
+    runProxyOperation = (fn) => fn(),
+    logger = console,
+  } = opts;
 
   if (!needsRegeneration(manifest, currentVersion)) return { regenerated: false, reason: 'up-to-date' };
 
@@ -524,22 +563,56 @@ async function regenerateStaleConfig(opts) {
     litellmAbsPath: manifest.litellm_path,
     nvidiaApiKey: apiKey,
   });
-  saveManifest({ generated_by_version: currentVersion });
 
-  // AC#2: a live proxy from a previous session must pick up the regenerated
-  // ecosystem.config.cjs, not keep running whatever pm2 already loaded into
-  // memory.
-  const status = await getStatus();
-  if (status.status === 'running') {
-    await startOrRestart({
-      ecosystemConfigPath: files.ecosystemConfig,
-      port: manifest.port,
-      outLog: files.outLog,
-      errLog: files.errLog,
-    });
+  // NCOW-30 AC#2: a live proxy from a previous session must pick up the
+  // regenerated ecosystem.config.cjs, not keep running whatever pm2 already
+  // loaded into memory. NCOW-31: serialized, and its outcome reported rather
+  // than assumed. The throw is caught INSIDE the critical section so the
+  // section's own value is always a plain outcome record — the lock releases
+  // either way (see mutex.js: the chain is advanced with `.catch(() => {})`,
+  // so there is no release to leak), but keeping the throw local means the
+  // decision logic below has exactly one shape to read.
+  const attempt = await runProxyOperation(async () => {
+    const status = await getStatus();
+    if (status.status !== 'running') return { attempted: false };
+    try {
+      return { attempted: true, result: await startOrRestart({
+        ecosystemConfigPath: files.ecosystemConfig,
+        port: manifest.port,
+        outLog: files.outLog,
+        errLog: files.errLog,
+      }) };
+    } catch (err) {
+      return { attempted: true, thrown: err };
+    }
+  });
+
+  if (attempt.thrown) {
+    logger.warn(
+      `[config-regen] proxy restart THREW after regenerating config (${attempt.thrown.message}); ` +
+        `leaving manifest unstamped so the next launch retries regeneration`
+    );
+    return { regenerated: false, reason: 'restart-error', error: attempt.thrown };
   }
 
-  return { regenerated: true };
+  if (attempt.attempted && !attempt.result?.ok) {
+    // startOrRestart()'s other failure shape: a normal return, no throw. The
+    // ?? fallback covers a future/unexpected falsy-ok return with no error
+    // object rather than logging "undefined: undefined".
+    const error = attempt.result?.error ?? { code: 'RESTART_FAILED', message: 'proxy restart reported failure' };
+    logger.warn(
+      `[config-regen] proxy restart FAILED after regenerating config (${error.code}: ${error.message}); ` +
+        `leaving manifest unstamped so the next launch retries regeneration`
+    );
+    return { regenerated: false, reason: 'restart-failed', error };
+  }
+
+  saveManifest({ generated_by_version: currentVersion });
+  logger.info(
+    `[config-regen] regenerated config for version ${currentVersion}` +
+      (attempt.attempted ? ' and restarted the running proxy' : ' (proxy was not running; no restart needed)')
+  );
+  return { regenerated: true, restarted: attempt.attempted === true };
 }
 
 module.exports = {

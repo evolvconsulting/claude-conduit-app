@@ -545,6 +545,16 @@ function makeStaleInstallFixture() {
   return { files, manifest };
 }
 
+/**
+ * Captures what regenerateStaleConfig() logs instead of letting it reach the
+ * real console. `warn`/`info` are the only two levels it uses.
+ */
+function recordingLogger() {
+  const warn = [];
+  const info = [];
+  return { warn: (m) => warn.push(m), info: (m) => info.push(m), warned: warn, infoed: info };
+}
+
 test('regenerateStaleConfig: up-to-date manifest is a no-op — never re-renders, never touches pm2', async () => {
   const { files, manifest } = makeStaleInstallFixture();
   manifest.generated_by_version = '0.2.0';
@@ -578,9 +588,10 @@ test('regenerateStaleConfig: a stale pre-NCOW-30 install (no generated_by_versio
     saveManifest: (patch) => { savedPatches.push(patch); },
     getStatus: async () => ({ status: 'not-installed' }),
     startOrRestart: async () => { throw new Error('must not restart a not-installed proxy'); },
+    logger: recordingLogger(),
   });
 
-  assert.deepEqual(result, { regenerated: true });
+  assert.deepEqual(result, { regenerated: true, restarted: false });
   assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0' }]);
 
   // Regenerated ecosystem.config.cjs must be fresh, current-version content —
@@ -607,10 +618,15 @@ test('regenerateStaleConfig: AC#2 — restarts a currently-running proxy the sam
     currentVersion: '0.2.0',
     saveManifest: () => {},
     getStatus: async () => ({ status: 'running' }),
-    startOrRestart: async (opts) => { startOrRestartCalls.push(opts); },
+    // Returns pm2Control.startOrRestart()'s real success shape. It used to
+    // return undefined here, which NCOW-31 now (correctly) reads as failure —
+    // a fake that no longer matches reality, so it was fixed rather than
+    // accommodated.
+    startOrRestart: async (opts) => { startOrRestartCalls.push(opts); return { ok: true }; },
+    logger: recordingLogger(),
   });
 
-  assert.deepEqual(result, { regenerated: true });
+  assert.deepEqual(result, { regenerated: true, restarted: true });
   assert.equal(startOrRestartCalls.length, 1);
   assert.deepEqual(startOrRestartCalls[0], {
     ecosystemConfigPath: files.ecosystemConfig,
@@ -632,7 +648,8 @@ test('regenerateStaleConfig: never restarts a proxy that is not running', async 
       currentVersion: '0.2.0',
       saveManifest: () => {},
       getStatus: async () => ({ status }),
-      startOrRestart: async () => { startOrRestartCalls += 1; },
+      startOrRestart: async () => { startOrRestartCalls += 1; return { ok: true }; },
+      logger: recordingLogger(),
     });
   }
 
@@ -655,6 +672,290 @@ test('regenerateStaleConfig: no litellm.env on disk to reuse a key from — skip
 
   assert.deepEqual(result, { regenerated: false, reason: 'no-existing-secrets' });
   assert.equal(fs.existsSync(files.ecosystemConfig), false);
+});
+
+// NCOW-31 — the two gaps NCOW-30 deferred. Both live in this same restart path.
+//
+// Gap 1: the restart wasn't serialized against ipc.js's proxy-domain mutex, so
+// a user clicking Stop inside startOrRestart()'s up-to-60s health-check window
+// could interleave with it.
+// Gap 2: generated_by_version was stamped BEFORE the restart was attempted, so
+// any failure left the manifest looking current and every future launch skipped
+// regeneration — permanently. Worse, only a thrown error was even logged;
+// startOrRestart()'s ordinary {ok:false, error:{code:'HEALTH_CHECK_TIMEOUT'}}
+// return was silent.
+
+test('regenerateStaleConfig: AC#1 — the whole status-check-then-restart runs inside runProxyOperation, as ONE critical section', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  const trace = [];
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { trace.push('saveManifest'); },
+    getStatus: async () => { trace.push('getStatus'); return { status: 'running' }; },
+    startOrRestart: async () => { trace.push('startOrRestart'); return { ok: true }; },
+    runProxyOperation: async (fn) => {
+      trace.push('lock:acquire');
+      try {
+        return await fn();
+      } finally {
+        trace.push('lock:release');
+      }
+    },
+    logger: recordingLogger(),
+  });
+
+  assert.deepEqual(result, { regenerated: true, restarted: true });
+  // getStatus INSIDE the lock matters: a Stop landing between the status read
+  // and the restart would otherwise have this path restart a proxy the user
+  // just asked to stop.
+  assert.deepEqual(trace, ['lock:acquire', 'getStatus', 'startOrRestart', 'lock:release', 'saveManifest']);
+});
+
+test('regenerateStaleConfig: the lock is released even when startOrRestart THROWS', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  const trace = [];
+  const logger = recordingLogger();
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp after a failed restart'); },
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => { throw new Error('pm2 connect timed out after 30000ms'); },
+    runProxyOperation: async (fn) => {
+      trace.push('lock:acquire');
+      try {
+        return await fn();
+      } finally {
+        trace.push('lock:release');
+      }
+    },
+    logger,
+  });
+
+  assert.deepEqual(trace, ['lock:acquire', 'lock:release']);
+  assert.equal(result.regenerated, false);
+  assert.equal(result.reason, 'restart-error');
+  assert.match(result.error.message, /pm2 connect timed out/);
+});
+
+test('regenerateStaleConfig: AC#2 — a THROWN restart failure is logged distinctly and does NOT stamp generated_by_version', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  const logger = recordingLogger();
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp generated_by_version after a failed restart'); },
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => { throw new Error('pm2 exploded'); },
+    logger,
+  });
+
+  assert.deepEqual(result.reason, 'restart-error');
+  assert.equal(result.regenerated, false);
+  assert.equal(logger.infoed.length, 0, 'a failure must never log the success line');
+  assert.equal(logger.warned.length, 1);
+  assert.match(logger.warned[0], /THREW/);
+  assert.match(logger.warned[0], /pm2 exploded/);
+  assert.match(logger.warned[0], /next launch retries/);
+});
+
+test('regenerateStaleConfig: AC#2 — a TIMED-OUT restart ({ok:false, HEALTH_CHECK_TIMEOUT}) is logged distinctly and does NOT stamp generated_by_version', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  const logger = recordingLogger();
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp generated_by_version after a failed restart'); },
+    getStatus: async () => ({ status: 'running' }),
+    // Verbatim pm2Control.startOrRestart()'s health-check-timeout return.
+    startOrRestart: async () => ({
+      ok: false,
+      error: { code: 'HEALTH_CHECK_TIMEOUT', message: 'litellm did not become healthy in time.' },
+      outTail: [],
+      errTail: [],
+    }),
+    logger,
+  });
+
+  assert.equal(result.regenerated, false);
+  assert.equal(result.reason, 'restart-failed');
+  assert.equal(result.error.code, 'HEALTH_CHECK_TIMEOUT');
+  assert.equal(logger.infoed.length, 0);
+  assert.equal(logger.warned.length, 1);
+  assert.match(logger.warned[0], /FAILED/);
+  assert.match(logger.warned[0], /HEALTH_CHECK_TIMEOUT/);
+  assert.match(logger.warned[0], /next launch retries/);
+  // The two failure shapes must be distinguishable, not collapsed into one
+  // reason string — that distinction is half of AC#2.
+  assert.notEqual(result.reason, 'restart-error');
+});
+
+test('regenerateStaleConfig: a falsy-ok restart return with no error object still fails safe rather than logging "undefined"', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  const logger = recordingLogger();
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp'); },
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => undefined,
+    logger,
+  });
+
+  assert.equal(result.reason, 'restart-failed');
+  assert.equal(result.error.code, 'RESTART_FAILED');
+  assert.doesNotMatch(logger.warned[0], /undefined/);
+});
+
+test('regenerateStaleConfig: AC#3b — a failed restart is genuinely retried on the NEXT launch (same on-disk state, second attempt succeeds)', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  // Launch 1: proxy is running, the restart times out. `manifest` here stands
+  // in for what readManifest() returns; the real saveManifest() is the only
+  // thing that would have written generated_by_version into it, so a
+  // never-called saveManifest is exactly "the manifest on disk is unchanged".
+  const savedPatches = [];
+  const saveManifest = (patch) => {
+    savedPatches.push(patch);
+    Object.assign(manifest, patch);
+  };
+
+  const first = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest,
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => ({
+      ok: false,
+      error: { code: 'HEALTH_CHECK_TIMEOUT', message: 'litellm did not become healthy in time.' },
+    }),
+    logger: recordingLogger(),
+  });
+  assert.equal(first.reason, 'restart-failed');
+  assert.deepEqual(savedPatches, [], 'nothing stamped');
+  assert.equal(manifest.generated_by_version, undefined);
+  // This is the bit that makes the next launch retry at all.
+  assert.equal(needsRegeneration(manifest, '0.2.0'), true, 'the manifest must still read as stale');
+
+  // Launch 2: same app version, same disk, restart now succeeds.
+  const secondRestarts = [];
+  const second = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest,
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async (opts) => { secondRestarts.push(opts); return { ok: true }; },
+    logger: recordingLogger(),
+  });
+
+  assert.deepEqual(second, { regenerated: true, restarted: true });
+  assert.equal(secondRestarts.length, 1, 'the retry actually re-attempted the restart');
+  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0' }]);
+  assert.equal(needsRegeneration(manifest, '0.2.0'), false, 'and now it finally settles');
+
+  // Launch 3: nothing left to do.
+  const third = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp twice'); },
+    getStatus: async () => { throw new Error('must not touch pm2 once up to date'); },
+    startOrRestart: async () => { throw new Error('must not restart once up to date'); },
+    logger: recordingLogger(),
+  });
+  assert.deepEqual(third, { regenerated: false, reason: 'up-to-date' });
+});
+
+test('regenerateStaleConfig: a failed restart still leaves the REGENERATED files on disk, so the retry is idempotent (same master key, same content)', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  const envBefore = fs.readFileSync(files.litellmEnv, 'utf8');
+
+  await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => {},
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => ({ ok: false, error: { code: 'HEALTH_CHECK_TIMEOUT', message: 'nope' } }),
+    logger: recordingLogger(),
+  });
+  const cjsAfterFailure = fs.readFileSync(files.ecosystemConfig, 'utf8');
+  const envAfterFailure = fs.readFileSync(files.litellmEnv, 'utf8');
+
+  await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => {},
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => ({ ok: true }),
+    logger: recordingLogger(),
+  });
+
+  assert.equal(fs.readFileSync(files.ecosystemConfig, 'utf8'), cjsAfterFailure, 'retry rewrites byte-identical content');
+  assert.equal(fs.readFileSync(files.litellmEnv, 'utf8'), envAfterFailure);
+  // The master key must survive both passes — a retry that rotated it would
+  // silently break Claude Desktop/Code, whose configs carry the old one.
+  assert.equal(
+    /^LITELLM_MASTER_KEY=(.*)$/m.exec(envAfterFailure)[1],
+    /^LITELLM_MASTER_KEY=(.*)$/m.exec(envBefore)[1]
+  );
+});
+
+test('regenerateStaleConfig: a SUCCESSFUL regeneration logs at info, never at warn', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+
+  const logger = recordingLogger();
+  await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => {},
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => ({ ok: true }),
+    logger,
+  });
+
+  assert.deepEqual(logger.warned, []);
+  assert.equal(logger.infoed.length, 1);
+  assert.match(logger.infoed[0], /0\.2\.0/);
+  assert.match(logger.infoed[0], /restarted the running proxy/);
+});
+
+test('regenerateStaleConfig: omitting runProxyOperation/logger keeps the pre-NCOW-31 call signature working', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  const infos = [];
+  const originalInfo = console.info;
+  console.info = (m) => infos.push(m);
+  try {
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => {},
+      getStatus: async () => ({ status: 'stopped' }),
+      startOrRestart: async () => ({ ok: true }),
+    });
+    assert.deepEqual(result, { regenerated: true, restarted: false });
+  } finally {
+    console.info = originalInfo;
+  }
+  // Defaults to the real console, which is what a caller that supplies no
+  // logger should get.
+  assert.equal(infos.length, 1);
 });
 
 // NCOW-21 — the embedded-quote breakout, and the two-layer models that catch
