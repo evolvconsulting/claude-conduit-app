@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 00:45'
-updated_date: '2026-08-04 03:56'
+updated_date: '2026-08-04 04:11'
 labels:
   - pm2
   - packaging
@@ -221,4 +221,50 @@ static check that index.js observes/logs it.
 npm test: 282/282 (278 baseline + 4 new). Committed separately as 0832188
 (not amended onto 20f84bb), pushed to origin/fix/NCOW-30-regenerate-
 configs-on-upgrade.
+
+Review pass 2 (opus, wave 12): approve. AC indices independently
+re-confirmed this pass with fresh live evidence: 1, 2, 4, 5 (AC#3 by
+inspection, unchanged from pass 1 -- pm2Control.js still untouched).
+
+Blocking fix from pass 1 confirmed FIXED and general, not overfit: reviewer
+built its own A/B with two different corruption shapes (trailing garbage
+after valid JSON; mid-string truncation) distinct from the fix-pass
+worker's own truncation point -- both reproduced the exact pre-fix crash
+(0 renderers, matching UnhandledPromiseRejectionWarning at getManifest/
+createEngineContext/index.js:73) and confirmed the post-fix branch launches
+cleanly (1 renderer, lands at #setup, no unhandled rejection) for both.
+Also confirmed the null-fallback doesn't introduce a new problem: after a
+corrupt-manifest launch, manifest.json/ecosystem.config.cjs/run.js/
+litellm.env were all byte-identical to before (nothing discarded or
+orphaned) -- the read simply retries next launch, same conservative
+behavior as the pre-existing absent-manifest path.
+
+Deferred finding #2 (mutex serialization) reviewed independently and its
+deferral ACCEPTED: reviewer verified engine-context.js genuinely cannot
+require ipc.js (which pulls ipcMain/app/shell from electron at module scope,
+while engine-context.js is required directly by plain node --test suites),
+so sharing the lock needs a new electron-free mutex module plus rewiring
+both call sites -- correctly out of scope for this fix pass. The race also
+needs three things to align (upgrade launch + proxy already running +
+a Stop/Quit click inside the restart window) and is recoverable if it ever
+fires. Recommended as a future follow-up task, not blocking here.
+
+Two NEW non-blocking findings from this pass (neither reopens
+request_changes): (1) the fix pass's new logging only fires on a genuine
+throw from startOrRestart(); it does NOT inspect a health-check-timeout
+style {ok:false, error} RETURN value from pm2Control.startOrRestart(), so a
+timed-out restart still silently resolves as {regenerated:true} with no log
+-- finding #1 from pass 1 is now partially, not fully, addressed; (2) a
+failed restart is never retried, since generated_by_version is stamped
+BEFORE the restart attempt, so a failed restart leaves the next launch
+believing it's up-to-date and skipping both regeneration and the retry --
+consistent with the documented fire-and-forget intent, but worth folding
+into the same future follow-up as finding #2.
+
+Own npm test: 282/282, exit 0. Scope/conventions confirmed clean: fix-pass
+diff stays within its claimed findings, both commits carry Refs NCOW-30.
+and Co-Authored-By trailers, 0832188 added on top of 20f84bb (not amended).
+Housekeeping: reviewer's own test artifacts (fake homes, isolated
+/tmp/n30pm2 pm2 daemon) fully removed; zero litellm-nim entries left on the
+real shared pm2 daemon; real config dir untouched.
 <!-- SECTION:NOTES:END -->
