@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 09:24'
+updated_date: '2026-08-04 15:17'
 ---
 # Backlog campaign tracker
 
@@ -310,11 +310,22 @@ touches `configGen.js`/`test/engine/configGen.test.js`; NCOW-31 touches `engine-
 `configGen.js`, and `ipc.js` — so a `configGen.js` conflict between them likely still holds, but
 re-verify rather than assume.
 
+**Wave 14 dispatch (2026-08-04):** restore 8 found zero drift against the wave-13 handover
+(`dev`/`origin/dev` in sync at `98eac16`, clean tree, no leftover worktrees/branches/open PRs, all
+3 treehouse leases in pool `claude-conduit-163fa4` available). winvm re-confirmed reachable
+(`~/.scripts/winvm.sh "hostname"` → `winvm`). A fresh file-citation check via `grep` confirmed the
+predicted conflict holds: NCOW-21's `cmdQuoteArg()` (line 172) and NCOW-31's
+`regenerateStaleConfig()` (line 475) both live in `src/engine/configGen.js` — a confirmed file
+conflict, not the "likely" one flagged at wave 13 settlement. The wave shrinks to one, same shape
+as waves 3/10/12/13. **Wave 14 = NCOW-21** — ahead of NCOW-31 in confirmed queue order (#3 vs #14)
+and the only one of the two needing the live-winvm slot, so it's picked first while winvm is
+already confirmed reachable.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
+| 3 | NCOW-21 | release | none | Dispatched | 14 | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 14 | NCOW-31 | pm2/packaging | none | To Do | | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
 
 ## Resolved
