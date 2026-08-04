@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 00:45'
-updated_date: '2026-08-04 03:34'
+updated_date: '2026-08-04 03:48'
 labels:
   - pm2
   - packaging
@@ -140,4 +140,51 @@ Judgment calls flagged by the worker for reviewer attention:
 4. configRegeneration is fire-and-forget/best-effort by design (never blocks
    or fails app startup) -- a failure here just means the user hits the same
    failure mode next Start click, same as today.
+
+Review pass 1 (opus, wave 12): request_changes. AC indices independently
+confirmed with live evidence: 1, 2, 4, 5 (AC#3 satisfied but by code
+inspection only -- pm2Control.js untouched, no new daemon-bootstrap
+behavior, launch-time regeneration covers the auto-update case per the AC's
+own wording). Own npm test: 278/278.
+
+BLOCKING finding: src/main/engine-context.js:150 evaluates `manifest:
+getManifest()` synchronously in the argument list, outside the promise chain
+and outside any try/catch. readManifest() does a bare JSON.parse, so a
+corrupt/truncated manifest.json (exactly what a non-atomic writeFileSync
+leaves after a crash/power-loss/disk-full -- and this task now rewrites that
+file on every version upgrade) throws out of createEngineContext(), which
+rejects app.whenReady().then(...), so createMainWindow() never runs --
+contradicts the call site's own "must never block or fail app startup"
+comment. Live A/B on dev vs this branch with the same truncated manifest
+confirmed: dev launches fine; this branch produces zero renderers and a
+windowless zombie process, with no route to Setup/Uninstall. Reviewer
+verdict: fix before re-review, do not settle any ACs until fixed and AC#1/#2
+are re-verified against the fix.
+
+Four non-blocking findings also recorded (see task notes for full reviewer
+detail): (1) a regeneration/restart failure is completely silent --
+configRegeneration's rejection is never read or logged anywhere, no
+diagnostic trail; (2) the background startOrRestart() is the first one not
+serialized behind ipc.js's proxy-domain mutex, so it can race a concurrent
+Start/Stop click or before-quit's stopProxyForShutdown() during its up-to-60s
+health poll; (3) staleness is exact version-string equality, so a template
+change shipped without a version bump never reaches installs already
+stamped with that version -- fine for real releases, a trap for dev/nightly
+builds; (4) the no-litellm-path skip branch and the .catch() error branch
+are both untested, the latter being the safety-critical one given the
+blocking finding.
+
+Reviewer explicitly upheld all four of the worker's own flagged judgment
+calls as correct: reusing the manifest's litellm_path instead of
+re-detecting on every launch, reading the API key from litellm.env instead
+of secretStore, downgrade-also-regenerates, and fire-and-forget/never-block
+as the right DESIGN intent (just not what the code currently does before
+the blocking fix).
+
+Housekeeping: reviewer found the worker's own live-verification had left a
+stopped, harmless litellm-nim artifact entry in the user's REAL shared pm2
+daemon (dump.pm2), pointing at a now-deleted scratchpad path -- reviewer
+deliberately did not touch the shared daemon and used an isolated PM2_HOME
+for its own testing instead. This needs cleanup by the orchestrator (main
+checkout, not a subagent) before wave settlement.
 <!-- SECTION:NOTES:END -->
