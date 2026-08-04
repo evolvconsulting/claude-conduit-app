@@ -100,14 +100,31 @@ general_settings:
  * `C:\Program Files (x86)\...\litellm.cmd` outright (a stray caret landed
  * inside the parenthesized directory name and cmd.exe failed with exit 1,
  * "path not specified"); it "neutralized" `%USERNAME%` only by mangling the
- * variable name into garbage, not by any real protection; and a crafted arg
- * with an embedded quote (e.g. `a"&echo,BREAKOUT>marker&"b`) achieved real
- * command injection, live-verified by the marker file it created.
+ * variable name into garbage, not by any real protection; and it did nothing
+ * whatsoever for a crafted arg with an embedded quote.
+ *
+ * That embedded-quote case (NCOW-21) was a SEPARATE, longer-lived hole, and
+ * it is worth being precise about which fix closed what: dropping the caret
+ * pass did not close it, and neither did the joined-command-string fix below
+ * as first written. An arg like `a"&echo,BREAKOUT>marker&"b` achieved real
+ * command injection — live-verified on a Windows VM by the marker file it
+ * created — both under the caret version AND after the caret pass was
+ * replaced, because cmdQuoteArg() escaped an embedded `"` MSVCRT-style, as
+ * `\"`. That satisfies the argv parser the spawned process uses, but cmd.exe
+ * re-parses the command line FIRST and gives backslashes no special meaning:
+ * it simply toggles "inside quotes" on every literal `"` it sees. So the `"`
+ * in `\"` ended cmd.exe's quoted region early and every metacharacter after
+ * it in the same argument ran as real shell syntax. The fix, live-verified
+ * the same way, is to escape an embedded quote cmd.exe-style, as `""`: that
+ * survives both layers — cmd.exe toggles out and straight back in, exposing
+ * nothing, and CommandLineToArgvW-style argv parsing reads `""` inside a
+ * quoted region as one literal embedded quote.
  *
  * The fix: build ONE string containing the whole command (litellm path +
  * args), with EVERY piece individually escaped via cmdQuoteArg() below for
- * Windows argv-quoting rules ONLY (a literal `"` or a trailing run of `\`
- * needs doubling) and then wrapped in its own pair of quotes. No caret pass
+ * both parsing layers (a literal `"` becomes `""`; a run of `\` immediately
+ * before a literal quote, or trailing before the closing quote, gets
+ * doubled) and then wrapped in its own pair of quotes. No caret pass
  * is needed or applied: per-argument double-quoting alone is what neutralizes
  * cmd.exe's metacharacters, because inside a quoted region `& | < > ( )` do
  * not act as control characters — and adding carets on top would only
@@ -134,10 +151,15 @@ general_settings:
  * flows through this argv (model IDs, the NVIDIA API key, and any custom
  * base URL travel via config.yaml/litellm.env, never as a CLI arg here). The
  * escaping below is written to be correct for arbitrary content anyway
- * (belt-and-braces, and it costs nothing), but the actual safety property in
- * production rests on these specific inputs being app-generated, not on "the
- * shell is off" or "Node quotes safely" — cmd.exe's re-parse means neither
- * of those claims is true in general.
+ * (belt-and-braces, and it costs nothing) — with exactly one documented
+ * exception, the `%VAR%` expansion above, which no amount of quoting can
+ * suppress. Embedded double quotes ARE covered, but only since NCOW-21 and
+ * only because of the `""` form: the `\"` form this function used before that
+ * left a live-verified breakout open, so treat the doubled-quote rule as
+ * load-bearing security code, not cosmetic. Either way, the actual safety
+ * property in production rests on these specific inputs being app-generated,
+ * not on "the shell is off" or "Node quotes safely" — cmd.exe's re-parse
+ * means neither of those claims is true in general.
  *
  * @param {{litellmEnvPath: string, litellmAbsPath: string, configYamlPath: string, port: number}} opts
  */
