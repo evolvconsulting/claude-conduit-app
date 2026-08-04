@@ -3,9 +3,10 @@ id: NCOW-35
 title: >-
   Extract the tray actions object into a testable factory, matching menu.js
   precedent
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
+updated_date: '2026-08-04 20:57'
 labels: []
 dependencies:
   - NCOW-31
