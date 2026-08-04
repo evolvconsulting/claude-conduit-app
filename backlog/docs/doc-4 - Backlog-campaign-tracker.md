@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 03:22'
+updated_date: '2026-08-04 06:29'
 ---
 # Backlog campaign tracker
 
@@ -243,13 +243,38 @@ wave to one live-Windows task; NCOW-30 doesn't need winvm to implement but treat
 NCOW-24 conflict (shared daemon-lifecycle scope per its own AC#3) until a wave's file-citation
 check confirms or clears it.
 
+**Wave 12 dispatch (2026-08-04):** all three ready tasks (NCOW-21, NCOW-24, NCOW-30) turned out to
+conflict pairwise (NCOW-21/NCOW-30 both cite `src/engine/configGen.js`; NCOW-21/NCOW-24 both need
+the single live-winvm slot; NCOW-24/NCOW-30 plausibly share pm2 daemon-lifecycle code per NCOW-30's
+own AC#3), so this wave shrank to its correct degraded size of one, same shape as waves 10 and 3.
+**Wave 12 = NCOW-30 alone** — chosen over NCOW-24 (also HIGH, but open-ended characterization work
+with no fix recipe yet) because it's fully scoped with clear ACs, doesn't consume the winvm slot,
+and closes real-user exposure that has existed since the very first published release.
+
+As of wave 12 settlement (2026-08-04): **NCOW-30 is Done** (see Resolved) — merged, PR #20 ->
+`6485ff2`. Took 2 review passes (opus): pass 1 found a real blocking regression via live A/B
+testing (a corrupt/truncated `manifest.json` — exactly what NCOW-30's own new write path can
+itself produce on a crash/power-loss — crashed `createEngineContext()` before any window could
+open); pass 2 independently re-verified the fix with two different corruption shapes and approved.
+Two non-blocking follow-up candidates (background restart not serialized behind `ipc.js`'s proxy
+mutex; a failed restart isn't retried since the version stamp is written before the restart
+attempt) were user-approved and filed together as **NCOW-31** (LOW — narrow, recoverable race plus
+a non-retry gap, not user-facing today).
+
+Three tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-24, NCOW-31. **CHECK winvm
+REACHABILITY FIRST** if picking up NCOW-21 or NCOW-24 — not re-checked since wave 12's restore
+(confirmed reachable then). NCOW-31 needs no VM to start (pure code path, same call site NCOW-30
+just touched) but treat it as a probable file conflict with anything else touching
+`engine-context.js`/`pm2Control.js` until a fresh file-citation check confirms or clears it against
+whatever else is ready at the next wave.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
-| 13 | NCOW-30 | pm2/packaging | none | Dispatched | 12 | configGen.generateAll() has one caller (setup wizard), so an upgraded install never regenerates ecosystem.config.cjs and never picks up NCOW-27/28-class fixes; filed wave 11 from NCOW-28/29's reviews, HIGH priority; may overlap NCOW-24's daemon-lifecycle scope, no VM needed to start |
+| 14 | NCOW-31 | pm2/packaging | none | To Do | | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
 
 ## Resolved
 
@@ -268,6 +293,7 @@ check confirms or clears it.
 
 | 11 | NCOW-28 | Done, 2026-08-03, wave 11 | Added PYTHONIOENCODING: 'utf-8' to configGen.js's renderEcosystemConfigCjs() generated env object for the managed litellm-nim pm2 entry, alongside NCOW-27's ELECTRON_RUN_AS_NODE. Fixes litellm's startup banner crashing with UnicodeEncodeError on Windows' default cp1252 stdout codepage (previously timed out as HEALTH_CHECK_TIMEOUT under pm2) -- blocked every packaged Windows install even after NCOW-27's fix. Opus review independently confirmed all 5 ACs with an A/B control on a real Windows VM (winvm): a matched no-fix build reproduced the exact crash/crash-loop (HEALTH_CHECK_TIMEOUT, restarts 3->4, the exact UnicodeEncodeError string), the fix build ran proxy.start/stop/restart cleanly with a real LLM completion before and after restart. Mutation-tested the regression test (fails without the fix, passes with it). npm test 259/259 (261/261 after rebase onto NCOW-29). Squash-merged PR #18 -> dev @ a6d80ea. |
 | 12 | NCOW-29 | Done, 2026-08-03, wave 11 | apiKey.validateAndSave in engine-context.js now propagates secretStore.save()'s {ok:false, error} instead of discarding it and always reporting success. No renderer change needed -- setup-view.js already branched on result.ok and rendered result.error?.message in its existing .fail span, gated on wiz.apiKeyValidated. Opus review independently reproduced the bug and fix live on a headless Linux box (linuxvm) with a genuine, unforced ENCRYPTION_UNAVAILABLE precondition (no desktop D-Bus session, confirmed with a standalone probe): before the fix, the setup UI showed a misleading pass state with Continue enabled despite the key never being persisted (getMasked() null, generate() NO_KEY); after, a clear .fail error with Continue disabled; a happy-path control (XDG_CURRENT_DESKTOP=GNOME) confirmed normal key persistence still works. npm test 260/260 (261/261 after rebase onto NCOW-28). Squash-merged PR #19 -> dev @ 230ca0d. Two adjacent findings recorded on the task but out of scope: an identical swallowed-failure pattern in secretStore.js's importFromExistingEnvFile() (confirmed by the wave integration review to be dead code, zero production callers) and a pre-existing, environment-specific flaky pm2Control test on Linux (confirmed unrelated to this change, its own orphaned daemon cleaned up by the reviewer). |
+| 14 | NCOW-30 | Done, 2026-08-04, wave 12 | Fixed the gap where an existing install never regenerated its generated ecosystem.config.cjs/run.js/manifest.json across app upgrades. manifest.json now records generated_by_version; configGen.js's needsRegeneration()/regenerateStaleConfig() detect a version mismatch (or absent/corrupt stamp) and re-render from the manifest's already-recorded settings, restarting the proxy via the app's existing getStatus()/startOrRestart() mechanism if it's currently running; engine-context.js runs this once at every launch, fire-and-forget. Two opus review passes: pass 1 request_changes -- found a real blocking regression via live A/B testing (a corrupt/truncated manifest.json, which this task's own write path can itself produce on a crash/power-loss, threw past createEngineContext()'s constructor and silently prevented the app from ever opening a window); fix pass made the manifest read resilient (falls back to null/absent, matching the existing missing-manifest treatment) plus added failure logging, a dev/nightly staleness caveat comment, and 4 new tests. Pass 2 approve -- independently re-verified the fix with two different corruption shapes, re-confirmed AC#1/#2/#4/#5 live (an old-shaped install regenerates on launch with all prior state and real keys preserved; a running proxy is cleanly restarted onto the regenerated config, not corrupted or orphaned), reviewed AC#3 by inspection (pm2Control.js untouched, no NCOW-24 overlap). npm test 282/282 (261 baseline + 21 new), re-verified after rebase onto dev. Squash-merged PR #20 -> dev @ 6485ff2. Two non-blocking follow-up candidates (background restart not serialized behind ipc.js's proxy mutex; a failed restart isn't retried since the version stamp is written before the restart attempt) were user-approved and filed together as NCOW-31. Housekeeping: a stray, harmless litellm-nim artifact entry the wave-1-review's live testing had left in the user's real shared pm2 daemon (dump.pm2) was found and cleaned up by the orchestrator between review passes. |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -661,3 +687,48 @@ across 4 waves)*
   filing rather than created unilaterally. A second candidate (`secretStore.js`'s
   `importFromExistingEnvFile()`, same swallowed-failure pattern as NCOW-29) was confirmed dead code
   with zero production callers by the integration review, so it was not proposed for filing.
+
+- 2026-08-04 — wave 12 (task: NCOW-30): restore 6 found zero drift against the wave-11 handover
+  (dev/origin/dev in sync, no leftover worktrees/branches/PRs, treehouse pool fully released).
+  winvm confirmed reachable. Of the three ready tasks, all conflicted pairwise (NCOW-21/NCOW-30
+  share configGen.js; NCOW-21/NCOW-24 both need the single live-winvm slot; NCOW-24/NCOW-30
+  plausibly share pm2 daemon-lifecycle code per NCOW-30's own AC#3), so the wave shrank to one:
+  NCOW-30, chosen over NCOW-24 for being fully scoped, not needing winvm, and closing exposure
+  that's existed since the first real release.
+
+  Implemented cleanly per plan (generated_by_version stamp + needsRegeneration()/
+  regenerateStaleConfig() in configGen.js, wired into engine-context.js at every launch). Review
+  pass 1 (opus): request_changes -- a live A/B (dev vs branch, same truncated manifest.json) proved
+  a real blocking regression: the manifest read this task added ran synchronously outside any
+  try/catch, so a corrupt manifest (which the task's own new write path can itself leave behind on
+  a crash) crashed app startup into a windowless zombie process, contradicting the code's own
+  "must never block or fail app startup" comment. Also recorded 4 non-blocking findings (silent
+  regeneration/restart failures, no mutex serialization on the background restart, exact-version-
+  equality staleness as a dev/nightly trap, two untested branches).
+
+  Fix pass wrapped the manifest read in a try/catch falling back to null/absent (matching the
+  existing missing-manifest treatment), added failure logging, a doc comment on the dev/nightly
+  caveat, and 4 new regression tests; deliberately left the mutex-serialization finding unaddressed
+  as a real cross-module architectural change out of scope for a fix pass, flagging it explicitly
+  rather than dropping it silently. Review pass 2 (opus): approve -- independently rebuilt the A/B
+  with two different corruption shapes (distinct from the fix-pass worker's own), confirmed the fix
+  general rather than overfit, confirmed the null-fallback introduces no new data loss (manifest/
+  config files byte-identical after a corrupt-manifest launch), re-confirmed AC#1/#2/#4/#5 live,
+  and accepted the mutex-serialization deferral as correctly out of scope. Two new non-blocking
+  findings surfaced this pass (the new failure logging doesn't cover startOrRestart()'s
+  {ok:false,error} return shape, only a genuine throw; a failed restart is never retried since the
+  version stamp is written before the attempt) -- folded into the same follow-up as the deferred
+  mutex finding rather than reopening request_changes.
+
+  Merged: rebased cleanly onto origin/dev (no conflicts -- solo wave), npm test re-verified 282/282
+  post-rebase, squash-merged PR #20 -> dev @ `6485ff2`. Worktree released back to the treehouse
+  pool, branch deleted (local + remote). No wave-level integration review needed (solo wave, same
+  as waves 3/10 -- nothing to cross-check against a sibling that wasn't in flight). Housekeeping:
+  the orchestrator found and deleted a stray, harmless `litellm-nim` entry the wave-1-review's own
+  live testing had left in the user's REAL shared pm2 daemon (`dump.pm2`, pointing at a since-
+  deleted scratchpad path) between review passes 1 and 2 -- confirmed the six unrelated user apps
+  were untouched before and after.
+
+  User approved filing the two deferred/newly-surfaced findings together as one combined task --
+  created as **NCOW-31** (LOW: a narrow, recoverable race plus a non-retry gap, neither user-facing
+  today). Session continues; ready set for the next wave is {NCOW-21, NCOW-24, NCOW-31}.
