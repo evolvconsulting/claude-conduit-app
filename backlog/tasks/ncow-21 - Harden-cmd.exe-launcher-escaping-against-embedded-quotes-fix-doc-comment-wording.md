@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-02 14:12'
-updated_date: '2026-08-04 15:17'
+updated_date: '2026-08-04 15:30'
 labels: []
 dependencies: []
 priority: low
@@ -35,3 +35,15 @@ Both findings were verified via live testing against the real Windows VM (winvm)
 - [ ] #3 The doc comment in configGen.js accurately describes what is and isn't covered by the escaping, without overstating completeness or misattributing which historical fix solved which problem
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read renderRunLauncherJs's doc comment + generated cmdQuoteArg(); confirm pre-fix escape is MSVCRT-style backslash-doubling (s.replace(/(\\*)"/g, '$1$1\\"')).
+2. Build a live harness on winvm: generate a real run.js from the actual module with an exploit payload as configYamlPath, plus a litellm.cmd shim writing its received argv to JSON. Run the pre-fix exploit to confirm the breakout (marker file creation via a chained cmd.exe command).
+3. Apply the fix: change the embedded-quote escape to cmd.exe-style doubled-quote ("" instead of \"). Leave the existing preceding-backslash-doubling rule for trailing backslashes untouched.
+4. Rewrite the generated inline comment and the JSDoc block to accurately describe what is and isn't covered, and correct the misattribution to the superseded caret-based escaping attempt.
+5. Re-run the identical exploit post-fix (expect no breakout), then run 10 adversarial payloads with exact byte-level argv comparison against the shim's captured JSON.
+6. Add 2 regression tests to test/engine/configGen.test.js covering an arg combining an embedded quote and a cmd.exe metacharacter, checked against both cmd.exe's own re-parse model and CommandLineToArgvW rules. Mutation-test by reverting only the escape rule to dev's original and confirming exactly those 2 tests fail.
+7. Run npm test, commit in 2 logical commits, push the branch.
+<!-- SECTION:PLAN:END -->
