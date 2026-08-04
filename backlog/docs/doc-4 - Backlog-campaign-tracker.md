@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 00:45'
+updated_date: '2026-08-04 03:22'
 ---
 # Backlog campaign tracker
 
@@ -249,7 +249,7 @@ check confirms or clears it.
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
-| 13 | NCOW-30 | pm2/packaging | none | To Do | | configGen.generateAll() has one caller (setup wizard), so an upgraded install never regenerates ecosystem.config.cjs and never picks up NCOW-27/28-class fixes; filed wave 11 from NCOW-28/29's reviews, HIGH priority; may overlap NCOW-24's daemon-lifecycle scope, no VM needed to start |
+| 13 | NCOW-30 | pm2/packaging | none | Dispatched | 12 | configGen.generateAll() has one caller (setup wizard), so an upgraded install never regenerates ecosystem.config.cjs and never picks up NCOW-27/28-class fixes; filed wave 11 from NCOW-28/29's reviews, HIGH priority; may overlap NCOW-24's daemon-lifecycle scope, no VM needed to start |
 
 ## Resolved
 
