@@ -3,9 +3,10 @@ id: NCOW-21
 title: >-
   Harden cmd.exe launcher escaping against embedded quotes; fix doc-comment
   wording
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 14:12'
+updated_date: '2026-08-04 15:17'
 labels: []
 dependencies: []
 priority: low
