@@ -1,9 +1,10 @@
 ---
 id: NCOW-37
 title: Harden remaining unguarded error-interpolation sites with safeStringify()
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
+updated_date: '2026-08-04 22:25'
 labels: []
 dependencies:
   - NCOW-36

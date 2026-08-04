@@ -1,9 +1,10 @@
 ---
 id: NCOW-39
 title: Soften overstated test comment on tray mutex-identity coverage
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
+updated_date: '2026-08-04 22:25'
 labels: []
 dependencies:
   - NCOW-35
