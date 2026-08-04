@@ -1,10 +1,10 @@
 ---
 id: NCOW-37
 title: Harden remaining unguarded error-interpolation sites with safeStringify()
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-04 22:38'
+updated_date: '2026-08-04 22:48'
 labels: []
 dependencies:
   - NCOW-36
@@ -19,10 +19,10 @@ NCOW-36 introduced safeStringify()/describeThrownValue() in src/engine/configGen
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/engine/configGen.js's 'restart-failed' branch no longer interpolates error.code/error.message directly; it uses safeStringify()/describeThrownValue() (or equivalent) so a hostile error object cannot throw during logging
-- [ ] #2 src/main/autoUpdate.js's electron-updater error handler (around line 100) no longer calls bare String(err) as a fallback; it uses the same safe-stringification approach so a thrown non-Error value (e.g. Object.create(null)) cannot make the handler itself throw
-- [ ] #3 A regression test proves both sites log safely (do not throw) when given a hostile/malformed error value, mirroring NCOW-36's own adversarial test style
-- [ ] #4 npm test passes
+- [x] #1 src/engine/configGen.js's 'restart-failed' branch no longer interpolates error.code/error.message directly; it uses safeStringify()/describeThrownValue() (or equivalent) so a hostile error object cannot throw during logging
+- [x] #2 src/main/autoUpdate.js's electron-updater error handler (around line 100) no longer calls bare String(err) as a fallback; it uses the same safe-stringification approach so a thrown non-Error value (e.g. Object.create(null)) cannot make the handler itself throw
+- [x] #3 A regression test proves both sites log safely (do not throw) when given a hostile/malformed error value, mirroring NCOW-36's own adversarial test style
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -42,3 +42,9 @@ Implemented by worker (worktree fix/NCOW-37-safestringify-remaining-sites, commi
 
 Review pass 1 (opus): verdict approve. All 4 ACs confirmed independently. Reviewer's own 38-case adversarial probe (Proxy get-traps, Symbol code/message, throwing Symbol.toPrimitive, unstringifiable values, cyclic refs, BigInt, falsy-but-not-nullish error values, etc.) found 0 failures against the fix and 21 failures against unpatched dev code, confirming the fix is structural not shape-specific. Reverting to dev code made exactly the 5 new tests fail (genuine regression coverage, not happy-path). npm test 348/348 (reviewer's own run, twice). Commit 08ea3b8 follows conventions, pushed to origin, diff confined to the 4 expected files. Non-blocking follow-up noted: src/main/autoUpdate.js's checkForUpdates() catch block (~lines 164-166) and its darwin-path result.error interpolation (~lines 139-140) have the same unguarded-interpolation shape and were reproduced to reject/throw on 3 of 4 hostile shapes -- out of this task's scope (AC#2 named only the electron-updater 'error' event handler) but a natural NCOW-38/39-style follow-up candidate.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened configGen.js's regenerateStaleConfig() 'restart-failed' branch (via new safeReadProperty() + existing safeStringify()) and autoUpdate.js's electron-updater 'error' handler (via describeThrownValue(), imported from ../engine/configGen), closing the 2 remaining unguarded-interpolation sites NCOW-36's reviewer flagged. Approved on the first review pass (opus): all 4 ACs confirmed, including the reviewer's own from-scratch 38-case adversarial probe (0 failures against the fix, 21 against unpatched dev; reverting to dev code made exactly the 5 new tests fail, confirming genuine regression coverage). npm test 348/348 (reviewer's own run, and wave-integration reviewer's own run on merged dev). Merged as PR #30 (6c5ecaf). Wave-2 integration review found no cross-task conflicts, but surfaced 2 real untracked follow-up items (autoUpdate.js's remaining 2 unguarded sites; 3 of 4 tray-wiring gaps NCOW-39 documents have no covering task) -- proposed to the user for approval before task creation, per campaign convention.
+<!-- SECTION:FINAL_SUMMARY:END -->

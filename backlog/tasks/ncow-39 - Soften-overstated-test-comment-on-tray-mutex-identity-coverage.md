@@ -1,10 +1,10 @@
 ---
 id: NCOW-39
 title: Soften overstated test comment on tray mutex-identity coverage
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-04 22:40'
+updated_date: '2026-08-04 22:48'
 labels: []
 dependencies:
   - NCOW-35
@@ -19,9 +19,9 @@ test/main/engine-context-config-regen.test.js has a block comment (around line 8
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The comment around line 800 of test/main/engine-context-config-regen.test.js no longer claims the two existing checks 'close the chain honestly' unless a coverage gap it would be referring to has actually been closed by that point (e.g. by the post-spread-override guard follow-up task)
-- [ ] #2 If the post-spread-override guard task has already landed, the comment may instead be updated to accurately describe the now-more-complete coverage; if not, it is softened to state the known residual gap explicitly
-- [ ] #3 npm test passes
+- [x] #1 The comment around line 800 of test/main/engine-context-config-regen.test.js no longer claims the two existing checks 'close the chain honestly' unless a coverage gap it would be referring to has actually been closed by that point (e.g. by the post-spread-override guard follow-up task)
+- [x] #2 If the post-spread-override guard task has already landed, the comment may instead be updated to accurately describe the now-more-complete coverage; if not, it is softened to state the known residual gap explicitly
+- [x] #3 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -44,3 +44,9 @@ Fix pass 1 (worker, commit a2ccdb2 on top of 6d8c391): rewrote lines ~799-812 to
 
 Review pass 2 (opus): verdict approve. All 3 ACs confirmed independently -- 'close the chain honestly' phrase fully gone; opening claim now correctly scoped to what each check actually proves (mutexes-only for the static check, confirmed against the real regex source); reviewer reproduced the private-handlers-shadow gap themselves (343/343 on genuinely broken code) validating the comment's gap (a) claim; gap (b)'s 'verified real break' claim cross-checked against NCOW-35's own task notes; npm test 343/343 (reviewer's own run). Comment-only across both commits (6d8c391, a2ccdb2), Refs/Co-Authored-By trailers correct, branch pushed. Two low-severity residuals accepted per decide-vs-defer (F2: umbrella sentence slightly understates which gaps a text-only check could reach; F3: a negative-control mechanics detail is loosely described) -- both narrow, zero blast radius, worth folding into NCOW-38's edit of this same block when it lands. No further fix cycle needed; approved.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Softened test/main/engine-context-config-regen.test.js's overstated 'close the chain honestly' comment. 2 review rounds (opus, independent re-verification each pass): round 1 found the first softening replaced one overstatement with a narrower, still-false one (empirically reproduced a private-handlers-shadow passing 343/343); round 2 confirmed the fix correctly scopes the claim to what each check actually proves and lists all 4 known residual gaps as siblings. Comment-only diff across both commits. npm test 343/343 (both reviewer passes) and 348/348 on merged dev post-NCOW-37 (wave-integration reviewer's own run). Merged as PR #29 (c86f908). Wave-2 integration review found no cross-task conflicts.
+<!-- SECTION:FINAL_SUMMARY:END -->

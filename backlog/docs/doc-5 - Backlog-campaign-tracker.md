@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-04 22:25'
+updated_date: '2026-08-04 22:49'
 ---
 # Backlog campaign tracker
 
@@ -62,10 +62,11 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 2 dispatch (2026-08-04): 4 resolved (NCOW-34/33/36/35 from wave 1, all Done), 2
-dispatched this wave (NCOW-39, NCOW-37), 2 ready but deferred by conflicts (NCOW-38, NCOW-32
-— see conflict graph below), 0 blocked, 5 excluded pending human decomposition (see Not
-queued).
+As of wave 2 settlement (2026-08-04): 6 resolved (NCOW-34/33/36/35 from wave 1 + NCOW-39/37
+from wave 2, all Done), 2 ready but mutually conflicting (NCOW-38, NCOW-32 — each will form
+a solo wave 3/4), 0 blocked, 5 excluded pending human decomposition (see Not queued). Wave
+2's integration review surfaced 2 real follow-up candidates not yet approved/created as
+tasks — see Wave log below; awaiting user decision before any wave 3 dispatch.
 
 Wave 1 conflict graph (file-citation read against real code, not just cluster labels), kept
 for history: NCOW-34 = README.md/DESIGN.md only. NCOW-33 = engine-context.js comment only.
@@ -103,10 +104,8 @@ more solo waves (3 and 4), a correct sequential degradation, not a bug.
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-39 | test-comment | NCOW-35 (Done) | Dispatched | 2 | Soften overstated "close the chain honestly" comment in test/main/engine-context-config-regen.test.js |
-| 2 | NCOW-37 | error-hardening | NCOW-36 (Done) | Dispatched | 2 | safeStringify() the configGen restart-failed branch + autoUpdate.js's error handler |
-| 3 | NCOW-38 | tray-guard | NCOW-35 (Done) | To Do | | Guard index.js's createTray call site against a post-spread action-key override — conflicts with NCOW-39 (wave 2) and NCOW-32 via shared files, deferred |
-| 4 | NCOW-32 | proxy-mutex | NCOW-31 (Done) | To Do | | Serialize Uninstall + auto-update proxy-stop against the shared proxy mutex — conflicts with NCOW-37 (wave 2) and NCOW-38 via shared files, deferred |
+| 1 | NCOW-38 | tray-guard | NCOW-35 (Done) | To Do | | Guard index.js's createTray call site against a post-spread action-key override — conflicts with NCOW-32 via shared src/main/index.js |
+| 2 | NCOW-32 | proxy-mutex | NCOW-31 (Done) | To Do | | Serialize Uninstall + auto-update proxy-stop against the shared proxy mutex — conflicts with NCOW-38 via shared src/main/index.js |
 
 ## Resolved
 
@@ -116,6 +115,8 @@ more solo waves (3 and 4), a correct sequential degradation, not a bug.
 | 2 | NCOW-33 | Done, 2026-08-04, wave 1 | Corrected engine-context.js's shutdown-mutex-exclusion comment (mechanism + window size). Both ACs confirmed by independent review (opus): technical claims re-verified against shutdown.js/pm2Control.js/autoUpdate.js; comment-only claim verified byte-for-byte (comment-stripped file diff was empty). npm test 333/333. Merged as PR #25 (8145984). One wave-integration finding (a window-size figure elsewhere in the same comment block, "up to 60s" vs "60s+") fixed in the wave-1 cleanup (PR #28, e9fe0a7). |
 | 3 | NCOW-36 | Done, 2026-08-04, wave 1 | Hardened configGen's thrown-value logging guard with a structural safeStringify()/describeThrownValue() fix (2 review rounds — round 1 found the initial single-case fix still leaked on adjacent shapes; round 2 confirmed the structural rewrite closes it via 60+ adversarial probes and non-vacuity replay against pre-fix source). All 3 ACs confirmed by independent review (opus). npm test 339/339 at final review. Merged as PR #26 (8431df3). One wave-integration finding (orphaned JSDoc block) fixed in the wave-1 cleanup (PR #28, e9fe0a7). Two non-blocking follow-up candidates noted, not yet proposed as tasks (see Wave log) — both since filed as NCOW-37 and part of NCOW-38/39 (see wave 2 dispatch entry below). |
 | 4 | NCOW-35 | Done, 2026-08-04, wave 1 | Extracted tray actions into createTrayActions({ mutexes, handlers }) in tray.js, matching menu.js precedent, with a genuine behavioral mutex-identity test (2 review rounds — round 1 found AC#2's core claim not yet proven, since the exact nested-scope-shadowing mutation still passed; round 2 confirmed a targeted static single-binding check closes that specific mutation class). All 3 ACs confirmed by independent review (opus), which also documented several further adversarial variants the guard still doesn't catch and judged that an acceptable stopping point. npm test 337/337 at final review (343/343 after later rebase). Merged as PR #27 (362202d). Two non-blocking follow-up candidates noted, not yet proposed as tasks (see Wave log) — both since filed as NCOW-38 and NCOW-39 (see wave 2 dispatch entry below). |
+| 5 | NCOW-39 | Done, 2026-08-04, wave 2 | Softened test/main/engine-context-config-regen.test.js's overstated "close the chain honestly" comment. 2 review rounds (opus) — round 1 found the first softening replaced one overstatement with a narrower, still-false one (reviewer empirically reproduced a private-handlers-shadow passing 343/343); round 2 confirmed the fix correctly scopes the claim to what each check proves and lists all 4 known residual gaps as siblings. All 3 ACs confirmed. Comment-only diff across both commits. npm test 343/343 (both review passes), 348/348 on merged dev (wave-integration reviewer's own run). Merged as PR #29 (c86f908). |
+| 6 | NCOW-37 | Done, 2026-08-04, wave 2 | Hardened configGen.js's regenerateStaleConfig() "restart-failed" branch (new safeReadProperty() + existing safeStringify()) and autoUpdate.js's electron-updater "error" handler (describeThrownValue(), imported from ../engine/configGen) — the 2 remaining unguarded-interpolation sites NCOW-36's reviewer had flagged. Approved on the first review pass (opus): all 4 ACs confirmed, including the reviewer's own from-scratch 38-case adversarial probe (0 failures against the fix, 21 against unpatched dev; reverting to dev made exactly the 5 new tests fail). npm test 348/348 (reviewer's own run; wave-integration reviewer's own run). Merged as PR #30 (6c5ecaf). Wave-2 integration review surfaced 2 real follow-up candidates (see Wave log) — not yet approved/created. |
 
 ## Not queued — needs a human / blocked
 
@@ -181,6 +182,40 @@ more solo waves (3 and 4), a correct sequential degradation, not a bug.
   available, tracker matched the handover exactly -- no drift. Fresh file-citation conflict
   read (see Frontier above) found NCOW-38 and NCOW-32 both conflict with a wave-2 member and
   with each other, so they're deferred to solo waves 3 and 4.
+- 2026-08-04 — wave 2 settled (tasks: NCOW-39, NCOW-37, both Done): NCOW-37 approved on the
+  first review pass. NCOW-39 needed one request_changes -> fix -> re-review cycle (1 of 2
+  allowed retries): pass 1 found the first softening of the "close the chain honestly"
+  comment had replaced one overstatement with a narrower, still-false one (the reviewer
+  empirically reproduced a private-handlers-shadow passing the full suite, and cross-checked
+  2 more gaps already recorded in NCOW-35's own review notes); the re-fix correctly scoped
+  the claim to what each check actually proves and listed all 4 known residual gaps as
+  siblings, approved on pass 2 with 2 low-severity residuals accepted (narrow, zero blast
+  radius). Both merged serially via rebase + mandatory re-verify (npm test) + squash-merge +
+  worktree/branch cleanup: NCOW-39 (PR #29, c86f908), NCOW-37 (PR #30, 6c5ecaf — test count
+  grew 343 -> 348). A mandatory wave-level integration review over the cumulative diff found
+  no cross-task conflicts (disjoint file sets, no stale references, no duplicate/contradictory
+  implementations) but verdict `needs_new_task`: it surfaced 2 real, previously-untracked
+  follow-up candidates that only become visible at wave level --
+  (Task A) autoUpdate.js's checkForUpdates() catch and its darwin-path error interpolation
+  remain unguarded (the same class NCOW-37 just fixed elsewhere in the same file), rejecting
+  on 4/5 and 3/4 hostile shapes respectively despite the module's own "Always resolves"/
+  "never throw" doc comments now reading as overstated for two sites 30-55 lines below;
+  bounded severity confirmed (index.js:209 already has a real .catch(), so the practical
+  effect is a missed status-broadcast, not a crash or hang). Also noted in the same file:
+  safeReadProperty() was extracted from describeThrownValue() but describeThrownValue()
+  still carries 2 inline copies of the same guard (dead duplication, behavior-preserving to
+  collapse), and the newly-exported safeStringify() has zero consumers.
+  (Task B) NCOW-39's new comment documents 4 residual tray-wiring gaps; NCOW-38 (queued,
+  wave 3) covers only 1 of them (the post-spread key override). The other 3 -- no `handlers`
+  single-binding check, property-level mutation of `mutexes.proxy` (verified a REAL
+  serialization break per NCOW-35's own review notes), and parameter shadowing -- have no
+  covering task at all. Separately, NCOW-39's review pass 2 explicitly deferred 2 low-severity
+  comment-accuracy residuals as "worth folding into NCOW-38's edit of this same block when it
+  lands" -- but NCOW-38's current ACs say nothing about touching this comment, so that
+  deferral is at risk of being silently lost unless NCOW-38 is amended.
+  Per campaign convention, Task A and Task B are proposed to the user (AskUserQuestion) before
+  any task is created or NCOW-38 is amended -- not created unilaterally. Final suite: 348/348
+  passing on merged dev (wave-integration reviewer's own run).
 
 ## Follow-ups to propose
 
