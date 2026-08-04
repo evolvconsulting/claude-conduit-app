@@ -4,7 +4,7 @@ title: Bootstrapped pm2 daemon outlives the app and holds its own binary
 status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-04 08:14'
+updated_date: '2026-08-04 08:47'
 labels:
   - pm2
   - windows
@@ -84,4 +84,24 @@ Non-blocking, documented for the fix pass to address or explicitly defer:
 8. (out of scope, no action) Windows ARM64 NSIS build was independently observed to install incompletely (exit 0, but Claude Conduit.exe and arm64 DLLs absent) -- reproduced twice, not Defender/disk-space related, unrelated to this diff, possibly worth its own future task.
 
 Scope/conventions: clean -- 6 relevant files, no drive-bys, commits match dev's real convention, no other CLAUDE.md hard constraint violated (no pm2 kill anywhere, about-dialog.js change is a single GOTCHAS string, windows.js/backgroundThrottling/sandbox/asarUnpack/files allowlist all untouched). AC#3 judgment call (document persistence rather than eliminate it) was independently evaluated as the right ROUTE on the merits -- alternatives (bundling a second plain node runtime, depending on a user-installed node, not bootstrapping at all) are all worse; the CONTENT of the docs needs correcting (findings 2+4), not the approach. Shared pm2 daemons on both this Mac and winvm (pid 8832) confirmed completely untouched throughout the review.
+
+Fix pass 1 (worker, in response to review pass 1's request_changes) complete -- commit c0fd526 on fix/NCOW-24-daemon-outlives-app, pushed.
+
+Finding 1 (Linux bootstrap broken) FIXED: added libffmpeg.so to DAEMON_INTERPRETER_COMPANION_FILES. Live-verified in a real x86_64 Ubuntu 22.04 Docker container against a genuine electron-v43.2.0-linux-x64 build: ldd confirmed libffmpeg.so unresolved pre-fix / resolved post-fix; actually executing the pre-fix companion set reproduced the exact reported exit-127 failure verbatim ('pm2 daemon process exited during bootstrap (code 127)'); the real pm2Control.js module then bootstrapped a genuine pm2 daemon end-to-end off the relocated copy post-fix (probeDaemonAlive() -> true).
+
+Finding 2 (wrong Windows characterization) CORRECTED everywhere it appeared (pm2Control.js doc comment, DESIGN.md sec 7.4, CLAUDE.md, README.md, about-dialog.js) to: update -- NOT blocked (NSIS renames the locked image aside into %TEMP%\ns*.tmp\old-install\ and queues delete via PendingFileRenameOperations); uninstall -- blocked, intermittently (only when the exe hasn't already been relocated by a preceding upgrade). Re-verified live on winvm with real NSIS installers (0.1.1/0.1.2 built via npm run dist:win): locked-exe update succeeded exactly as the corrected doc now states; locked-exe uninstall on a fresh (never-updated) install left the 225,667,072-byte exe running with the Programs-and-Features entry deregistered, confirming the intermittent-block framing.
+
+Finding 3 (no integrity check) FIXED: resolveDaemonInterpreter() now verifies every companion file exists at the destination (not just exe size) and stages the whole copy in a temp dir, atomically renamed into place only once every file succeeds. Live-verified on winvm's real filesystem: corruption-repair test (delete a companion file from a good copy -> next call restores it) and atomic-failure test (forced mid-copy failure -> falls back to execPath, prior good copy untouched, no leftover temp dir) both passed.
+
+Finding 4 (227MiB undocumented persistence): documented in README's 'Where things live' table, DESIGN.md, CLAUDE.md. Cleanup from uninstall.js investigated and explicitly deferred with a code comment: uninstall.js cannot reliably determine whether the daemon currently at PM2_HOME is still using that exact copy as its running image, so deleting it there risks recreating the exact locked-file problem this fix solves, just relocated.
+
+Finding 5 (staleness heuristic): one-line doc comment added noting the exe-size check is redundant-copy-avoidance, not true staleness detection.
+
+Finding 6 (README wording): both the garbled pm2-ls sentence and the inverted pm2-kill-safety sentence fixed.
+
+Finding 7 (test gaps): added a companion-file-list test using a realistic Linux fixture including libffmpeg.so, two new tests for the integrity/atomic-copy behavior, and a comment on the existing real-spawn test noting it structurally can't catch a finding-1-style regression (plain node, not genuine Electron), pointing at the new test that does.
+
+Finding 8: no action (correctly out of scope).
+
+npm test: 293/293. Shared pm2 daemons on both this Mac and winvm (pid 8832, dump.pm2 sha unchanged) confirmed untouched throughout. All winvm test artifacts (installed builds, verify dirs, old-install temp folder) cleaned up afterward.
 <!-- SECTION:NOTES:END -->
