@@ -197,15 +197,24 @@ function createEngineContext(deps) {
   // The worst case this leaves is worse than "a Stop that doesn't stick"
   // (NCOW-31's own description of the pre-fix risk, written before this
   // exclusion existed): pm2Control.startOrRestart() (pm2Control.js) calls
-  // deleteAppIfPresent() before pm2.start(). If shutdown.js's stop() lands in
-  // that specific gap, it errors on an app pm2 no longer knows about — an
-  // error createProxyShutdown() already swallows by design (it must quit
-  // regardless) — and startOrRestart()'s pm2.start() then runs anyway, right
-  // after the app decided to quit. The proxy can outlive the quit, which is
-  // the exact outcome NCOW-4 ("closing hides, quitting stops the proxy") means
-  // to prevent. This is a millisecond-wide window, pre-existing on dev, and
-  // out of scope for this task to close — see NCOW-31's review notes for the
-  // follow-up.
+  // deleteAppIfPresent() before pm2.start(). shutdown.js's stop() calls
+  // getStatus() FIRST and only calls pm2Control.stop() when it reports
+  // 'running' — so if shutdown's stop() lands in the gap after
+  // deleteAppIfPresent() has removed the app but before pm2.start() has
+  // re-added it, getStatus() reports 'not-installed' and stop() is skipped
+  // entirely by its own precondition, not by an error being thrown and
+  // swallowed: nothing errors, nothing gets caught. (A stop landing just
+  // BEFORE deleteAppIfPresent() runs succeeds normally instead, since the app
+  // is still 'running' at that point — but is then undone by the very next
+  // pm2.start() in that same startOrRestart() call.) Either way,
+  // startOrRestart()'s pm2.start() runs anyway, right after the app decided
+  // to quit. The proxy can outlive the quit, which is the exact outcome
+  // NCOW-4 ("closing hides, quitting stops the proxy") means to prevent.
+  // This window is not millisecond-wide: it spans a full getStatus()+delete
+  // round trip against the pm2 daemon, and autoUpdate.js's own comments note
+  // that proxy.getStatus() can take 1s+ to connect to a cold pm2 daemon — so
+  // it can run well over a second. Pre-existing on dev, and out of scope for
+  // this task to close — see NCOW-31's review notes for the follow-up.
   const mutexes = deps.mutexes ?? createDomainMutexes();
 
   const configRegeneration = configGen
