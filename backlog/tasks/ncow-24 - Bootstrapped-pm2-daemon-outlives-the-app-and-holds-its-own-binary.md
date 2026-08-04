@@ -1,10 +1,10 @@
 ---
 id: NCOW-24
 title: Bootstrapped pm2 daemon outlives the app and holds its own binary
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 21:06'
-updated_date: '2026-08-04 09:20'
+updated_date: '2026-08-04 09:23'
 labels:
   - pm2
   - windows
@@ -36,12 +36,12 @@ Relevant constraint: CLAUDE.md forbids 'pm2 kill' from this app, because pm2 run
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The behavior is characterized on Windows: determine empirically whether a running bootstrapped daemon actually blocks (a) an electron-updater/NSIS update that replaces Claude Conduit.exe and (b) an NSIS uninstall, rather than assuming either way
-- [ ] #2 If it does block them, the update/uninstall path handles it without ever killing a daemon this app did not start, and without silently orphaning a running litellm on port 4000
-- [ ] #3 The user-facing promise is made accurate: either the app no longer leaves an app-sized process running after quit/uninstall, or README/DESIGN.md and any in-app wording are corrected to state what actually persists and why
-- [ ] #4 Whatever is decided is verified live on Windows against a real packaged build (the platform where the image-locking risk exists), not by code reading
-- [ ] #5 CLAUDE.md's no-pm2-kill constraint is respected by the fix, and any new nuance is documented there
-- [ ] #6 npm test passes
+- [x] #1 The behavior is characterized on Windows: determine empirically whether a running bootstrapped daemon actually blocks (a) an electron-updater/NSIS update that replaces Claude Conduit.exe and (b) an NSIS uninstall, rather than assuming either way
+- [x] #2 If it does block them, the update/uninstall path handles it without ever killing a daemon this app did not start, and without silently orphaning a running litellm on port 4000
+- [x] #3 The user-facing promise is made accurate: either the app no longer leaves an app-sized process running after quit/uninstall, or README/DESIGN.md and any in-app wording are corrected to state what actually persists and why
+- [x] #4 Whatever is decided is verified live on Windows against a real packaged build (the platform where the image-locking risk exists), not by code reading
+- [x] #5 CLAUDE.md's no-pm2-kill constraint is respected by the fix, and any new nuance is documented there
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -130,3 +130,9 @@ npm test: 293/293, unchanged.
 
 Review pass 3 (opus, FINAL -- retry budget was at its last allowed pass): approve. All 6 ACs independently confirmed: #3 (the one withheld in pass 2) verified directly this pass -- both contradicting sentences in README.md and about-dialog.js corrected and cross-checked consistent with DESIGN.md/CLAUDE.md/the uninstall.js comment, no new overclaim introduced; #1/#2/#4 confirmed by combining this pass's doc read with the prior two passes' already-independently-verified live evidence (not redundantly re-run); #5/#6 verified directly (grep confirms no pm2 kill in src/, npm test 293/293). Scope confirmed clean: fix pass 2's commit (a54d24a) touches exactly the 2 files/2 sentences disclosed, cumulative diff still the same 7 files as review pass 1. Three non-blocking observations recorded, none blocking: about-dialog.js's daemon-interpreter mention is technically win32/linux-only but correctly scoped by its own leading clause; README's bullets 2/3 are now redundant (both correctly say never-cleaned-up) rather than contradictory; CLAUDE.md's stale '178 tests' claim (real count now 293) is pre-existing drift from many earlier waves, not introduced here.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed: this app's bootstrapped pm2 daemon (spawned via ELECTRON_RUN_AS_NODE when no daemon exists) used this app's own installed binary as its interpreter, locking that file indefinitely. Live characterization on a real Windows VM found an NSIS update is NOT blocked (NSIS renames the locked image aside via PendingFileRenameOperations, which Windows permits on a locked file) but an NSIS uninstall IS blocked, intermittently (exits 0, deregisters the app entirely, deletes every other file, leaves the locked exe running with no UI path back to it -- unless a preceding update already relocated the original image). resolveDaemonInterpreter() in src/engine/pm2Control.js now copies the interpreter plus its required companion files (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, and libffmpeg.so on Linux -- the omission of which was caught by review pass 1 as a Linux-breaking regression) into <pm2Home>/daemon-interpreter/ on win32/linux, staged atomically so a crash mid-copy never leaves a broken half-copy that gets silently reused; spawnDaemon() hands the daemon this relocated copy instead of the live installed binary. Never kills anything -- the no-pm2-kill constraint (CLAUDE.md) is untouched, and the daemon still outlives the app by design; it just no longer locks the app's own installed file. README/DESIGN.md/CLAUDE.md/the About dialog now accurately document what persists after quit/uninstall and why (the ~227MiB relocated copy is never cleaned up by any uninstall path -- a documented tradeoff, not a gap discovered by a later review pass and fixed in a second doc-only pass). Verified: live on a real Windows VM (genuine NSIS installers, both pre- and post-fix) and in a real Linux container against genuine Electron binaries (x64 and arm64); npm test 293/293, re-verified after rebase onto dev. Took 3 opus review passes -- pass 1 found the Linux regression, the wrong Windows characterization, and a missing copy-integrity check (all fixed in fix pass 1); pass 2 independently re-verified all three fixes with different reproductions and found one remaining doc-only inconsistency (fixed in fix pass 2); pass 3 approved with all 6 ACs independently confirmed. Squash-merged PR #21 -> dev @ 4441f40.
+<!-- SECTION:FINAL_SUMMARY:END -->
