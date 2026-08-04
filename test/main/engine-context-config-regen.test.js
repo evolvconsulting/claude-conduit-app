@@ -788,16 +788,28 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // npm test unnoticed.
 //
 // index.js itself can't be required under plain `node --test` (electron.app
-// at module scope), so this file closes the gap with a second, file-wide
+// at module scope), so this file closes THAT gap with a second, file-wide
 // static check just below: that the `mutexes` identifier is bound exactly
 // once anywhere in index.js — the createEngineContext() destructure at the
 // top of whenReady() — with no other declaration and no bare reassignment.
 // "Is this identifier rebound or re-declared anywhere in this file" is a
 // source property a static check can legitimately settle, unlike "does this
 // lock actually serialize" (which only the behavioural test can reach).
-// Neither check proves full identity alone; together — the behavioural test
-// for what it CAN reach, the single-binding check for what it CAN'T — they
-// close the chain honestly.
+//
+// NCOW-35 review (NCOW-39 follow-up): together these two checks prove the
+// tray gets a genuinely shared `mutexes`/`handlers` pair when
+// createTrayActions({ mutexes, handlers }) is spread into createTray({...}),
+// but they do NOT close the chain fully. Both are blind to a plain object
+// literal override: if a future edit adds its own `onStart`/`onStop`/
+// `onRestart` key to the createTray({...}) object literal AFTER the
+// `...createTrayActions({ mutexes, handlers })` spread, plain JS object
+// semantics let that later key silently win, discarding the mutex-wrapped
+// action the spread contributed — with `mutexes` still bound exactly once
+// and the spread text still present verbatim, so neither check would notice.
+// Closing that residual gap needs a check that looks at what wins *after*
+// the spread, not just that the spread and the binding are present; NCOW-38
+// tracks adding that guard. Until it lands, treat this pair as proving lock
+// identity, not full tray-wiring safety.
 test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
   assert.match(
