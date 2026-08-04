@@ -158,20 +158,32 @@ function loadEnvFile(path) {
 
 // See renderRunLauncherJs's doc comment in configGen.js for the full
 // reasoning. Escapes one argument for safe interpolation into the single
-// command string cmd.exe /c re-parses: Windows argv-quoting rules only (a
-// run of backslashes immediately before a literal quote gets doubled, a
-// trailing run of backslashes before the closing quote gets doubled, then
-// the whole argument is wrapped in quotes). No caret-escaping pass is
-// needed: inside a double-quoted cmd.exe command line, & | < > ( ) are not
-// treated as control characters, and critically ^ is not an escape
-// character there either — inserting carets would only corrupt the value
-// (this is exactly what broke paths like "C:\Program Files (x86)\..." in an
-// earlier version of this function). The one residual, accepted because
-// these args are always app-generated (see the doc comment): %VAR%-style
-// expansion still happens inside quotes and cannot be escaped away.
+// command string cmd.exe /c re-parses. Two layers parse that string in
+// sequence, and every rule here has to survive BOTH: cmd.exe's own re-parse
+// first (which only toggles in/out of "inside quotes" on each literal " and
+// gives backslashes no meaning at all), then the spawned process's
+// CommandLineToArgvW-style argv split. So:
+//   - a literal " becomes "" (NOT \"): cmd.exe passes a doubled quote
+//     through as one literal quote without ever leaving its quoted region,
+//     and argv parsing also reads "" inside quotes as one embedded quote.
+//     A \" escape would satisfy only the second layer — cmd.exe would still
+//     toggle out of quotes on that ", exposing everything after it as real
+//     shell syntax (live-verified breakout on Windows; see NCOW-21).
+//   - a run of backslashes immediately before a literal quote gets doubled,
+//     as does a trailing run before the closing quote, so argv parsing does
+//     not read the last backslash as escaping the quote that follows.
+//   - the whole argument is then wrapped in one quote pair.
+// No caret-escaping pass is needed: inside a double-quoted cmd.exe command
+// line, & | < > ( ) are not treated as control characters, and critically ^
+// is not an escape character there either — inserting carets would only
+// corrupt the value (this is exactly what broke paths like "C:\Program
+// Files (x86)\..." in an earlier version of this function). The one
+// residual, accepted because these args are always app-generated (see the
+// doc comment): %VAR%-style expansion still happens inside quotes and
+// cannot be escaped away.
 function cmdQuoteArg(arg) {
   let s = String(arg);
-  s = s.replace(/(\\\\*)"/g, '$1$1\\\\"');
+  s = s.replace(/(\\\\*)"/g, '$1$1""');
   s = s.replace(/(\\\\*)$/, '$1$1');
   s = '"' + s + '"';
   return s;
