@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 06:29'
+updated_date: '2026-08-04 06:36'
 ---
 # Backlog campaign tracker
 
@@ -268,12 +268,32 @@ just touched) but treat it as a probable file conflict with anything else touchi
 `engine-context.js`/`pm2Control.js` until a fresh file-citation check confirms or clears it against
 whatever else is ready at the next wave.
 
+**Wave 13 dispatch (2026-08-04):** restore 7 found zero drift against the wave-12 handover
+(`dev`/`origin/dev` in sync at `ba04f9d`, clean tree, no leftover worktrees/branches/open PRs, all
+3 treehouse leases in pool `claude-conduit-163fa4` available). winvm re-confirmed reachable
+(`~/.scripts/winvm.sh "hostname"` → `winvm`). File-citation check against the real code (`grep`,
+not the cluster-tag heuristic): NCOW-24 cites `src/main/engine-context.js` and
+`src/engine/pm2Control.js` (pm2 daemon bootstrap/lifecycle code); NCOW-31 cites the same
+`src/main/engine-context.js` plus `src/engine/configGen.js` (`regenerateStaleConfig()`/
+`needsRegeneration()`) and `src/main/ipc.js` (the mutex it needs to share) — a confirmed file
+conflict on `engine-context.js`, not just the probable one flagged at wave 12 settlement. NCOW-21
+cites only `src/engine/configGen.js`/`test/engine/configGen.test.js` (`cmdQuoteArg()`), which also
+conflicts with NCOW-31 on `configGen.js`. NCOW-21 and NCOW-24 additionally both require the single
+live-winvm slot (Shared Machine State) even though they cite no common file. All three ready tasks
+therefore conflict pairwise (NCOW-21/NCOW-24: Shared Machine State; NCOW-21/NCOW-31:
+`configGen.js`; NCOW-24/NCOW-31: `engine-context.js`), so the wave shrinks to its correct degraded
+size of one, same shape as waves 3/10/12. **Wave 13 = NCOW-24 alone** — the only HIGH-priority
+task left in the queue (NCOW-21 and NCOW-31 are both LOW), queued since wave 6 and repeatedly
+deferred to lower-priority-but-more-scoped work each time the winvm slot was contended; winvm is
+confirmed reachable now and NCOW-24's own ACs require live Windows verification regardless of
+what else is picked.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
-| 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
+| 6 | NCOW-24 | pm2/release | none | Dispatched | 13 | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
 | 14 | NCOW-31 | pm2/packaging | none | To Do | | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
 
 ## Resolved
