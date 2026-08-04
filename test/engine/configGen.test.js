@@ -818,6 +818,163 @@ test('regenerateStaleConfig: a falsy-ok restart return with no error object stil
   assert.doesNotMatch(logger.warned[0], /undefined/);
 });
 
+// NCOW-36 — NCOW-31 review pass 2 probed 12 adversarial thrown values against
+// `attempt.thrown?.message ?? String(attempt.thrown)` and found it genuinely
+// fixed every real shape pm2Control can produce, but with one contrived
+// regression: `throw Object.create(null)` has no `Object.prototype` to
+// inherit `toString` from, so bare `String()` itself throws ("Cannot convert
+// object to primitive value"), which made regenerateStaleConfig() REJECT
+// instead of resolving with a logged, unstamped failure. Harmless in
+// practice (engine-context.js's own `.catch()` absorbs the rejection and the
+// manifest still correctly stays unstamped either way), but the log line was
+// lost. These tests pin the fix: the guard must never itself throw, no
+// matter what shape a caller's startOrRestart() throws.
+
+test('regenerateStaleConfig: NCOW-36 AC#1 — a thrown null-prototype object no longer rejects, and logs a readable message', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  const logger = recordingLogger();
+
+  // Must not reject — awaiting it directly is the test. Pre-fix, bare
+  // String(Object.create(null)) throwing inside the logging line meant this
+  // await would have rejected instead of resolving.
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp after a thrown restart failure'); },
+    getStatus: async () => ({ status: 'running' }),
+    startOrRestart: async () => { throw Object.create(null); },
+    logger,
+  });
+
+  assert.equal(result.regenerated, false);
+  assert.equal(result.reason, 'restart-error');
+  assert.equal(logger.infoed.length, 0, 'a failure must never log the success line');
+  assert.equal(logger.warned.length, 1);
+  assert.match(logger.warned[0], /THREW/);
+  assert.match(logger.warned[0], /next launch retries/);
+  // The specific bug: neither the raw exception text nor NCOW-31's own
+  // original "(undefined)" placeholder should ever surface here.
+  assert.doesNotMatch(logger.warned[0], /Cannot convert object to primitive/);
+  assert.doesNotMatch(logger.warned[0], /\(undefined\)/);
+});
+
+test('regenerateStaleConfig: NCOW-36 — objects with hostile toString/Symbol.toPrimitive also log sensibly instead of rejecting', async () => {
+  const hostileShapes = [
+    {
+      label: 'throwing toString',
+      value: { toString() { throw new Error('toString exploded'); } },
+    },
+    {
+      label: 'throwing Symbol.toPrimitive (and throwing toString as a fallback)',
+      value: {
+        [Symbol.toPrimitive]() { throw new Error('toPrimitive exploded'); },
+        toString() { throw new Error('toString exploded too'); },
+      },
+    },
+  ];
+
+  for (const { label, value } of hostileShapes) {
+    const { files, manifest } = makeStaleInstallFixture();
+    const logger = recordingLogger();
+
+    // eslint-disable-next-line no-await-in-loop
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => { throw new Error(`must not stamp for ${label}`); },
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => { throw value; },
+      logger,
+    });
+
+    assert.equal(result.regenerated, false, label);
+    assert.equal(result.reason, 'restart-error', label);
+    assert.equal(logger.warned.length, 1, label);
+    assert.match(logger.warned[0], /THREW/, label);
+    assert.match(logger.warned[0], /next launch retries/, label);
+  }
+});
+
+test('regenerateStaleConfig: NCOW-36 AC#2 — the full adversarial set of 12+ previously-probed thrown-value shapes all still log sensibly and leave the manifest unstamped', async () => {
+  // Reconstructs review pass 2's adversarial sweep: every shape pm2Control
+  // could realistically throw (Error), every shape a hostile or merely
+  // careless caller could throw (primitives, a bare array, a Symbol, plain
+  // objects with and without a `.message`), plus the unstringifiable shapes
+  // this task specifically hardens against.
+  //
+  // Note: `if (attempt.thrown)` above is a truthiness check (pre-existing,
+  // untouched by this fix), so a FALSY thrown value (null, undefined, 0,
+  // false, NaN) doesn't take the THREW branch at all — it falls through to
+  // the ordinary "restart reported failure, no error object" branch instead
+  // (the same one the falsy-ok-return test above exercises). That branch
+  // logs its own sensible, non-crashing message and still leaves the
+  // manifest unstamped, so it still satisfies AC#2 in spirit; it just isn't
+  // the THREW/restart-error message. Each case below asserts the branch it
+  // actually takes.
+  const adversarialThrownValues = [
+    { label: 'Error', value: new Error('pm2 exploded'), thrownBranch: true, messageIncludes: 'pm2 exploded' },
+    { label: 'plain string', value: 'pm2 connect timed out', thrownBranch: true, messageIncludes: 'pm2 connect timed out' },
+    { label: 'array', value: ['pm2', 'exploded'], thrownBranch: true, messageIncludes: 'pm2,exploded' },
+    { label: 'Symbol', value: Symbol('pm2-exploded'), thrownBranch: true, messageIncludes: 'Symbol(pm2-exploded)' },
+    {
+      label: 'plain object with .message',
+      value: { code: 'E_PM2', message: 'pm2 exploded (object)' },
+      thrownBranch: true,
+      messageIncludes: 'pm2 exploded (object)',
+    },
+    { label: 'plain object without .message', value: { code: 'E_PM2' }, thrownBranch: true },
+    { label: 'null', value: null, thrownBranch: false },
+    { label: 'undefined', value: undefined, thrownBranch: false },
+    { label: 'number 0', value: 0, thrownBranch: false },
+    { label: 'boolean false', value: false, thrownBranch: false },
+    { label: 'NaN', value: NaN, thrownBranch: false },
+    { label: 'null-prototype object', value: Object.create(null), thrownBranch: true },
+  ];
+
+  for (const { label, value, thrownBranch, messageIncludes } of adversarialThrownValues) {
+    const { files, manifest } = makeStaleInstallFixture();
+    const logger = recordingLogger();
+
+    // eslint-disable-next-line no-await-in-loop
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => { throw new Error(`must not stamp for ${label}`); },
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => { throw value; },
+      logger,
+    });
+
+    assert.equal(result.regenerated, false, `${label}: must not report regenerated`);
+    assert.equal(logger.infoed.length, 0, `${label}: must never log the success line`);
+    assert.equal(logger.warned.length, 1, `${label}: must log exactly one warning`);
+    assert.equal(typeof logger.warned[0], 'string', `${label}: logged message must be a string`);
+    assert.match(logger.warned[0], /next launch retries/, `${label}: warning must explain the retry`);
+
+    if (thrownBranch) {
+      assert.equal(result.reason, 'restart-error', `${label}: must classify as restart-error`);
+      assert.equal(result.error, value, `${label}: must surface the original thrown value untouched`);
+      assert.match(logger.warned[0], /THREW/, `${label}: warning must say THREW`);
+      if (messageIncludes !== undefined) {
+        assert.ok(
+          logger.warned[0].includes(messageIncludes),
+          `${label}: expected warning to include ${JSON.stringify(messageIncludes)}, got: ${logger.warned[0]}`
+        );
+      }
+    } else {
+      // Falsy `attempt.thrown` (pre-existing truthiness check, unrelated to
+      // this fix): falls through to the "restart reported failure" branch,
+      // still unstamped and still logged sensibly, just via a different
+      // reason/message shape.
+      assert.equal(result.reason, 'restart-failed', `${label}: falsy thrown value falls through to restart-failed`);
+      assert.match(logger.warned[0], /FAILED/, `${label}: warning must say FAILED`);
+    }
+  }
+});
+
 test('regenerateStaleConfig: AC#3b — a failed restart is genuinely retried on the NEXT launch (same on-disk state, second attempt succeeds)', async () => {
   const { files, manifest } = makeStaleInstallFixture();
 

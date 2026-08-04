@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const { inspect } = require('node:util');
 const { securePrivateFile } = require('./platform');
 
 /**
@@ -536,6 +537,55 @@ function needsRegeneration(manifest, currentVersion) {
  * @param {{warn: Function, info: Function}} [opts.logger]
  * @returns {Promise<{regenerated: boolean, restarted?: boolean, reason?: string, error?: any}>}
  */
+
+/**
+ * NCOW-36: review pass 2 on NCOW-31 probed 12 adversarial thrown values
+ * against `attempt.thrown?.message ?? String(attempt.thrown)` and found one
+ * regression: `throw Object.create(null)` has no `Object.prototype` to
+ * inherit `toString` from, so `String()` itself throws
+ * ("Cannot convert object to primitive value") — which made
+ * regenerateStaleConfig() reject instead of logging a readable failure and
+ * leaving the manifest safely unstamped.
+ *
+ * This never lets the caller's logging attempt itself throw: it tries a
+ * `.message` string first (matching the pre-existing behaviour exactly —
+ * `?? ` only falls through on null/undefined, so a falsy-but-present message
+ * like `''` or `0` still wins), then `String()`, then `util.inspect()` (which
+ * reflects on a value's own properties without invoking any of its
+ * user-defined `toString`/`valueOf`/`Symbol.toPrimitive`, so it survives
+ * null-prototype objects and hostile stringifiers alike), and only falls
+ * back to a bare type/constructor description if even that throws (e.g. a
+ * custom `[util.inspect.custom]` that itself throws).
+ *
+ * @param {*} thrown
+ * @returns {string}
+ */
+function describeThrownValue(thrown) {
+  let message;
+  try {
+    message = thrown?.message;
+  } catch {
+    message = undefined;
+  }
+  if (message != null) return message;
+
+  try {
+    return String(thrown);
+  } catch {
+    try {
+      return inspect(thrown);
+    } catch {
+      let ctorName;
+      try {
+        ctorName = thrown?.constructor?.name;
+      } catch {
+        ctorName = undefined;
+      }
+      return `[unstringifiable thrown value: typeof ${typeof thrown}${ctorName ? `, constructor ${ctorName}` : ''}]`;
+    }
+  }
+}
+
 async function regenerateStaleConfig(opts) {
   const {
     files,
@@ -591,8 +641,11 @@ async function regenerateStaleConfig(opts) {
     // pm2Control only ever throws real Errors in practice, but guard the
     // `.message` access too (not just the return-shape branch below) so a
     // thrown non-Error value logs its own string form instead of the literal
-    // text "(undefined)".
-    const thrownMessage = attempt.thrown?.message ?? String(attempt.thrown);
+    // text "(undefined)". describeThrownValue() (NCOW-36) additionally
+    // guarantees this line can never itself throw — e.g. `throw
+    // Object.create(null)` makes bare `String()` throw — which would
+    // otherwise make regenerateStaleConfig() reject instead of logging.
+    const thrownMessage = describeThrownValue(attempt.thrown);
     logger.warn(
       `[config-regen] proxy restart THREW after regenerating config (${thrownMessage}); ` +
         `leaving manifest unstamped so the next launch retries regeneration`
