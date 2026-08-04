@@ -1,9 +1,10 @@
 ---
 id: NCOW-24
 title: Bootstrapped pm2 daemon outlives the app and holds its own binary
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 21:06'
+updated_date: '2026-08-04 06:36'
 labels:
   - pm2
   - windows
