@@ -223,25 +223,35 @@ existed yet the first time this app needed one, it started one itself — and, l
 daemon, that process is detached and outlives whatever started it by design. In practice
 this means a background process can still be running after you quit, even after you
 uninstall. This is not a bug in the sense of something gone wrong: it's the same shared,
-persistent daemon model described under *Reboot persistence* below, and it's why `pm2 ls`
-can show apps from unrelated tools you've never opened this manager alongside. Two things
-that follow from it:
+persistent daemon model described under *Reboot persistence* below. One consequence is that
+running `pm2 ls` yourself can show apps started by completely unrelated tools — even ones
+you've never used alongside this manager — because they all share the same daemon. Three
+things that follow from it:
 
 - The daemon this app bootstraps runs as a private copy of this app's own runtime
   (there's no separate, lighter interpreter to hand it), so it is genuinely the same
   size as the app itself in Activity Monitor / Task Manager while it's running — not a
   small background helper.
-- That copy lives outside this app's install location specifically so it never blocks
-  updating or uninstalling: before NCOW-24, a Windows install/uninstall could silently
-  fail to replace or remove the app's own binary while a daemon it had started was still
-  running against it — reporting success while actually leaving the old binary in place,
-  still running, with no way to discover it through the UI. Since NCOW-24, updating and
-  uninstalling on Windows and Linux are unaffected by whether such a daemon is running.
+- That copy lives outside this app's install location so a running daemon never has this
+  app's own installed binary open. **Corrected characterization (verified live against a
+  real packaged NSIS build):** a Windows/Linux *update* was never actually blocked by
+  this — NSIS renames a locked, running binary aside and deletes it later, it doesn't fail
+  outright. *Uninstalling* is the case that genuinely was (and, on a fresh install that was
+  never subsequently updated, still can be) blocked: it deregisters the app and deletes
+  every other file while silently leaving that locked, multi-hundred-MB binary behind,
+  still running, with no way to discover it through the UI. Since NCOW-24, the daemon's own
+  copy of the interpreter means it's never *this app's own installed binary* left behind —
+  only that daemon-owned copy under `~/.pm2/daemon-interpreter/` (see the table below),
+  which running the uninstaller again (once nothing is using it) cleans up like anything
+  else.
+- That daemon-owned copy is never deleted by an uninstall — see the "Where things live"
+  table below for its size and lifetime.
 
 If you don't want any pm2 daemon running at all, stop it the same way you would for any
-other pm2 daemon on your machine (e.g. `pm2 kill`, which is safe for *you* to run since it
-also affects everything else you supervise with pm2 — see CLAUDE.md's note on why this
-app never runs that command itself).
+other pm2 daemon on your machine (e.g. `pm2 kill`) — but only run that yourself,
+deliberately, once you know it's fine for everything else you supervise with pm2, since it
+affects all of that too. This app can never make that judgment call on your behalf, which
+is exactly why it never runs that command itself (see CLAUDE.md).
 
 ### Where things live
 
@@ -250,6 +260,7 @@ app never runs that command itself).
 | `~/.config/claude-conduit/` (macOS/Linux), `%APPDATA%\claude-conduit\` (Windows) | config.yaml, litellm.env, ecosystem.config.cjs, manifest.json, logs/ |
 | `~/.claude/settings.json` | Claude Code CLI env keys (only the documented ones) |
 | Claude Desktop's `Claude-3p/configLibrary/` | A dedicated "Claude Conduit" entry, created only with your explicit consent, and only after a full backup |
+| `~/.pm2/daemon-interpreter/` (win32/linux only) | A private copy of this app's own runtime, created the first time this app bootstraps a pm2 daemon (NCOW-24). ~227 MiB (the executable plus `icudtl.dat`/`snapshot_blob.bin`/`v8_context_snapshot.bin`/`libffmpeg.so` on Linux), measured live. Survives quitting *and* uninstalling this app — nothing removes it, because the daemon that may still be using it outlives this app's own lifecycle (see `src/engine/uninstall.js`'s comment on why cleaning it up from there isn't safe). |
 
 The generated proxy master key lives in `litellm.env`, never in `manifest.json`.
 

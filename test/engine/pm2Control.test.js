@@ -436,18 +436,26 @@ test('spawnDaemon: on timeout, still kills the child when nothing is actually al
 //
 // Verified live on Windows against a real packaged NSIS install (see the
 // task record, not reproducible in a portable unit test): with the daemon
-// still executing off the installed binary, both an NSIS silent reinstall
-// and a silent uninstall report success while silently failing to touch the
-// locked file — the reinstall leaves it byte-for-byte unchanged, and the
-// uninstall deletes everything else, deregisters the Programs-and-Features
-// entry, and leaves that one binary behind, still running. These tests cover
-// the portable, deterministic part: that the function itself copies the
-// right files to the right place, skips redundant copies, stays a no-op on
-// darwin, and degrades to today's behaviour on any failure — not the
-// Windows-specific file-locking semantics that made the fix necessary in the
-// first place.
+// still executing off the installed binary, a silent uninstall reports
+// success while silently failing to touch the locked file — it deletes
+// everything else, deregisters the Programs-and-Features entry, and leaves
+// that one binary behind, still running (intermittently — see
+// resolveDaemonInterpreter's doc comment for when it doesn't). A silent
+// reinstall is NOT blocked: NSIS renames the locked image aside and deletes
+// it later via PendingFileRenameOperations. These tests cover the portable,
+// deterministic part: that the function itself copies the right files
+// (including the Linux-only `libffmpeg.so`, NCOW-24 review finding 1) to the
+// right place, skips redundant copies, detects and repairs a
+// partially-copied destination instead of reusing it forever (NCOW-24 review
+// finding 3), stays a no-op on darwin, and degrades to today's behaviour on
+// any failure — not the Windows-specific file-locking semantics that made
+// the fix necessary in the first place, nor the real Linux `ld.so` behaviour
+// that made finding 1 possible (that was verified live in a real Ubuntu
+// container against a genuine Electron Linux build — see the doc comment on
+// DAEMON_INTERPRETER_COMPANION_FILES — not reproducible in a portable unit
+// test either).
 
-function makeFakeInterpreterDir(fixtureDir, { withCompanions = true } = {}) {
+function makeFakeInterpreterDir(fixtureDir, { withCompanions = true, withLinuxLib = false } = {}) {
   fs.mkdirSync(fixtureDir, { recursive: true });
   const execPath = path.join(fixtureDir, 'fake-exe');
   fs.writeFileSync(execPath, 'fake interpreter contents');
@@ -457,6 +465,12 @@ function makeFakeInterpreterDir(fixtureDir, { withCompanions = true } = {}) {
     // v8_context_snapshot.bin deliberately omitted — companion copying must
     // tolerate a partial set (e.g. a genuine Electron layout that lacks one)
     // exactly as tolerantly as a plain `node` binary that has none at all.
+  }
+  if (withLinuxLib) {
+    // The Linux-only companion (NCOW-24 review finding 1): present in a
+    // genuine Electron Linux layout (DT_NEEDED, RPATH=$ORIGIN), absent on
+    // win32/darwin and absent from a plain, non-Electron interpreter.
+    fs.writeFileSync(path.join(fixtureDir, 'libffmpeg.so'), 'fake ffmpeg lib');
   }
   return execPath;
 }
@@ -536,6 +550,103 @@ test('resolveDaemonInterpreter: a source with a different size (e.g. after an ap
   }
 });
 
+test('resolveDaemonInterpreter: on linux, copies libffmpeg.so alongside the executable (regression test for NCOW-24 review finding 1)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'), { withLinuxLib: true });
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const result = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'linux' });
+
+    // Electron's real Linux binary has DT_NEEDED: libffmpeg.so with
+    // RPATH=$ORIGIN — omitting it from DAEMON_INTERPRETER_COMPANION_FILES
+    // makes the relocated copy fail to even load under ld.so (live-verified
+    // in a real x86_64 Ubuntu 22.04 container against a genuine
+    // electron-v43.2.0-linux-x64 build: "error while loading shared
+    // libraries: libffmpeg.so: cannot open shared object file", exit code
+    // 127 — exactly spawnDaemon()'s "exited during bootstrap" failure mode).
+    // This assertion fails if a future change drops libffmpeg.so from the
+    // companion list.
+    assert.equal(
+      fs.readFileSync(path.join(path.dirname(result), 'libffmpeg.so'), 'utf8'),
+      'fake ffmpeg lib'
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: detects and repairs a partially-copied companion file instead of reusing it forever (NCOW-24 review finding 3)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const execPath = makeFakeInterpreterDir(path.join(root, 'app'), { withLinuxLib: true });
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const first = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'linux' });
+    // Simulate exactly what the reviewer live-verified: a crash mid-copy, a
+    // disk-full condition, or an AV quarantine removing one companion file
+    // from an otherwise already-created copy. Before this fix, the exe-size
+    // check alone treated this as "done" forever, and the reviewer confirmed
+    // live that launching a copy broken this way dies instantly (ICU data
+    // error).
+    fs.rmSync(path.join(path.dirname(first), 'icudtl.dat'));
+
+    const second = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'linux' });
+
+    assert.equal(second, first);
+    assert.equal(
+      fs.readFileSync(path.join(path.dirname(second), 'icudtl.dat'), 'utf8'),
+      'fake icu data',
+      'expected the missing companion file to have been restored, not silently left missing'
+    );
+    // No leftover staging directory from the repair copy.
+    assert.deepEqual(
+      fs.readdirSync(pm2Home).filter((name) => name.startsWith('daemon-interpreter.tmp-')),
+      []
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveDaemonInterpreter: a failed re-copy attempt leaves no partial state behind (atomic staging, NCOW-24 review finding 3)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
+  try {
+    const appDir = path.join(root, 'app');
+    const execPath = makeFakeInterpreterDir(appDir, { withLinuxLib: true });
+    const pm2Home = path.join(root, 'pm2home');
+    fs.mkdirSync(pm2Home, { recursive: true });
+
+    const first = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'linux' });
+    assert.ok(fs.existsSync(first));
+
+    // Force a re-copy attempt (the exe's size changed, e.g. an app upgrade)
+    // that fails partway through: replace a companion file with a
+    // directory, which fs.copyFileSync cannot copy.
+    fs.writeFileSync(execPath, 'a rebuilt interpreter with a different length');
+    fs.rmSync(path.join(appDir, 'snapshot_blob.bin'));
+    fs.mkdirSync(path.join(appDir, 'snapshot_blob.bin'));
+
+    const result = resolveDaemonInterpreter(execPath, pm2Home, { platform: 'linux' });
+
+    // Falls back to execPath exactly like any other copy failure — never a
+    // new way for bootstrap to fail.
+    assert.equal(result, execPath);
+    // The previous, still-good copy is left completely untouched, not
+    // half-deleted or replaced with a broken one.
+    assert.equal(fs.readFileSync(first, 'utf8'), 'fake interpreter contents');
+    // No dangling temp staging directory left under pm2Home.
+    assert.deepEqual(
+      fs.readdirSync(pm2Home).filter((name) => name.startsWith('daemon-interpreter.tmp-')),
+      []
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('resolveDaemonInterpreter: returns execPath unchanged on darwin without copying anything', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-interp-'));
   try {
@@ -587,6 +698,15 @@ test('spawnDaemon: with a real spawn, bootstraps using a private copy of execPat
     // path is a deliberate no-op (see resolveDaemonInterpreter's doc
     // comment), which would make this assertion trivially fail there for a
     // reason unrelated to what this test is actually checking.
+    //
+    // NCOW-24 review finding 7: this test's real interpreter is a plain
+    // `node` binary, not a genuine Electron Linux layout, so it structurally
+    // cannot catch a regression of finding 1 (a missing libffmpeg.so entry)
+    // — plain node has no such dependency to omit. That regression is
+    // instead covered directly against the companion-file list logic by the
+    // "on linux, copies libffmpeg.so alongside the executable" test above,
+    // which doesn't need a real Electron binary to fail correctly if the
+    // entry is ever removed.
     const result = await spawnDaemon({ pm2Home, timeoutMs: 20_000, platform: 'linux' });
     pid = result.pid;
     assert.equal(await probeDaemonAlive({ pm2Home, timeoutMs: 2000 }), true);

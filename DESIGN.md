@@ -409,40 +409,78 @@ on macOS the daemon reparented to pid 1 and `lsof` still showed it holding the a
 Electron Framework binary; on Windows, `Win32_Process` showed the daemon running as
 `electron.exe ...\node_modules\pm2\lib\Daemon.js` under the app's own exe.
 
-On win32/linux this is not just a cosmetic surprise: verified live on Windows against a
-real packaged NSIS install (not by code reading — see the task record), with a process
-still executing off the installed binary, both an NSIS silent reinstall (electron-updater's
-Windows update mechanism) and a silent uninstall report success while silently failing to
-touch the locked file. The reinstall leaves the old binary byte-for-byte and
-timestamp-unchanged; the uninstall deletes every *other* installed file, deregisters the
-Programs-and-Features entry (so Windows and the user both believe the app is gone), and
-leaves the locked, multi-hundred-MB binary behind — still running, with no UI path left to
-discover or stop it. macOS was never observed to actually fail an update/uninstall from
-this (POSIX doesn't block replacing or deleting a file a running process still holds open,
-unlike win32), only to leave the lingering-process surprise noted above.
+On win32 this is not just a cosmetic surprise, though **the original characterization of
+which half was blocked was wrong — corrected below (NCOW-24 fix pass #2) after an
+independent reviewer re-verified both live against a real packaged NSIS build.**
+
+- **Update: NOT blocked.** A silent NSIS reinstall (electron-updater's Windows update
+  mechanism) *succeeds* even against a locked, running binary: NSIS renames the running
+  image aside into `%TEMP%\ns*.tmp\old-install\` (Windows permits renaming a running image
+  even though it refuses an in-place overwrite/delete) and queues its removal via
+  `PendingFileRenameOperations`, then installs the new binary at the original path. The
+  original "unchanged `LastWriteTime`" evidence for "blocked" was confounded: an unlocked,
+  zero-process, same-version reinstall shows the identical unchanged mtime, because NSIS
+  preserves archive timestamps regardless of locking — that observation carries no
+  information about locking at all.
+- **Uninstall: blocked, intermittently.** A silent uninstall exits 0, deregisters the
+  Programs-and-Features entry (so Windows and the user both believe the app is gone), and
+  deletes every *other* installed file, but leaves the locked, multi-hundred-MB binary
+  behind — still running, with no UI path left to discover or stop it. This is
+  intermittent: if a preceding update already moved the original binary aside (per the
+  update mechanism above), a subsequent uninstall completes cleanly instead. Both halves
+  were re-verified live on a real Windows VM for this fix pass: a fresh install (never
+  updated) held locked via a running process showed the uninstall leave exactly one file
+  behind — the locked `Claude Conduit.exe`, unchanged in size — while every other file and
+  the registry entry were gone.
+
+macOS was never observed to actually fail an update/uninstall from this (POSIX doesn't
+block replacing or deleting a file a running process still holds open, unlike win32), only
+to leave the lingering-process surprise noted above.
 
 The fix (`resolveDaemonInterpreter()` in `pm2Control.js`, win32/linux only): before
-spawning the daemon, copy the interpreter — and the handful of companion files
-(`icudtl.dat`, `snapshot_blob.bin`, `v8_context_snapshot.bin`) Electron needs alongside its
-own executable even in `ELECTRON_RUN_AS_NODE` mode — into a private location under
-`pm2Home`, and hand *that* copy to the daemon instead of the installed binary itself.
-Verified live on Windows, end-to-end, against the real packaged NSIS installer/uninstaller:
-with a daemon-equivalent process running from the relocated copy, the installed binary
-could be overwritten, and a full silent uninstall removed every file (nothing left behind)
-while the still-running process was completely unaffected. Skipped on darwin: the installed
-binary there is one file deep inside a multi-file `.app` bundle, "copy the executable and
-its bundle" isn't the same small, flat operation it is on win32/linux, and — per the
-paragraph above — macOS was never the platform where this actually blocked anything.
-`resolveDaemonInterpreter()` falls back to `process.execPath` unchanged on any failure
-(never a new way for bootstrap itself to fail), and only applies to a daemon *this app*
-bootstraps — a pre-existing daemon this app merely connects to and adopts is left exactly
-as it was, since this app has no way to know (and no business assuming) what interpreter it
-was originally started with.
+spawning the daemon, copy the interpreter — and the handful of companion files Electron
+needs alongside its own executable even in `ELECTRON_RUN_AS_NODE` mode
+(`icudtl.dat`, `snapshot_blob.bin`, `v8_context_snapshot.bin`, and, Linux-only,
+`libffmpeg.so` — added in fix pass #2 after a review found Electron's Linux binary has
+`DT_NEEDED: libffmpeg.so` with `RPATH=$ORIGIN`, so a copy missing it fails `ld.so` outright;
+live-verified in a real Ubuntu container against a genuine Electron Linux build) — into a
+private location under `pm2Home`, and hand *that* copy to the daemon instead of the
+installed binary itself. This directly fixes the real, reproduced uninstall-blocking case
+above (the update half of the original motivation was wrong, but the fix is still worth
+keeping for uninstall). Verified live on Windows, end-to-end, against the real packaged
+NSIS installer/uninstaller: with a daemon-equivalent process running from the relocated
+copy, the installed binary could be overwritten via the same rename-aside mechanism, and a
+full silent uninstall removed every file (nothing left behind) while the still-running
+process was completely unaffected. Skipped on darwin: the installed binary there is one
+file deep inside a multi-file `.app` bundle, "copy the executable and its bundle" isn't the
+same small, flat operation it is on win32/linux, and — per the paragraph above — macOS was
+never the platform where this actually blocked anything. `resolveDaemonInterpreter()` falls
+back to `process.execPath` unchanged on any failure (never a new way for bootstrap itself to
+fail), and only applies to a daemon *this app* bootstraps — a pre-existing daemon this app
+merely connects to and adopts is left exactly as it was, since this app has no way to know
+(and no business assuming) what interpreter it was originally started with.
+
+**Integrity (fix pass #2):** a copy is only treated as valid once the executable AND every
+companion file present in the source have landed at the destination — not just an
+exe-size match, which a live test showed can survive a partial/corrupted copy (e.g. a
+crash mid-copy, disk-full, or an AV quarantine snatching one file) forever, with the broken
+copy failing to boot every time it's reused thereafter. The copy is staged into a temp
+directory under `pm2Home` and atomically renamed into place only once every file has
+copied successfully, so a failure mid-copy leaves either a complete, working directory or
+none at all — never a partial one masquerading as complete.
+
+**Disk cost (documented, not fixed, in fix pass #2):** the relocated copy — measured live
+at ~227 MiB (the executable plus its companion files) — is never removed by an uninstall on
+any platform: `src/engine/uninstall.js` has no reliable way to know whether the daemon
+currently listening at `pm2Home` is still using that exact copy as its running image, so
+deleting it from there would risk exactly the locked-file problem this fix solves for the
+app's own install directory, just relocated to `pm2Home` instead. See README.md's "Where
+things live" table.
 
 None of this changes whether the daemon can outlive the app — it still can, by design, on
-every platform. What changed is that on win32/linux it no longer blocks updating or
-uninstalling the app while it does. See README.md's "Closing vs. quitting" section for the
-user-facing version of this.
+every platform. What changed is that on win32/linux it no longer blocks *updating*, and no
+longer blocks uninstalling except in the still-locked, never-previously-updated case above.
+See README.md's "Closing vs. quitting" section for the user-facing version of this.
 
 ---
 
