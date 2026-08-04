@@ -3,7 +3,7 @@ id: doc-4
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-03 23:13'
+updated_date: '2026-08-04 00:45'
 ---
 # Backlog campaign tracker
 
@@ -230,9 +230,18 @@ filing as a new task, not created unilaterally. A second candidate (`secretStore
 confirmed by the integration review to be dead code with zero production callers — not proposed
 for filing.
 
-Three tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-24, plus whatever the user
-decides on the ecosystem-regeneration follow-up. **CHECK winvm REACHABILITY FIRST** — both NCOW-21
-and NCOW-24 need it, and Shared Machine State still limits any wave to one live-Windows task.
+User approved filing the ecosystem-regeneration gap between waves — created as **NCOW-30** (HIGH:
+both real published releases, v0.1.0 and v0.1.1, predate NCOW-27 entirely, so every real user who
+has ever completed setup against a published build is currently exposed). NCOW-30 needs no VM to
+start (it's a code/detection-logic task), though its own AC#1 wants live before/after verification
+of an in-place upgrade, and AC#2/#3 call for coordinating scope with NCOW-24 and NCOW-10's
+auto-update path if picked up alongside either.
+
+Four tasks remain queued, none blocked by a dependency: NCOW-21, NCOW-24, NCOW-30. **CHECK winvm
+REACHABILITY FIRST** — NCOW-21 and NCOW-24 both need it, and Shared Machine State still limits any
+wave to one live-Windows task; NCOW-30 doesn't need winvm to implement but treat it as a probable
+NCOW-24 conflict (shared daemon-lifecycle scope per its own AC#3) until a wave's file-citation
+check confirms or clears it.
 
 ## Queue (confirmed order)
 
@@ -240,6 +249,7 @@ and NCOW-24 need it, and Shared Machine State still limits any wave to one live-
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | NCOW-21 | release | none | To Do | | small follow-up from NCOW-20's review: harden cmd.exe embedded-quote escaping + doc wording; needs live winvm |
 | 6 | NCOW-24 | pm2/release | none | To Do | | bootstrapped daemon outlives the app, holds its own binary; may block NCOW-10 update/uninstall on Windows; filed wave 6; needs live winvm |
+| 13 | NCOW-30 | pm2/packaging | none | To Do | | configGen.generateAll() has one caller (setup wizard), so an upgraded install never regenerates ecosystem.config.cjs and never picks up NCOW-27/28-class fixes; filed wave 11 from NCOW-28/29's reviews, HIGH priority; may overlap NCOW-24's daemon-lifecycle scope, no VM needed to start |
 
 ## Resolved
 
