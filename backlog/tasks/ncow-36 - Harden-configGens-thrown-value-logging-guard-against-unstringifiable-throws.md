@@ -1,9 +1,10 @@
 ---
 id: NCOW-36
 title: Harden configGen's thrown-value logging guard against unstringifiable throws
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
+updated_date: '2026-08-04 20:57'
 labels: []
 dependencies:
   - NCOW-31
