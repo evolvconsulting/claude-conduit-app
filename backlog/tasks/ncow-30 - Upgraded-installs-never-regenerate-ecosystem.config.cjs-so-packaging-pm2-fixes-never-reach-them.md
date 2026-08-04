@@ -97,3 +97,47 @@ if picked up alongside either.
    running proxy survives regeneration with a clean restart, not corruption
    or orphaning.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented (worker, wave 12). npm test: 278/278 passing (261 baseline + 17
+new, across test/engine/configGen.test.js and new
+test/main/engine-context-config-regen.test.js).
+
+Live verification (NIM_PROXY_TEST_HOME + --dev, real config dir never
+touched): hand-seeded a fake home with a manifest missing
+generated_by_version and a pre-NCOW-27-shaped ecosystem.config.cjs (no
+interpreter/env fields) -- launched the app, confirmed manifest.json gained
+"generated_by_version":"0.1.1" and ecosystem.config.cjs was rewritten with
+interpreter: process.execPath + PYTHONIOENCODING, run.js was replaced, and
+the real NVIDIA/master keys in litellm.env survived untouched.
+
+AC#2 verified separately: started the proxy for real under the stale config
+via the real shared pm2 daemon (never killed, only litellm-nim's own entry
+touched, left stopped afterward as found), reset the manifest to stale
+again, relaunched, confirmed pm2 showed a fresh online restart (0 restarts,
+~12s uptime) with a passing health check right after -- proving the live
+proxy was cleanly restarted onto the new config, not corrupted or orphaned.
+
+Files touched: src/engine/configGen.js, src/main/engine-context.js,
+src/main/index.js, test/engine/configGen.test.js,
+test/main/engine-context-config-regen.test.js (new). Single commit 20f84bb,
+pushed to origin/fix/NCOW-30-regenerate-configs-on-upgrade.
+
+Judgment calls flagged by the worker for reviewer attention:
+1. Staleness re-uses the manifest's already-recorded model/port/litellm-path
+   as-is rather than re-detecting litellm's path via
+   prereqs.checkLitellmOnPath() on every launch -- judged a version bump
+   doesn't imply litellm moved; if litellm actually moved between upgrades
+   this won't catch it (pre-existing gap, not newly introduced).
+2. The API key is deliberately re-read from litellm.env, not secretStore --
+   needs reviewer confirmation this is acceptable vs. going through the OS
+   keychain again.
+3. "Stale" is exact version-string mismatch, not semver ordering -- a
+   downgrade also regenerates (judged correct/desired: always match the
+   running binary), flagged explicitly for review.
+4. configRegeneration is fire-and-forget/best-effort by design (never blocks
+   or fails app startup) -- a failure here just means the user hits the same
+   failure mode next Start click, same as today.
+<!-- SECTION:NOTES:END -->
