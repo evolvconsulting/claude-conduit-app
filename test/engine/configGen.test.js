@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { inspect } = require('node:util');
 const {
   renderConfigYaml,
   renderRunLauncherJs,
@@ -857,6 +858,9 @@ test('regenerateStaleConfig: NCOW-36 AC#1 — a thrown null-prototype object no 
   // original "(undefined)" placeholder should ever surface here.
   assert.doesNotMatch(logger.warned[0], /Cannot convert object to primitive/);
   assert.doesNotMatch(logger.warned[0], /\(undefined\)/);
+  // Pin real readability, not just "didn't crash": util.inspect()'s own
+  // rendering of a null-prototype object must actually show up.
+  assert.match(logger.warned[0], /Object: null prototype/);
 });
 
 test('regenerateStaleConfig: NCOW-36 — objects with hostile toString/Symbol.toPrimitive also log sensibly instead of rejecting', async () => {
@@ -878,7 +882,6 @@ test('regenerateStaleConfig: NCOW-36 — objects with hostile toString/Symbol.to
     const { files, manifest } = makeStaleInstallFixture();
     const logger = recordingLogger();
 
-    // eslint-disable-next-line no-await-in-loop
     const result = await regenerateStaleConfig({
       files,
       manifest,
@@ -924,7 +927,14 @@ test('regenerateStaleConfig: NCOW-36 AC#2 — the full adversarial set of 12+ pr
       thrownBranch: true,
       messageIncludes: 'pm2 exploded (object)',
     },
-    { label: 'plain object without .message', value: { code: 'E_PM2' }, thrownBranch: true },
+    {
+      label: 'plain object without .message',
+      value: { code: 'E_PM2' },
+      thrownBranch: true,
+      // Pin real readability, not just "didn't crash": String()'s own
+      // rendering of a plain object must actually show up.
+      messageIncludes: '[object Object]',
+    },
     { label: 'null', value: null, thrownBranch: false },
     { label: 'undefined', value: undefined, thrownBranch: false },
     { label: 'number 0', value: 0, thrownBranch: false },
@@ -937,7 +947,6 @@ test('regenerateStaleConfig: NCOW-36 AC#2 — the full adversarial set of 12+ pr
     const { files, manifest } = makeStaleInstallFixture();
     const logger = recordingLogger();
 
-    // eslint-disable-next-line no-await-in-loop
     const result = await regenerateStaleConfig({
       files,
       manifest,
@@ -972,6 +981,158 @@ test('regenerateStaleConfig: NCOW-36 AC#2 — the full adversarial set of 12+ pr
       assert.equal(result.reason, 'restart-failed', `${label}: falsy thrown value falls through to restart-failed`);
       assert.match(logger.warned[0], /FAILED/, `${label}: warning must say FAILED`);
     }
+  }
+});
+
+// NCOW-36 fix-pass 2 — an independent review round found the first hardening
+// pass still incomplete in two ways, both against describeThrownValue() in
+// src/engine/configGen.js:
+//
+//   Finding A: layer 1 (`if (message != null) return message;`) returned a
+//   non-null `.message` verbatim with no type check, so a `.message` that
+//   was itself a Symbol, a null-prototype object, or an object with a
+//   throwing toString sailed straight through this function and then blew up
+//   at the *caller's* template-literal interpolation site — byte-for-byte
+//   the "reject instead of a logged failure" failure mode this task exists
+//   to eliminate.
+//
+//   Finding B: the deep fallback's own template literal interpolated
+//   `ctorName` unguarded, so a value with a throwing
+//   `[util.inspect.custom]`, a throwing `Symbol.toPrimitive`, AND an
+//   unstringifiable `constructor.name` (a Symbol, or another null-prototype
+//   object) reached that line and threw right there — falsifying the
+//   "this function itself can never throw" claim.
+//
+// Both are now closed structurally: every return path funnels through
+// safeStringify(), plus an outer try/catch backstop. These tests reproduce
+// the reviewer's exact adversarial values.
+
+test('regenerateStaleConfig: NCOW-36 fix-pass 2 (Finding A) — a thrown value whose OWN .message is unstringifiable no longer rejects, and logs the coerced message', async () => {
+  const hostileMessageShapes = [
+    { label: 'message is a Symbol', value: { message: Symbol('x') }, messageIncludes: 'Symbol(x)' },
+    { label: 'message is a null-prototype object', value: { message: Object.create(null) }, messageIncludes: 'Object: null prototype' },
+    {
+      label: 'message is an object with a throwing toString',
+      value: { message: { toString() { throw new Error('hostile'); } } },
+      // String() throws on this value, so it must fall through to
+      // util.inspect()'s own rendering rather than crashing.
+      messageIncludes: 'toString',
+    },
+  ];
+
+  for (const { label, value, messageIncludes } of hostileMessageShapes) {
+    const { files, manifest } = makeStaleInstallFixture();
+    const logger = recordingLogger();
+
+    // Must not reject — awaiting it directly is the test.
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => { throw new Error(`must not stamp for ${label}`); },
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => { throw value; },
+      logger,
+    });
+
+    assert.equal(result.regenerated, false, label);
+    assert.equal(result.reason, 'restart-error', label);
+    assert.equal(logger.infoed.length, 0, `${label}: a failure must never log the success line`);
+    assert.equal(logger.warned.length, 1, label);
+    assert.equal(typeof logger.warned[0], 'string', `${label}: logged message must be a string`);
+    assert.match(logger.warned[0], /THREW/, label);
+    assert.match(logger.warned[0], /next launch retries/, label);
+    assert.ok(
+      logger.warned[0].includes(messageIncludes),
+      `${label}: expected warning to include ${JSON.stringify(messageIncludes)}, got: ${logger.warned[0]}`
+    );
+  }
+});
+
+test('regenerateStaleConfig: NCOW-36 fix-pass 2 (Finding B) — a thrown value with a throwing inspect.custom + throwing Symbol.toPrimitive + unstringifiable constructor.name no longer rejects', async () => {
+  const deepFallbackShapes = [
+    {
+      label: 'constructor.name is a Symbol',
+      value: {
+        [inspect.custom]() { throw new Error('custom inspect exploded'); },
+        [Symbol.toPrimitive]() { throw new Error('toPrimitive exploded'); },
+        get constructor() { return { name: Symbol('C') }; },
+      },
+      messageIncludes: 'Symbol(C)',
+    },
+    {
+      label: 'constructor.name is a null-prototype object',
+      value: {
+        [inspect.custom]() { throw new Error('custom inspect exploded'); },
+        [Symbol.toPrimitive]() { throw new Error('toPrimitive exploded'); },
+        get constructor() { return { name: Object.create(null) }; },
+      },
+      messageIncludes: 'Object: null prototype',
+    },
+  ];
+
+  for (const { label, value, messageIncludes } of deepFallbackShapes) {
+    const { files, manifest } = makeStaleInstallFixture();
+    const logger = recordingLogger();
+
+    // Must not reject — this is exactly the shape that previously made
+    // describeThrownValue() throw from inside its own deepest fallback.
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => { throw new Error(`must not stamp for ${label}`); },
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => { throw value; },
+      logger,
+    });
+
+    assert.equal(result.regenerated, false, label);
+    assert.equal(result.reason, 'restart-error', label);
+    assert.equal(logger.warned.length, 1, label);
+    assert.equal(typeof logger.warned[0], 'string', `${label}: logged message must be a string`);
+    assert.match(logger.warned[0], /THREW/, label);
+    assert.match(logger.warned[0], /unstringifiable thrown value/, label);
+    assert.ok(
+      logger.warned[0].includes(messageIncludes),
+      `${label}: expected warning to include ${JSON.stringify(messageIncludes)}, got: ${logger.warned[0]}`
+    );
+  }
+});
+
+test('regenerateStaleConfig: NCOW-36 fix-pass 2 — a falsy-but-present .message ("" or 0) is still preserved verbatim, not downgraded to a generic fallback', async () => {
+  const falsyMessageShapes = [
+    { label: 'message is 0', value: { message: 0 }, expectedParenthetical: '(0)' },
+    { label: 'message is empty string', value: { message: '' }, expectedParenthetical: '()' },
+  ];
+
+  for (const { label, value, expectedParenthetical } of falsyMessageShapes) {
+    const { files, manifest } = makeStaleInstallFixture();
+    const logger = recordingLogger();
+
+    const result = await regenerateStaleConfig({
+      files,
+      manifest,
+      currentVersion: '0.2.0',
+      saveManifest: () => { throw new Error(`must not stamp for ${label}`); },
+      getStatus: async () => ({ status: 'running' }),
+      startOrRestart: async () => { throw value; },
+      logger,
+    });
+
+    assert.equal(result.regenerated, false, label);
+    assert.equal(result.reason, 'restart-error', label);
+    assert.equal(logger.warned.length, 1, label);
+    assert.match(logger.warned[0], /THREW/, label);
+    // The message is coerced through safeStringify(), which passes an
+    // already-string value through unchanged — so a falsy-but-present
+    // message must appear verbatim in its parenthetical, not be replaced by
+    // a generic "[unstringifiable ...]" fallback.
+    assert.ok(
+      logger.warned[0].includes(expectedParenthetical),
+      `${label}: expected warning to include ${JSON.stringify(expectedParenthetical)}, got: ${logger.warned[0]}`
+    );
+    assert.doesNotMatch(logger.warned[0], /unstringifiable/, label);
   }
 });
 
