@@ -4,7 +4,7 @@ title: Soften overstated test comment on tray mutex-identity coverage
 status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-04 22:25'
+updated_date: '2026-08-04 22:27'
 labels: []
 dependencies:
   - NCOW-35
@@ -23,3 +23,18 @@ test/main/engine-context-config-regen.test.js has a block comment (around line 8
 - [ ] #2 If the post-spread-override guard task has already landed, the comment may instead be updated to accurately describe the now-more-complete coverage; if not, it is softened to state the known residual gap explicitly
 - [ ] #3 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read the block comment in test/main/engine-context-config-regen.test.js (~lines 755-800) describing what the behavioural test (tray-actions.test.js) and the static single-binding check jointly prove.
+2. Since NCOW-38's post-spread-override guard has not landed yet, soften the comment to honestly state the residual gap (a future onStart/onStop/onRestart key added to createTray({...}) after the ...createTrayActions({ mutexes, handlers }) spread would silently win via JS object-literal override semantics, uncaught by either existing check) and point at NCOW-38 as the follow-up that would close it.
+3. Comment-only change; do not touch test assertions or other files.
+4. Run npm test to confirm no regressions.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented by worker (worktree fix/NCOW-39-soften-tray-chain-comment, commit 6d8c391, pushed to origin). Rewrote the comment at test/main/engine-context-config-regen.test.js lines ~789-800 to explicitly name the post-spread override gap and reference NCOW-38 as the task that would close it, rather than claiming the two existing checks 'close the chain honestly'. Verified comment-only via diff (no test() body touched). npm test: 343/343 passing.
+<!-- SECTION:NOTES:END -->
