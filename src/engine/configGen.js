@@ -430,6 +430,12 @@ function resolveExistingNvidiaApiKey(litellmEnvPath) {
  * with no `generated_by_version` at all is exactly what every real install
  * (v0.1.0, v0.1.1) has today, since this field never existed before now.
  *
+ * Exact string equality, not a semver comparison — fine for real releases
+ * (every shipped version differs from the last), but a caveat for
+ * dev/nightly builds: regenerating the template without bumping
+ * package.json's version never reaches an install already stamped with that
+ * same version string.
+ *
  * @param {object|null} manifest
  * @param {string|undefined} currentVersion
  */

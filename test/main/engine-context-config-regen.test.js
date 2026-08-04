@@ -224,3 +224,109 @@ test('createEngineContext: omitting appVersion disables the check entirely (exis
     assert.equal(calls.getStatus, 0);
   });
 });
+
+// Fix-pass regression test (review of this task's first pass): a
+// truncated/corrupt manifest.json must never crash createEngineContext()
+// itself. readManifest() does a bare JSON.parse, and this file gets
+// rewritten by writeManifest() on every regeneration (non-atomic
+// writeFileSync) — so a crash/power-loss/disk-full mid-write leaves exactly
+// this shape on disk, and every future upgrade is a fresh opportunity to hit
+// it. Before the fix, this threw synchronously out of createEngineContext()
+// itself (not inside the promise chain), which app.whenReady().then(...) in
+// index.js has no .catch() for — an unhandled rejection with zero renderers.
+test('createEngineContext: a corrupt/truncated manifest.json does not throw out of createEngineContext(), and is treated as absent', async () => {
+  await withFakeHome(async (homeDir) => {
+    const configDir = paths.resolveConfigDir({ homedir: homeDir });
+    const files = paths.getFilePaths(configDir);
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(files.manifestJson, '{ "version": 1, "port": 40', 'utf8');
+
+    const { pm2Control, calls } = fakePm2Control({ status: 'running' });
+
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir: path.join(homeDir, 'userData'),
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+    });
+
+    const result = await context.configRegeneration;
+    // needsRegeneration() already treats an absent manifest as nothing to
+    // regenerate — a corrupt manifest is deliberately folded into that same
+    // safe path rather than treated as a distinct error.
+    assert.deepEqual(result, { regenerated: false, reason: 'up-to-date' });
+    assert.equal(calls.getStatus, 0);
+    assert.equal(calls.startOrRestart.length, 0);
+  });
+});
+
+test('createEngineContext: a stale manifest with no litellm_path skips regeneration instead of generating with an undefined path', async () => {
+  await withFakeHome(async (homeDir) => {
+    const files = seedStaleInstall(homeDir);
+    const manifest = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    delete manifest.litellm_path;
+    fs.writeFileSync(files.manifestJson, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    const cjsBefore = fs.readFileSync(files.ecosystemConfig, 'utf8');
+
+    const { pm2Control, calls } = fakePm2Control({ status: 'running' });
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir: path.join(homeDir, 'userData'),
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+    });
+
+    const result = await context.configRegeneration;
+    assert.deepEqual(result, { regenerated: false, reason: 'no-litellm-path' });
+    assert.equal(calls.getStatus, 0, 'must bail before ever checking proxy status');
+    assert.equal(calls.startOrRestart.length, 0);
+    assert.equal(fs.readFileSync(files.ecosystemConfig, 'utf8'), cjsBefore, 'must not overwrite the generated config with garbage');
+  });
+});
+
+test('createEngineContext: a failed restart during regeneration resolves to reason:"error" instead of rejecting/crashing startup', async () => {
+  await withFakeHome(async (homeDir) => {
+    seedStaleInstall(homeDir);
+    const calls = { getStatus: 0 };
+    const pm2Control = {
+      APP_NAME: 'litellm-nim',
+      getStatus: async () => {
+        calls.getStatus += 1;
+        return { status: 'running' };
+      },
+      startOrRestart: async () => {
+        throw new Error('pm2 restart failed: HEALTH_CHECK_TIMEOUT');
+      },
+    };
+
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir: path.join(homeDir, 'userData'),
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+    });
+
+    // Must resolve, never reject — this is what keeps a failed restart from
+    // ever becoming an unhandled rejection at startup.
+    const result = await context.configRegeneration;
+    assert.equal(result.regenerated, false);
+    assert.equal(result.reason, 'error');
+    assert.match(result.error.message, /HEALTH_CHECK_TIMEOUT/);
+    assert.equal(calls.getStatus, 1);
+  });
+});
+
+// index.js itself can't be required under plain `node --test` (it touches
+// electron.app at module scope) — mirrors auto-update-wiring.test.js's
+// static source-check approach for the same reason.
+test('index.js: a failed configRegeneration is logged, not silently dropped', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+  assert.match(source, /const \{ handlers, pm2Control, configRegeneration \} = createEngineContext/);
+  assert.match(source, /configRegeneration[\s\S]{0,200}console\.warn/, 'expected configRegeneration to be observed and logged on failure');
+});

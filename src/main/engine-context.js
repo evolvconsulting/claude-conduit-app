@@ -144,10 +144,30 @@ function createEngineContext(deps) {
   // never block or fail app startup, and any failure surfaces the same way
   // an ordinary failed restart would — via the next status poll or manual
   // Start click.
+  //
+  // Fix-pass regression: this manifest read happens synchronously, in the
+  // argument list, outside the .catch() below — readManifest() does a bare
+  // JSON.parse, so a truncated/corrupt manifest.json (exactly what a
+  // non-atomic writeManifest() can leave behind after a crash, power loss,
+  // or full disk — and every version upgrade is now a fresh writeManifest()
+  // call, per this same task) threw straight out of createEngineContext(),
+  // which app.whenReady().then(...) in index.js has no .catch() for. That
+  // left a windowless zombie process with no route to Setup/Uninstall.
+  // Treated the same as a missing manifest — needsRegeneration() already
+  // treats "no manifest" as nothing to regenerate, the conservative choice,
+  // since it just retries the read on the next launch instead of acting on
+  // partial content.
+  let manifestForRegenCheck;
+  try {
+    manifestForRegenCheck = getManifest();
+  } catch (err) {
+    manifestForRegenCheck = null;
+  }
+
   const configRegeneration = configGen
     .regenerateStaleConfig({
       files,
-      manifest: getManifest(),
+      manifest: manifestForRegenCheck,
       currentVersion: deps.appVersion,
       saveManifest,
       getStatus: pm2Control.getStatus,
