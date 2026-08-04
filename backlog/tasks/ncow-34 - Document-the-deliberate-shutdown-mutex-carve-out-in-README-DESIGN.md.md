@@ -4,7 +4,7 @@ title: Document the deliberate shutdown-mutex carve-out in README/DESIGN.md
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-04 21:02'
+updated_date: '2026-08-04 21:05'
 labels: []
 dependencies:
   - NCOW-31
@@ -44,4 +44,12 @@ Evidence:
 - git diff confirmed docs-only, additive changes (20 insertions, 0 deletions) across DESIGN.md and README.md only.
 
 Status: implemented, ready for review.
+
+Review verdict: approve. AC #1 independently confirmed by the reviewer (verified DESIGN.md/README.md text against the actual engine-context.js "Deliberately NOT covered" comment, src/main/shutdown.js, src/main/index.js's tray mutex wiring, and src/main/ipc.js's UNSERIALIZED_METHODS -- all load-bearing claims in the new doc text checked out). Reviewer independently re-ran npm test: 333/333 passed.
+
+Findings (non-blocking, reviewer chose approve despite these):
+- minor: README.md:227's new paragraph ends "...as described above" but no earlier README text describes the timeout being referenced -- a dangling cross-reference for a README-only reader. DESIGN.md's analogous phrase is properly grounded. Not required to fix for this task's AC, but worth a one-clause tightening if convenient.
+- nit: DESIGN.md says the background restart "can hold that lock for 60s+" vs the code comment's "up to 60s" -- defensible given the full critical section (delete + start + up to 60s health polling) can exceed 60s total, but slightly stronger phrasing than the source comment.
+
+Approved for merge.
 <!-- SECTION:NOTES:END -->
