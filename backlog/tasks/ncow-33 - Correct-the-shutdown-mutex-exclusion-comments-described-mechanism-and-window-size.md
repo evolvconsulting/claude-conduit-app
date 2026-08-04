@@ -3,9 +3,10 @@ id: NCOW-33
 title: >-
   Correct the shutdown-mutex-exclusion comment's described mechanism and window
   size
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
+updated_date: '2026-08-04 20:57'
 labels: []
 dependencies:
   - NCOW-31
