@@ -70,7 +70,7 @@ if (!gotSingleInstanceLock) {
     // safeStorage must only be called after app.whenReady() — Linux backend
     // detection happens then.
     const { userDataDir, appDataDir } = resolveUserDataPaths();
-    const { handlers, pm2Control, configRegeneration } = createEngineContext({
+    const { handlers, pm2Control, configRegeneration, mutexes } = createEngineContext({
       safeStorage,
       userDataDir,
       appDataDir,
@@ -147,6 +147,12 @@ if (!gotSingleInstanceLock) {
         check: () => autoUpdate.checkForUpdates(),
         install: () => autoUpdate.installUpdateAndRestart(),
       },
+    }, {
+      // NCOW-31: the very locks createEngineContext already used for its own
+      // launch-time stale-config restart. Passing them — rather than letting
+      // registerIpcHandlers build its own private set — is the entire reason a
+      // user-clicked Stop can't interleave with that background restart.
+      mutexes,
     });
     createMainWindow();
 

@@ -327,6 +327,6 @@ test('createEngineContext: a failed restart during regeneration resolves to reas
 // static source-check approach for the same reason.
 test('index.js: a failed configRegeneration is logged, not silently dropped', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
-  assert.match(source, /const \{ handlers, pm2Control, configRegeneration \} = createEngineContext/);
+  assert.match(source, /const \{ handlers, pm2Control, configRegeneration, mutexes \} = createEngineContext/);
   assert.match(source, /configRegeneration[\s\S]{0,200}console\.warn/, 'expected configRegeneration to be observed and logged on failure');
 });
