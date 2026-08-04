@@ -3,10 +3,10 @@ id: NCOW-21
 title: >-
   Harden cmd.exe launcher escaping against embedded quotes; fix doc-comment
   wording
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 14:12'
-updated_date: '2026-08-04 15:44'
+updated_date: '2026-08-04 15:46'
 labels: []
 dependencies: []
 priority: low
@@ -30,10 +30,10 @@ Both findings were verified via live testing against the real Windows VM (winvm)
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cmdQuoteArg() (or equivalent) in configGen.js's generated launcher correctly escapes an embedded literal double-quote character using a construction that survives BOTH cmd.exe's own re-parse and the spawned process's argv parsing (verified live on a real Windows VM, not just by code reading -- winvm is reachable via ~/.scripts/winvm.sh)
-- [ ] #2 A regression test in test/engine/configGen.test.js covers an arg combining an embedded literal quote AND a cmd.exe metacharacter in the same value (e.g. something shaped like the injection case documented on NCOW-20: an arg containing both " and & such that a naive escape would let the & execute)
-- [ ] #3 The doc comment in configGen.js accurately describes what is and isn't covered by the escaping, without overstating completeness or misattributing which historical fix solved which problem
-- [ ] #4 npm test passes
+- [x] #1 cmdQuoteArg() (or equivalent) in configGen.js's generated launcher correctly escapes an embedded literal double-quote character using a construction that survives BOTH cmd.exe's own re-parse and the spawned process's argv parsing (verified live on a real Windows VM, not just by code reading -- winvm is reachable via ~/.scripts/winvm.sh)
+- [x] #2 A regression test in test/engine/configGen.test.js covers an arg combining an embedded literal quote AND a cmd.exe metacharacter in the same value (e.g. something shaped like the injection case documented on NCOW-20: an arg containing both " and & such that a naive escape would let the & execute)
+- [x] #3 The doc comment in configGen.js accurately describes what is and isn't covered by the escaping, without overstating completeness or misattributing which historical fix solved which problem
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -73,3 +73,9 @@ Fuller incident disclosure (orchestrator-verified): the duplicate agent addition
 
 Opus review pass 1 (final -- approve, all 4 ACs independently confirmed): built its own live winvm A/B harness from scratch (13 payloads of its own choosing, not reused from the implementer), reverting only the escape line to dev's original for the 'before' side. Pre-fix: 4/13 chosen breakout payloads produced real marker files (byte-exact exploit reproduction); post-fix: 0/13 markers across all 13, every argv arrived byte-for-byte identical in real Windows process.argv. Tried and failed to break the '""'-doubling regex with edge cases the implementer hadn't tried (all-quotes arg, 4 consecutive embedded quotes, quote at start/end, unbalanced quote counts, 5-backslash+quote mixes, empty-string arg, literal carets, %VAR% left un-expanded-by-us as expected). Confirmed the generated run.js is byte-identical pre/post except the escape line itself for every input that can actually reach this argv in production (real paths, spaced usernames) -- zero regression risk. AC#2: confirmed the tests exercise the REAL generated launcher (executes the actual emitted launcher text via new Function, not a reimplementation); reverting only the escape line makes exactly the same 2 new tests fail (295 tests, 293 pass, 2 fail), nothing else, on the intended security assertion. Cross-validated the test file's own parseArgvW model against 8 of the reviewer's own payloads vs real Windows argv -- 8/8 exact. AC#3: actively tried to falsify the doc's claim that the superseded caret-based escaping never protected against this (reconstructed the caret-era cmdQuoteArg from NCOW-20's recorded description, spliced into a real generated launcher, ran live on winvm in both plausible pass orderings) -- both produced a real marker-file breakout, confirming the doc's historical claim is correct. AC#4: npm test 295/295 independently re-run. Scope confirmed clean (only configGen.js + its test file; 228de79 is one functional line, caa8681 comments-only). No CLAUDE.md hard constraint touched. pm2 daemon (PID 8832) confirmed untouched before/after; winvm fully cleaned (verified via dir -> File Not Found). Two non-blocking, no-action-needed observations: the pre-fix hole only triggered on an odd count of literal quotes ahead of a metachar (narrower than 'any embedded quote', but the doc doesn't overclaim this); the layer-1 test model deliberately excludes % from forbidden metachars since %VAR% expansion is a real, documented residual, not an oversight.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Replaced cmdQuoteArg()'s MSVCRT-style backslash-doubling escape for embedded literal quotes with a cmd.exe-style doubled-quote escape ("" instead of \"), since cmd.exe's own command-line re-parse (which runs before the spawned process ever sees the string) does not honor backslash-escaped quotes and could let a following metacharacter break out and execute as real shell syntax. Doc comment corrected to stop overstating coverage and to stop misattributing the fix to the superseded caret-based escaping attempt. Verified live on a real Windows VM by both the implementer and an independently-reproducing opus reviewer (different exploit payloads, same result): pre-fix produces a real breakout (marker file via injected &echo...); post-fix the payload arrives byte-for-byte intact as inert argv data. 2 new regression tests added, mutation-tested (reverting only the fix line makes exactly those 2 tests fail). Reviewer additionally reconstructed and live-tested the superseded caret-era escaping to confirm the doc's corrected historical claim. npm test 295/295. Squash-merged PR #22 -> dev @ 2ec8402.
+<!-- SECTION:FINAL_SUMMARY:END -->
