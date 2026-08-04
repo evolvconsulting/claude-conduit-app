@@ -4,7 +4,7 @@ title: Harden configGen's thrown-value logging guard against unstringifiable thr
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:30'
-updated_date: '2026-08-04 21:13'
+updated_date: '2026-08-04 21:19'
 labels: []
 dependencies:
   - NCOW-31
@@ -64,4 +64,18 @@ Confirmed pre-existing, correctly out of scope, NOT a gap: the "if (attempt.thro
 Retry-safety guarantee (manifest never stamped) confirmed preserved even for the shapes that still reject.
 
 Dispatching a fresh worker fix pass with these findings verbatim (fix-cycle 1 of 2 allowed retries).
+
+Fix pass 1 complete on branch fix/NCOW-36-configgen-thrown-value-guard (commit d830627, on top of 428d62c), pushed to origin.
+
+Fix: added a safeStringify(value) helper (typeof-string passthrough -> String() -> util.inspect() -> fixed fallback, structurally cannot throw) and routed every return path in describeThrownValue() through it (layer 1's coerced .message fixes Finding A; the deep fallback's ctorName fixes Finding B). Wrapped the whole function body in an outer try/catch as a structural backstop -- this is a closed-form fix, not another special case: every interpolation site now consumes an already-guaranteed-string value, and the outer try/catch means even a future edit adding one more raw interpolation can't reopen this class of bug.
+
+Evidence:
+- npm test: 339/339 passed (49 in configGen.test.js).
+- Verified live against the reviewer's exact adversarial values: {message: Symbol('x')} -> "Symbol(x)"; {message: Object.create(null)} -> "[Object: null prototype] {}"; {message: {toString(){throw}}} -> readable fallback; the compound throwing-inspect.custom + throwing-Symbol.toPrimitive + unstringifiable-constructor.name shape (both Symbol and null-proto constructor.name variants) -> readable "[unstringifiable thrown value: ...]" message. None throw.
+- Added 4 new test blocks reproducing the reviewer's exact shapes for Finding A, Finding B, and falsy-message preservation ({message: 0} still logs "(0)", {message: ''} still logs "()" -- NCOW-31's deliberate behavior preserved).
+- Strengthened the null-prototype test and the "plain object without .message" sweep row to assert actual rendered content, not just absence-of-badness (addresses reviewer's nit D).
+- Removed the dead eslint-disable comments (found 2 in the repo, not 3 as the review estimated -- removed both; no eslint config/dependency exists either way, addresses nit C).
+- Confirmed the pre-existing 12-shape AC#2 sweep and retry/no-stamp guarantees still pass unmodified in logic.
+
+Status: fix pass 1 implemented, ready for review pass 2.
 <!-- SECTION:NOTES:END -->
