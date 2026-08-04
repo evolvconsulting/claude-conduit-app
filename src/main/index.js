@@ -7,7 +7,7 @@ const { installApplicationMenu } = require('./menu');
 const { registerIpcHandlers } = require('./ipc');
 const { createEngineContext } = require('./engine-context');
 const { startStatusPoller } = require('./status-poller');
-const { createTray } = require('./tray');
+const { createTray, createTrayActions } = require('./tray');
 const { getAppIcon } = require('./app-icon');
 const { createProxyShutdown } = require('./shutdown');
 const { createAutoUpdate } = require('./autoUpdate');
@@ -175,20 +175,17 @@ if (!gotSingleInstanceLock) {
       showDashboard: () => showMainWindow('dashboard'),
       showDiagnostics: () => showMainWindow('diagnostics'),
       quit: () => app.quit(),
-      // NCOW-31 fix pass 2 (reviewer finding B1): these used to call
-      // handlers.proxy.* directly, which goes around ipcMain entirely and
-      // therefore around the mutex above -- tray.js only enables Stop/Restart
-      // when status.status === 'running', i.e. exactly the precondition the
-      // background stale-config restart's up-to-60s health-check window holds
-      // the lock under, so a tray click in that window could still interleave
-      // with it even after AC#1's IPC-side fix. mutexes.proxy.run(...) is the
-      // same primitive registerIpcHandlers() decorates the IPC handlers with
-      // (mutex.js) and configGen.regenerateStaleConfig()'s own restart uses via
-      // engine-context.js's `runProxyOperation` -- routing the tray through it
-      // too is what makes all three call paths contend for one shared lock.
-      onStart: () => mutexes.proxy.run(() => handlers.proxy.start()),
-      onStop: () => mutexes.proxy.run(() => handlers.proxy.stop()),
-      onRestart: () => mutexes.proxy.run(() => handlers.proxy.restart()),
+      // NCOW-31 fix pass 2 (reviewer finding B1) / NCOW-35: these used to be
+      // written inline here as `mutexes.proxy.run(() => handlers.proxy.*())`,
+      // provable only by a source-text regex over this file that couldn't
+      // tell a genuinely shared `mutexes` from one shadowed by a nested scope
+      // right around this call. tray.js's createTrayActions({ mutexes,
+      // handlers }) is now the single place that wiring lives, and it is
+      // constructed from the exact same `mutexes`/`handlers` this block
+      // already has in scope from createEngineContext() above — so the tray,
+      // ipc.js, and engine-context.js's stale-config restart all contend for
+      // one shared lock. See test/main/tray-actions.test.js.
+      ...createTrayActions({ mutexes, handlers }),
     });
 
     stopStatusPoller = startStatusPoller({

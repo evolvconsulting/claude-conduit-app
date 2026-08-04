@@ -100,4 +100,36 @@ function createTray(opts, deps = {}) {
   return { tray, setStatus, available: true };
 }
 
-module.exports = { createTray, ICON_COLOR_BY_STATUS };
+/**
+ * Builds the tray's Start/Stop/Restart callbacks, wired through the shared
+ * proxy mutex — the same primitive registerIpcHandlers() decorates the IPC
+ * handlers with (ipc.js) and engine-context.js's regenerateStaleConfig()
+ * restart uses via `runProxyOperation`. Without this, a tray click can
+ * interleave with a background proxy-affecting operation: tray.js only
+ * enables Stop/Restart while status === 'running', which is exactly the
+ * precondition the background stale-config restart's up-to-60s health-check
+ * window holds the lock under (NCOW-31 fix pass 2, reviewer finding B1).
+ *
+ * This used to be written inline at index.js's createTray({...}) call site,
+ * which meant the only way to check it was a source-text regex over
+ * index.js — one that could not distinguish a genuinely shared mutex set
+ * from a mutation that shadows `mutexes` in a nested scope right around the
+ * call, giving the tray its own private, unshared lock (review pass 2's
+ * finding, NCOW-35). Pulling it out here — mirroring menu.js's
+ * `buildMenuTemplate(actions, platform)`, extracted for the same reason —
+ * makes the wiring an independently constructible, dependency-injected unit
+ * a test can drive directly with a real mutex set and prove shares the SAME
+ * instance ipc.js/engine-context.js use (see test/main/tray-actions.test.js).
+ *
+ * @param {{mutexes: {proxy: {run: (fn: () => any) => Promise<any>}}, handlers: {proxy: {start: () => any, stop: () => any, restart: () => any}}}} deps
+ * @returns {{onStart: () => Promise<any>, onStop: () => Promise<any>, onRestart: () => Promise<any>}}
+ */
+function createTrayActions({ mutexes, handlers }) {
+  return {
+    onStart: () => mutexes.proxy.run(() => handlers.proxy.start()),
+    onStop: () => mutexes.proxy.run(() => handlers.proxy.stop()),
+    onRestart: () => mutexes.proxy.run(() => handlers.proxy.restart()),
+  };
+}
+
+module.exports = { createTray, createTrayActions, ICON_COLOR_BY_STATUS };
