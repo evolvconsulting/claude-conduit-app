@@ -75,6 +75,10 @@ if (!gotSingleInstanceLock) {
       userDataDir,
       appDataDir,
       broadcast: (channel, payload) => getMainWindow()?.webContents.send(channel, payload),
+      // NCOW-30: lets createEngineContext detect a generated config
+      // (ecosystem.config.cjs/run.js/manifest.json) that's stale relative to
+      // this launch and regenerate it — see engine-context.js.
+      appVersion: app.getVersion(),
     });
 
     // Created before registerIpcHandlers (and before autoUpdate below) so

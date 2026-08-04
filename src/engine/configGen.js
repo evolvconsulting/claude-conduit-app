@@ -402,6 +402,106 @@ function generateAll(opts) {
   return { masterKey };
 }
 
+/**
+ * @param {string} litellmEnvPath
+ * @returns {string|null} the NVIDIA key currently in litellm.env, or null if
+ *   the file doesn't exist or has no key recorded.
+ */
+function resolveExistingNvidiaApiKey(litellmEnvPath) {
+  try {
+    const raw = fs.readFileSync(litellmEnvPath, 'utf8');
+    const match = /^NVIDIA_NIM_API_KEY=(.*)$/m.exec(raw);
+    if (match && match[1].trim()) return match[1].trim();
+  } catch {
+    // No existing file (or unreadable) — nothing to reuse.
+  }
+  return null;
+}
+
+/**
+ * NCOW-30: generateAll() has exactly one caller in the whole app — the
+ * first-run setup wizard (engine-context.js's config.generate()) — so an
+ * install that completed setup once keeps that moment's generated
+ * ecosystem.config.cjs/run.js/manifest.json content forever across every
+ * later app upgrade. Nothing else ever re-renders it: configDirMigration.js/
+ * userDataMigration.js only rewrite path prefixes on a directory/name
+ * migration, never content, and pm2Control's startOrRestart() just launches
+ * whatever ecosystem.config.cjs already happens to be on disk. A manifest
+ * with no `generated_by_version` at all is exactly what every real install
+ * (v0.1.0, v0.1.1) has today, since this field never existed before now.
+ *
+ * @param {object|null} manifest
+ * @param {string|undefined} currentVersion
+ */
+function needsRegeneration(manifest, currentVersion) {
+  if (!manifest || !currentVersion) return false;
+  return manifest.generated_by_version !== currentVersion;
+}
+
+/**
+ * Regenerates the managed config files when they were last produced by a
+ * different app version than the one currently running (see
+ * needsRegeneration), then restarts a currently-running proxy the same way
+ * handlers.proxy.start()/restart() already do (engine-context.js) so the
+ * regenerated ecosystem.config.cjs actually takes effect instead of a stale
+ * in-memory pm2 process description lingering until the next manual restart.
+ *
+ * The NVIDIA API key is re-read straight out of the existing litellm.env
+ * (resolveExistingNvidiaApiKey) rather than via the OS secret store: this
+ * path only ever needs to reproduce content that already worked, and
+ * skipping secretStore/safeStorage here means a stale-config regeneration
+ * can never be blocked by something unrelated failing independently (e.g. a
+ * platform keyring temporarily unavailable).
+ *
+ * getStatus/startOrRestart are injected (rather than a pm2Control instance
+ * required at the top of this module) so this stays plain-Node and testable
+ * without a real pm2 daemon, matching every other engine/ module.
+ *
+ * @param {object} opts
+ * @param {import('./paths').getFilePaths extends (...a: any) => infer R ? R : never} opts.files
+ * @param {object|null} opts.manifest
+ * @param {string|undefined} opts.currentVersion
+ * @param {(patch: object) => object} opts.saveManifest
+ * @param {() => Promise<{status: string}>} opts.getStatus
+ * @param {(opts: {ecosystemConfigPath: string, port: number, outLog: string, errLog: string}) => Promise<any>} opts.startOrRestart
+ * @returns {Promise<{regenerated: boolean, reason?: string}>}
+ */
+async function regenerateStaleConfig(opts) {
+  const { files, manifest, currentVersion, saveManifest, getStatus, startOrRestart } = opts;
+
+  if (!needsRegeneration(manifest, currentVersion)) return { regenerated: false, reason: 'up-to-date' };
+
+  const apiKey = resolveExistingNvidiaApiKey(files.litellmEnv);
+  if (!apiKey) return { regenerated: false, reason: 'no-existing-secrets' };
+  if (!manifest.litellm_path) return { regenerated: false, reason: 'no-litellm-path' };
+
+  generateAll({
+    files,
+    primaryModelId: manifest.primary_model,
+    smallModelId: manifest.small_model,
+    nimBaseUrl: manifest.nim_base_url ?? undefined,
+    port: manifest.port,
+    litellmAbsPath: manifest.litellm_path,
+    nvidiaApiKey: apiKey,
+  });
+  saveManifest({ generated_by_version: currentVersion });
+
+  // AC#2: a live proxy from a previous session must pick up the regenerated
+  // ecosystem.config.cjs, not keep running whatever pm2 already loaded into
+  // memory.
+  const status = await getStatus();
+  if (status.status === 'running') {
+    await startOrRestart({
+      ecosystemConfigPath: files.ecosystemConfig,
+      port: manifest.port,
+      outLog: files.outLog,
+      errLog: files.errLog,
+    });
+  }
+
+  return { regenerated: true };
+}
+
 module.exports = {
   renderConfigYaml,
   renderRunLauncherJs,
@@ -409,4 +509,7 @@ module.exports = {
   resolveMasterKey,
   writeSecretsEnvFile,
   generateAll,
+  resolveExistingNvidiaApiKey,
+  needsRegeneration,
+  regenerateStaleConfig,
 };
