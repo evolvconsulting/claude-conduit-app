@@ -190,9 +190,22 @@ function createEngineContext(deps) {
   // unquittable, and queueing the shutdown stop behind a lock a background
   // restart can hold for up to 60s is precisely how it would become
   // unquittable. That stop is bounded by its own timeout instead. So "quit
-  // during a background restart" remains unserialized, by choice; a Stop
-  // clicked in the window, which is the recoverable-but-confusing case
-  // NCOW-31 was filed for, is now serialized.
+  // during a background restart" remains unserialized, by choice; a Stop or
+  // Restart clicked from the window or tray, which is the recoverable-but-
+  // confusing case NCOW-31 was filed for, is now serialized.
+  //
+  // The worst case this leaves is worse than "a Stop that doesn't stick"
+  // (NCOW-31's own description of the pre-fix risk, written before this
+  // exclusion existed): pm2Control.startOrRestart() (pm2Control.js) calls
+  // deleteAppIfPresent() before pm2.start(). If shutdown.js's stop() lands in
+  // that specific gap, it errors on an app pm2 no longer knows about — an
+  // error createProxyShutdown() already swallows by design (it must quit
+  // regardless) — and startOrRestart()'s pm2.start() then runs anyway, right
+  // after the app decided to quit. The proxy can outlive the quit, which is
+  // the exact outcome NCOW-4 ("closing hides, quitting stops the proxy") means
+  // to prevent. This is a millisecond-wide window, pre-existing on dev, and
+  // out of scope for this task to close — see NCOW-31's review notes for the
+  // follow-up.
   const mutexes = deps.mutexes ?? createDomainMutexes();
 
   const configRegeneration = configGen

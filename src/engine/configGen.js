@@ -588,8 +588,13 @@ async function regenerateStaleConfig(opts) {
   });
 
   if (attempt.thrown) {
+    // pm2Control only ever throws real Errors in practice, but guard the
+    // `.message` access too (not just the return-shape branch below) so a
+    // thrown non-Error value logs its own string form instead of the literal
+    // text "(undefined)".
+    const thrownMessage = attempt.thrown?.message ?? String(attempt.thrown);
     logger.warn(
-      `[config-regen] proxy restart THREW after regenerating config (${attempt.thrown.message}); ` +
+      `[config-regen] proxy restart THREW after regenerating config (${thrownMessage}); ` +
         `leaving manifest unstamped so the next launch retries regeneration`
     );
     return { regenerated: false, reason: 'restart-error', error: attempt.thrown };
