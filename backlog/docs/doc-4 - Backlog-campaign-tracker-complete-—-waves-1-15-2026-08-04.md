@@ -1,11 +1,19 @@
 ---
 id: doc-4
-title: Backlog campaign tracker
+title: 'Backlog campaign tracker (complete) — waves 1-15, 2026-08-04'
 type: other
 created_date: '2026-08-02 00:16'
-updated_date: '2026-08-04 15:49'
+updated_date: '2026-08-04 19:27'
 ---
-# Backlog campaign tracker
+# Backlog campaign tracker — COMPLETE (2026-08-04, after wave 15)
+
+**This campaign is complete.** Every task an agent could resolve has been drained; every
+remaining open Backlog task (NCOW-7, NCOW-11, NCOW-13, NCOW-14, NCOW-15) is deliberately
+excluded, unchanged since this round's own init (see "Confirmed at init" below and Not
+queued) — none of them are agent-resolvable as filed; they need a separate
+planning/decomposition session before a future campaign round can queue them. If a future
+session wants to resume backlog work, run `/backlog-handover init` to build a fresh
+tracker/queue rather than reopening this one.
 
 Protocol: restore → compute the ready/conflict graph → mark the wave Dispatched
 → dispatch (parallel workers + review) → serialize the merge →
@@ -341,11 +349,58 @@ agent-resolvable ready task; NCOW-7/11/13/14/15 remain deliberately excluded per
 init/restore-1 decisions (see Not queued). No conflict graph needed for a field of one. **Wave 15 =
 NCOW-31 alone.**
 
+As of wave 15 settlement (2026-08-04): **NCOW-31 is Done** (see Resolved) — merged, PR #23 ->
+`d0e2362`. Two opus review passes: pass 1 `request_changes` (the tray's Start/Stop/Restart
+bypassed the new mutex entirely, a real reachable interleave the branch's own negative-control
+test had already unwittingly proven — see NCOW-31's own notes for the full finding); fix pass
+wrapped the tray callbacks in the same lock plus two non-blocking comment/logging corrections.
+Pass 2 approve, all 4 ACs independently confirmed with a 120-iteration randomized-interleaving
+fuzz (zero interleaves post-fix; the pre-fix negative control interleaves reliably) and 12
+adversarial thrown-value probes. npm test 333/333.
+
+A separate, serious process incident occurred mid-review (pass 1): a reviewer's `node -e`
+invocation passed an env var as a bare shell argument instead of an actual environment-variable
+assignment, silently defeating `NIM_PROXY_TEST_HOME`, so a live-verification step ran
+`generateAll()` against the user's REAL `~/.config/claude-conduit/` directory instead of a test
+sandbox — rewriting `config.yaml`/`ecosystem.config.cjs`/`run.js`/`litellm.env`/`manifest.json`
+on the actual machine. No proxy was running before or during. Restored via the app's own
+`generateAll()`/`writeManifest()` using parameters recovered from the app's own historical logs;
+`LITELLM_MASTER_KEY` preserved by design (`resolveMasterKey()` reuses whatever's already on
+disk); `NVIDIA_NIM_API_KEY` (which WAS clobbered with a fake value mid-incident) restored from
+the repo's own `.env`. Surfaced to the user immediately and transparently, independently
+spot-verified by the orchestrator (not just the reviewer's self-report), and the user confirmed
+satisfied after checking the app's Setup screen. Full incident detail is on NCOW-31's own
+Implementation Notes. **Lesson for any future campaign round using live VM/host verification:
+triple-check every env-var assignment in an ad-hoc script is actually an env var, not a bare
+argument — this is now the second live-testing near-miss this campaign has produced (the first
+being wave-3's diskutil incident) and the stakes here were higher (real user data, not a
+FileVault-locked-but-otherwise-fine disk).**
+
+**Queue re-checked empty (2026-08-04):** fresh `backlog task list --exclude-status Done --plain`
+immediately after NCOW-31's settlement returns only NCOW-7/11/13/14/15 — all five deliberately
+excluded since this round's own init, none newly ready. **This campaign round is complete** — see
+the top of this document.
+
+Non-blocking follow-up candidates surfaced by NCOW-31's two review passes, not yet proposed to
+the user for filing (do so at the start of a future round via AskUserQuestion per Task-write
+concurrency, not unilaterally): (1) the `uninstall` and `update` IPC domains have no mutex at all
+(`MUTEX_DOMAINS` is only `proxy`/`config`/`claudeDesktop`/`claudeCode`), so Uninstall's
+`pm2Control.remove()` and auto-update's own proxy-stop call are both unserialized against an
+in-flight background restart — arguably worse blast radius than the shutdown carve-out already
+reviewed and accepted (a running proxy could be left behind after "uninstall complete"); (2) a
+comment-only nuance on the shutdown-race window's actual mechanism (pass 2 found the corrected
+comment from pass 1 got the right conclusion via a slightly wrong mechanism — `shutdown.js`'s
+`stop()` is skipped entirely rather than erroring-and-being-swallowed in the gap, and the real
+window is wider than "milliseconds"); (3) README/DESIGN.md still don't record the deliberate
+shutdown-mutex carve-out; (4) a test-identity gap where the tray's actions object isn't
+independently testable the way `menu.js`'s `buildMenuTemplate(actions, platform)` already is —
+extracting a similar factory would close it; (5) a cosmetic residual in `configGen.js`'s
+thrown-value logging guard (`throw Object.create(null)` makes `String()` itself throw rather than
+producing a readable log line — harmless in practice, `util.inspect()` would be more robust).
+
 ## Queue (confirmed order)
 
-| # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
-| --- | --- | --- | --- | --- | --- | --- |
-| 14 | NCOW-31 | pm2/packaging | none | Dispatched | 15 | serialize config-regeneration's background restart behind ipc.js's proxy mutex + retry a failed regeneration instead of stamping the version before the restart succeeds; filed wave 12 from NCOW-30's reviews, LOW priority; no VM needed to start, probable file conflict with anything touching engine-context.js/pm2Control.js |
+*(empty — see "This campaign round is complete" at the top of this document)*
 
 ## Resolved
 
@@ -367,6 +422,7 @@ NCOW-31 alone.**
 | 14 | NCOW-30 | Done, 2026-08-04, wave 12 | Fixed the gap where an existing install never regenerated its generated ecosystem.config.cjs/run.js/manifest.json across app upgrades. manifest.json now records generated_by_version; configGen.js's needsRegeneration()/regenerateStaleConfig() detect a version mismatch (or absent/corrupt stamp) and re-render from the manifest's already-recorded settings, restarting the proxy via the app's existing getStatus()/startOrRestart() mechanism if it's currently running; engine-context.js runs this once at every launch, fire-and-forget. Two opus review passes: pass 1 request_changes -- found a real blocking regression via live A/B testing (a corrupt/truncated manifest.json, which this task's own write path can itself produce on a crash/power-loss, threw past createEngineContext()'s constructor and silently prevented the app from ever opening a window); fix pass made the manifest read resilient (falls back to null/absent, matching the existing missing-manifest treatment) plus added failure logging, a dev/nightly staleness caveat comment, and 4 new tests. Pass 2 approve -- independently re-verified the fix with two different corruption shapes, re-confirmed AC#1/#2/#4/#5 live (an old-shaped install regenerates on launch with all prior state and real keys preserved; a running proxy is cleanly restarted onto the regenerated config, not corrupted or orphaned), reviewed AC#3 by inspection (pm2Control.js untouched, no NCOW-24 overlap). npm test 282/282 (261 baseline + 21 new), re-verified after rebase onto dev. Squash-merged PR #20 -> dev @ 6485ff2. Two non-blocking follow-up candidates (background restart not serialized behind ipc.js's proxy mutex; a failed restart isn't retried since the version stamp is written before the restart attempt) were user-approved and filed together as NCOW-31. Housekeeping: a stray, harmless litellm-nim artifact entry the wave-1-review's live testing had left in the user's real shared pm2 daemon (dump.pm2) was found and cleaned up by the orchestrator between review passes. |
 | 15 | NCOW-24 | Done, 2026-08-04, wave 13 | Fixed the bootstrapped pm2 daemon (spawned via ELECTRON_RUN_AS_NODE when no daemon exists) locking this app's own installed binary indefinitely, since it used that binary as the daemon's interpreter. Live characterization on a real Windows VM found an NSIS update is NOT blocked (NSIS renames the locked image aside via PendingFileRenameOperations, which Windows permits on a locked file) but an NSIS uninstall IS blocked, intermittently (exits 0, deregisters the app, deletes every other file, leaves the locked exe running with no UI path back to it -- unless a preceding update already relocated the original image). resolveDaemonInterpreter() in pm2Control.js now copies the interpreter plus required companion files (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, libffmpeg.so on Linux) into `<pm2Home>/daemon-interpreter/` on win32/linux, staged atomically so a crash mid-copy never leaves a broken half-copy reused silently; spawnDaemon() hands the daemon this relocated copy instead of the live installed binary. Never kills anything -- the no-pm2-kill constraint is untouched, the daemon still outlives the app by design, it just no longer locks the installed file. README/DESIGN.md/CLAUDE.md/About dialog now accurately document what persists after quit/uninstall and why (the ~227MiB relocated copy is never cleaned up by any uninstall path). Three opus review passes: pass 1 request_changes -- found the initial fix broke Linux daemon bootstrap entirely (missing libffmpeg.so, live-reproduced in a real Linux container), found the recorded Windows characterization inaccurate (only uninstall is blocked, not update), found no integrity check against a partially-copied companion file. Pass 2 -- independently re-verified all three fixes with different reproductions (linux-arm64 instead of x64, genuine signed release installers, a different corrupted file), confirmed all fixed; withheld on one remaining doc-only inconsistency between README and the About dialog. Pass 3 (final, would have auto-escalated on another request_changes per the 2-retry cap) approved with all 6 ACs independently confirmed. npm test 293/293, re-verified after rebase onto dev (one earlier local run showed 292/293, resolved as flaky on two clean re-runs, not a regression). Squash-merged PR #21 -> dev @ 4441f40. |
 | 16 | NCOW-21 | Done, 2026-08-04, wave 14 | Replaced cmdQuoteArg()'s MSVCRT-style backslash-doubling escape for embedded literal quotes with a cmd.exe-style doubled-quote escape (`""` instead of `\"`), since cmd.exe's own command-line re-parse (which runs before the spawned process ever sees the string) does not honor backslash-escaped quotes and could let a following metacharacter break out and execute as real shell syntax. Doc comment corrected to stop overstating coverage and to stop misattributing the fix to the superseded caret-based escaping attempt. One opus review pass, approve, all 4 ACs independently confirmed: the reviewer built its own live winvm A/B harness with 13 payloads of its own choosing (distinct from the implementer's), reproduced the real breakout pre-fix (4/13 chosen payloads created marker files) and confirmed zero breakouts post-fix (0/13, all argv byte-for-byte intact), then tried and failed to break the `""`-doubling regex with edge cases the implementer hadn't tried (all-quotes arg, 4 consecutive embedded quotes, unbalanced quote counts, 5-backslash+quote mixes). Mutation-tested the 2 new regression tests (reverting only the fix line makes exactly those 2 fail). Reviewer additionally reconstructed the superseded caret-era escaping from NCOW-20's own recorded description and live-reproduced on winvm that it never closed this hole either, independently confirming the doc's corrected historical claim rather than trusting it. npm test 295/295. Squash-merged PR #22 -> dev @ 2ec8402. Process note: a duplicate-agent incident occurred mid-wave (see Wave log) -- confirmed to have caused zero code or data damage, fully reconciled before settlement. |
+| 17 | NCOW-31 | Done, 2026-08-04, wave 15 | Extracted the per-domain proxy mutex from ipc.js into a new electron-free shared module (src/main/mutex.js) so both ipc.js and engine-context.js's launch-time stale-config regeneration (NCOW-30) can share one lock, closing the race where a background restart could interleave with a user-initiated proxy start/stop/restart. generated_by_version is now stamped only after a confirmed-successful restart; both failure shapes (a thrown error, and pm2Control.startOrRestart()'s {ok:false,error} return e.g. HEALTH_CHECK_TIMEOUT) are distinctly logged and leave the manifest unstamped so the next launch retries. Two opus review passes: pass 1 request_changes -- found the tray's Start/Stop/Restart bypassed the mutex entirely (a real reachable interleave the branch's own negative-control test had unwittingly already proven); fix pass wrapped the tray callbacks in the same lock plus two non-blocking comment/logging corrections. Pass 2 approve, all 4 ACs independently confirmed via a 120-iteration randomized-interleaving fuzz against the real shared lock (zero interleaves post-fix; the pre-fix negative control interleaves reliably) and 12 adversarial thrown-value probes. npm test 333/333. Squash-merged PR #23 -> dev @ d0e2362. Process note: a serious incident occurred mid-review (an env-var/argument mix-up in a reviewer's live-verification script silently defeated NIM_PROXY_TEST_HOME and briefly overwrote the user's REAL config directory) -- surfaced immediately and transparently, independently verified restored by the orchestrator, user confirmed satisfied; full detail in the Wave log and on NCOW-31's own Implementation Notes. Five non-blocking follow-up candidates surfaced by review, not yet proposed for filing -- see Frontier. |
 
 *(see `doc-3` for the prior round's full Resolved table: NCOW-16, 18, 17, 12, 19, 9 all Done
 across 4 waves)*
@@ -924,3 +980,77 @@ across 4 waves)*
 
   One task remains queued, not blocked by a dependency: NCOW-31. It needs no VM to start. NCOW-21
   (which shared `configGen.js` with it) is now merged, so NCOW-31 is the sole ready task.
+
+- 2026-08-04 — wave 15 (task: NCOW-31): a fresh bulk-list immediately after wave 14 settlement
+  confirmed NCOW-31 as the only agent-resolvable ready task. No conflict graph needed for a field
+  of one. **Wave 15 = NCOW-31 alone**, the last item in the current campaign round's queue.
+
+  Implemented: extracted the per-domain proxy mutex from `ipc.js` into a new electron-free shared
+  module (`src/main/mutex.js`) so both `ipc.js` and `engine-context.js`'s launch-time stale-config
+  regeneration (NCOW-30) can share one lock. `generated_by_version` is now stamped only after a
+  confirmed-successful restart; both failure shapes (thrown error, and `pm2Control.startOrRestart()`'s
+  `{ok:false,error}` return) are distinctly logged and leave the manifest unstamped so the next
+  launch retries. The initial implementation continued a PRIOR worker session that crashed on a
+  genuine API connection error mid-response — its partial `mutex.js` extraction was verified
+  complete/correct and kept as-is rather than redone; the resuming worker finished wiring `ipc.js`,
+  `engine-context.js`, `index.js`, and `configGen.js`, inverting the crashed worker's escaping
+  `SERIALIZED_METHODS` allowlist to a fail-safe `UNSERIALIZED_METHODS` denylist along the way (the
+  allowlist form would have silently unlocked `start/stopLogTail`, a real regression).
+
+  Two opus review passes. Pass 1: `request_changes` — found the tray's Start/Stop/Restart bypassed
+  the new mutex entirely (`index.js` wired them directly to the handlers, no `ipcMain`, no lock) —
+  a real, reachable interleave the branch's own negative-control test had unwittingly already
+  proven (it called the tray's exact code path and correctly asserted it interleaves, mislabeled as
+  "the pre-NCOW-31 world"). Also accepted two implementer-flagged judgment calls (an `index.js`
+  scope expansion necessary for the fix to be live at all; a deliberate exclusion of `shutdown.js`'s
+  before-quit stop from the lock, to avoid making the app unquittable per CLAUDE.md) and found one
+  non-blocking comment-accuracy nit on the latter. Fix pass wrapped the tray callbacks in the same
+  lock, added regression coverage (mutation-tested — reverting the wrap makes exactly the new test
+  fail), and corrected the two non-blocking comment/logging issues. Pass 2: `approve`, all 4 ACs
+  independently confirmed — a 120-iteration randomized-interleaving fuzz against the real shared
+  lock produced zero interleaves post-fix (the pre-fix negative control interleaves reliably on
+  iteration 5), and 12 adversarial thrown-value probes confirmed the retry-logging fix handles
+  every real shape `pm2Control` can produce. Pass 2 also surfaced a genuine non-blocking finding
+  while sweeping for other unlocked callers: the `uninstall`/`update` IPC domains have no mutex at
+  all, so Uninstall's `pm2Control.remove()` and auto-update's own proxy-stop remain unserialized
+  against a background restart — arguably worse blast radius than the already-accepted shutdown
+  carve-out, though outside AC#1's literal wording and pre-existing on `dev`.
+
+  npm test 333/333, re-verified after rebase (no sibling to conflict with — solo wave). Squash-merged
+  PR #23 -> dev @ `d0e2362`. Worktree released back to the treehouse pool, branch deleted (local +
+  remote). No wave-level integration review needed (solo wave, same as waves 3/10/12/13/14) — pass
+  2's own light integration check (required for this being the last task in the queue) confirmed no
+  interaction with NCOW-21/23/24/30's recently-merged code paths.
+
+  **Serious process incident (surfaced immediately and transparently, exactly as this campaign's
+  standing practice requires — see also wave 4's diskutil incident and wave 14's duplicate-agent
+  incident):** during review pass 1's live-verification step, a `node -e` invocation passed a
+  variable as a bare shell script argument instead of an actual environment-variable assignment,
+  so `NIM_PROXY_TEST_HOME` was silently never applied and `resolveConfigDir()` fell back to the
+  user's REAL `~/.config/claude-conduit/` directory. `generateAll()` then rewrote
+  `config.yaml`/`ecosystem.config.cjs`/`run.js`/`litellm.env` there for real, and `manifest.json`
+  was overwritten. No proxy was running before or during (confirmed no `litellm-nim` pm2 entry
+  existed). The reviewer restored the directory using the app's own `generateAll()`/
+  `writeManifest()`, with parameters recovered from the app's own historical logs;
+  `LITELLM_MASTER_KEY` was never actually at risk (`resolveMasterKey()` reuses whatever's already
+  on disk by design); `NVIDIA_NIM_API_KEY` (which WAS briefly clobbered with a fake value) was
+  restored from the repo's own `.env`. `generated_by_version` was deliberately left absent in the
+  restored manifest — harmless, since NCOW-30's own mechanism self-heals this on the next launch.
+  `logs/`, the Electron-userData encrypted key, and Claude Desktop/Code configs (never wired) were
+  never touched. The orchestrator did not simply trust this report: it independently inspected the
+  restored directory directly (file presence, timestamps, manifest field values, `litellm.env` key
+  presence) before saying anything to the user, then surfaced the full incident prominently and
+  paused for the user's own confirmation via AskUserQuestion before any further campaign work
+  continued. User reviewed the app's Setup screen and confirmed satisfied. The remainder of review
+  pass 1 and all of pass 2's live-harness work was redone/performed correctly under
+  `NIM_PROXY_TEST_HOME` with a hard path assertion each time, and the real directory was
+  SHA-256-verified identical before and after every subsequent live run this wave.
+
+  **Fresh bulk-list re-check immediately after settlement confirmed the queue is now empty** of
+  agent-resolvable work — only NCOW-7/11/13/14/15 remain, all deliberately excluded since this
+  round's own init. **This campaign round is complete.** Five non-blocking follow-up candidates
+  from NCOW-31's reviews (the unlocked uninstall/update mutex gap; a shutdown-comment mechanism
+  nuance; a README/DESIGN.md documentation gap; a tray-actions test-identity gap; a cosmetic
+  logging-guard residual) were recorded but not proposed for filing this session — a future
+  session should raise them via AskUserQuestion before `init`-ing the next round, per Task-write
+  concurrency.
