@@ -100,6 +100,174 @@ function ensurePm2HomeStructure(pm2Home) {
   }
 }
 
+// NCOW-24: Electron needs a handful of small companion files sitting next to
+// its own executable to boot at all, even in ELECTRON_RUN_AS_NODE mode —
+// empirically confirmed live on Windows: a bare copy of the executable alone
+// crashes on launch with "Invalid file descriptor to ICU data received"
+// before a single line of Daemon.js ever runs. `icudtl.dat` fixes that; the
+// V8 snapshot files come along for the same reason (both are also required
+// for a clean, zero-stderr launch in the same live test).
+//
+// `libffmpeg.so` is the Linux-only member of this list (review pass, NCOW-24
+// fix pass #2): Electron's Linux binary has `DT_NEEDED: libffmpeg.so` with
+// `RPATH=$ORIGIN`, i.e. the dynamic linker requires it sitting right next to
+// the executable, exactly like the files above. Without it, `ld.so` refuses
+// to load the relocated copy at all — confirmed live in a real x86_64 Ubuntu
+// 22.04 container against a genuine `electron-v43.2.0-linux-x64` build: a
+// copy missing `libffmpeg.so` fails with "error while loading shared
+// libraries: libffmpeg.so: cannot open shared object file" and exit code
+// 127 before any JS runs, exactly the failure mode that made spawnDaemon()
+// reject with "pm2 daemon process exited during bootstrap"; adding it to
+// this list and re-running the identical copy fixed it (`node -e
+// '1+1'` under ELECTRON_RUN_AS_NODE printed `2`, exit code 0). It does not
+// exist on win32 or inside a `node` interpreter, so the existsSync guard
+// below makes it a no-op there, same as the files above.
+//
+// Copying is best-effort *per source file's existence* (see the
+// `fs.existsSync` guard below) — a missing companion file that never existed
+// in the source (e.g. a plain, non-Electron `node` binary, which has none of
+// these) must never block the copy of the interpreter itself. But once a
+// companion file DOES exist in the source, its copy is no longer optional:
+// see resolveDaemonInterpreter()'s doc comment on why a partial copy must
+// never be left in place as if it were complete (NCOW-24 review finding 3).
+const DAEMON_INTERPRETER_COMPANION_FILES = ['icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin', 'libffmpeg.so'];
+
+/**
+ * NCOW-24: spawnDaemon() below hands pm2's Daemon.js `process.execPath`
+ * itself as its interpreter — on win32/linux that is a single, flat
+ * executable file, which is this app's own *installed* binary. Because the
+ * daemon it becomes is detached and long-lived by design (pm2's whole
+ * model), that file stays open for as long as the daemon runs, which is
+ * indefinitely.
+ *
+ * **Corrected characterization (review pass, NCOW-24 fix pass #2) — do not
+ * restate the original claim that this "blocks" a Windows update.** Verified
+ * live against a real packaged NSIS install with a process still executing
+ * off the installed binary:
+ * - **Update: NOT blocked.** A silent NSIS reinstall (electron-updater's
+ *   Windows update mechanism) *succeeds*: NSIS renames the running,
+ *   locked image aside into `%TEMP%\ns*.tmp\old-install\` (Windows permits
+ *   renaming a running image even though it refuses an in-place
+ *   overwrite/delete) and queues its removal via
+ *   `PendingFileRenameOperations`, then installs the new binary at the
+ *   original path. The original "unchanged `LastWriteTime`" evidence for
+ *   "blocked" was confounded: an unlocked, zero-process, same-version
+ *   reinstall shows the identical unchanged mtime, because NSIS preserves
+ *   archive timestamps regardless of locking — that observation carries no
+ *   information about locking at all.
+ * - **Uninstall: blocked, intermittently.** A silent uninstall exits 0,
+ *   deregisters the Programs-and-Features entry, and deletes every *other*
+ *   installed file, but leaves the locked multi-hundred-MB binary behind,
+ *   still running, with no UI path left to discover or stop it. This is
+ *   intermittent: if a preceding update already moved the original binary
+ *   aside (per the update mechanism above), a subsequent uninstall
+ *   completes cleanly instead.
+ *
+ * The fix below is still worth keeping even though the update half of the
+ * original motivation was wrong: it directly fixes the real, reproduced
+ * uninstall-blocking case. The fix: hand the daemon a private copy of the
+ * interpreter instead of the installed binary itself, living under
+ * `pm2Home` — a directory nothing an installer or updater ever touches — so
+ * the installed binary is never the thing held open. Falls back to
+ * `execPath` unchanged on any failure (a copy error, a missing source
+ * file, …): this is a hardening improvement on top of a working bootstrap,
+ * never a new way for bootstrap to fail.
+ *
+ * Not attempted on darwin: the installed binary there is one file deep
+ * inside a multi-file `.app` bundle (its `Contents/Frameworks/Electron
+ * Framework.framework/...` is where the bulk of it actually lives), so
+ * "copy the executable and its companions" isn't the same small, flat
+ * operation it is on win32/linux and hasn't been verified to even produce a
+ * bootable copy. It also isn't the same bug there: unlike win32, macOS does
+ * not block replacing or deleting a running executable's file in the first
+ * place (an open file keeps its old inode until the process exits, exactly
+ * as NCOW-22's wave-6 review observed — the daemon lingers and `lsof` still
+ * shows it holding the framework binary, but nothing ever reported an actual
+ * update/uninstall *failure* on macOS from it). See README.md/DESIGN.md for
+ * how that side of NCOW-24 is handled instead — accurate documentation of
+ * what persists and why, not a code change.
+ *
+ * **Integrity (review pass, NCOW-24 fix pass #2, finding 3):** a copy is only
+ * ever considered valid once the executable AND every companion file that
+ * exists in the source have landed at the destination — a size-matched exe
+ * next to a missing/partial companion file (e.g. a crash mid-copy, a
+ * disk-full condition, or an AV quarantine snatching one file) used to be
+ * silently reused forever, and a broken copy like that fails to boot at all
+ * (live-verified: deleting `icudtl.dat` from an already-created copy dies
+ * instantly with an ICU data error and is never repaired). The copy itself
+ * is now staged into a temp directory under `pm2Home` and atomically
+ * `rename()`d into place only once every file has copied successfully, so a
+ * crash mid-copy can never leave a "looks complete enough" directory behind
+ * — either the rename lands a fully-populated directory, or the previous
+ * (possibly still-good) directory is left completely untouched and the
+ * incomplete temp directory is cleaned up.
+ *
+ * Note: the exe-size comparison this integrity check builds on is a
+ * redundant-copy-avoidance heuristic, not a true staleness guarantee — two
+ * different builds of this app can produce an exe of the exact same byte
+ * size (this app's own code lives in `app.asar`, not the exe), so a stale
+ * same-size copy can be reused across an upgrade. That's benign today: same
+ * Electron version means the copy remains a functionally valid interpreter
+ * for pm2's `Daemon.js` either way.
+ *
+ * @param {string} execPath
+ * @param {string} pm2Home
+ * @param {{platform?: string}} [opts] `platform` is a test-only override.
+ * @returns {string} the path to actually spawn as the daemon's interpreter.
+ */
+function resolveDaemonInterpreter(execPath, pm2Home, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  if (platform === 'darwin') return execPath;
+
+  const targetDir = path.join(pm2Home, 'daemon-interpreter');
+  const targetExec = path.join(targetDir, path.basename(execPath));
+
+  try {
+    const srcStat = fs.statSync(execPath);
+    const srcDir = path.dirname(execPath);
+    const expectedCompanions = DAEMON_INTERPRETER_COMPANION_FILES.filter((name) =>
+      fs.existsSync(path.join(srcDir, name))
+    );
+
+    const isCopyComplete =
+      fs.existsSync(targetExec) &&
+      fs.statSync(targetExec).size === srcStat.size &&
+      expectedCompanions.every((name) => fs.existsSync(path.join(targetDir, name)));
+
+    if (!isCopyComplete) {
+      fs.mkdirSync(pm2Home, { recursive: true });
+      // Stage the whole copy in a fresh temp directory first, then swap it
+      // into place with a single rename — never write directly into
+      // targetDir, or a crash/kill partway through leaves exactly the
+      // "looks complete enough but actually broken" state this exists to
+      // prevent.
+      const tmpDir = fs.mkdtempSync(path.join(pm2Home, 'daemon-interpreter.tmp-'));
+      try {
+        fs.copyFileSync(execPath, path.join(tmpDir, path.basename(execPath)));
+        for (const name of expectedCompanions) {
+          fs.copyFileSync(path.join(srcDir, name), path.join(tmpDir, name));
+        }
+        // rmSync+rename rather than a direct overwrite: fs.renameSync onto
+        // an existing non-empty directory fails on both win32 and POSIX.
+        fs.rmSync(targetDir, { recursive: true, force: true });
+        fs.renameSync(tmpDir, targetDir);
+      } catch (err) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        throw err;
+      }
+    }
+    return targetExec;
+  } catch {
+    // Best-effort overall: any failure here (permissions, disk full, a
+    // source file that vanished mid-copy) must fall back to today's
+    // behaviour rather than block the daemon from starting at all. A
+    // failure here never leaves a partial copy in targetDir — see the
+    // temp-dir staging above — so the next call gets a clean retry rather
+    // than reusing a broken one.
+    return execPath;
+  }
+}
+
 /**
  * Spawns the pm2 daemon ourselves rather than trusting pm2's own
  * launchDaemon() (NCOW-22 cause #2): that spawns `process.execPath`, which
@@ -127,22 +295,31 @@ function ensurePm2HomeStructure(pm2Home) {
  * onError and onExit are genuine failures and are always killed, preserving
  * NCOW-22's leak fix.
  *
- * @param {{pm2Home?: string, timeoutMs?: number, spawn?: typeof spawn}} [opts]
+ * @param {{pm2Home?: string, timeoutMs?: number, spawn?: typeof spawn, execPath?: string, platform?: string}} [opts]
  *   `spawn` is a test-only override (NCOW-26) letting pm2Control.test.js
  *   drive the timeout/kill/adopt state machine below with a fully-controlled
  *   fake child; every real caller leaves it unset and gets the genuine
- *   node:child_process spawn.
+ *   node:child_process spawn — and, since resolveDaemonInterpreter()'s real
+ *   filesystem copy would be pure overhead against a fake child that ignores
+ *   its arguments anyway, a real `spawn` override also skips straight to the
+ *   real `execPath` without attempting it. `execPath`/`platform` are
+ *   test-only overrides for resolveDaemonInterpreter() (NCOW-24); every real
+ *   caller leaves both unset and gets the genuine `process.execPath`/
+ *   `process.platform`.
  * @returns {Promise<{pid: number}>}
  */
 function spawnDaemon(opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const pm2Home = resolvePm2Home(opts.pm2Home);
   ensurePm2HomeStructure(pm2Home);
-  const spawnFn = typeof opts.spawn === 'function' ? opts.spawn : spawn;
+  const usingRealSpawn = typeof opts.spawn !== 'function';
+  const spawnFn = usingRealSpawn ? spawn : opts.spawn;
+  const execPath = opts.execPath ?? process.execPath;
+  const interpreter = usingRealSpawn ? resolveDaemonInterpreter(execPath, pm2Home, opts) : execPath;
 
   return new Promise((resolve, reject) => {
     const daemonScript = path.join(path.dirname(require.resolve('pm2/package.json')), 'lib', 'Daemon.js');
-    const child = spawnFn(process.execPath, [daemonScript], {
+    const child = spawnFn(interpreter, [daemonScript], {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
@@ -522,4 +699,12 @@ function createPm2Control(pm2, deps = {}) {
   };
 }
 
-module.exports = { createPm2Control, APP_NAME, probeDaemonAlive, spawnDaemon, resolveRpcSocketPath, resolvePm2Home };
+module.exports = {
+  createPm2Control,
+  APP_NAME,
+  probeDaemonAlive,
+  spawnDaemon,
+  resolveRpcSocketPath,
+  resolvePm2Home,
+  resolveDaemonInterpreter,
+};
