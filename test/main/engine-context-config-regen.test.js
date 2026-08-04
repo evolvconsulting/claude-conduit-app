@@ -539,7 +539,7 @@ test('createEngineContext: AC#1 — a user-initiated proxy op taking context.mut
   });
 });
 
-test('createEngineContext: NCOW-31 fix pass 2 (reviewer finding B1) — the tray path (mutexes.proxy.run(...) wrapping handlers.proxy.*, exactly as main/index.js now wires onStart/onStop/onRestart) also cannot interleave with the background regeneration restart', async () => {
+test('createEngineContext: NCOW-31 fix pass 2 (reviewer finding B1) — the tray path (mutexes.proxy.run(...) wrapping handlers.proxy.*, the same shape tray.js\'s createTrayActions now wires into main/index.js\'s createTray({...})) also cannot interleave with the background regeneration restart', async () => {
   await withFakeHome(async (homeDir) => {
     seedStaleInstall(homeDir);
     const order = [];
@@ -576,14 +576,19 @@ test('createEngineContext: NCOW-31 fix pass 2 (reviewer finding B1) — the tray
     // review's finding B1: tray.js only enables Stop/Restart when
     // status.status === 'running', which is exactly this restart's own
     // precondition). It now wraps every tray callback in
-    // `mutexes.proxy.run(() => handlers.proxy.X())`, the same primitive
+    // `mutexes.proxy.run(() => handlers.proxy.X())` via tray.js's exported
+    // createTrayActions({ mutexes, handlers }) (NCOW-35) — the same primitive
     // registerIpcHandlers() decorates the IPC handlers with and
     // regenerateStaleConfig()'s own restart takes via `runProxyOperation`.
-    // This reproduces that exact call shape off the real context, rather than
-    // requiring main/index.js itself (which touches electron.app at module
-    // scope and can't load under plain `node --test` — see the static
-    // source-check test below for the half of this fix that can only be
-    // verified by reading index.js's actual source).
+    // This reproduces that exact call shape off the real context (this file
+    // cannot import tray.js itself: it requires('electron') at module scope,
+    // which would poison the "pulls no electron into the module graph" test
+    // further down in this same file/process). The behavioural proof against
+    // the REAL createTrayActions — including identity with a real
+    // ipc.js-registered handler and a negative control for the
+    // nested-scope-shadowing mutation class review pass 2 identified — lives
+    // in test/main/tray-actions.test.js, which is free to require tray.js
+    // because it is its own file/process.
     const trayStop = context.mutexes.proxy.run(() => {
       order.push('tray-stop:enter');
       return context.handlers.proxy.stop();
@@ -747,16 +752,60 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
   assert.match(source, /configRegeneration[\s\S]{0,200}console\.warn/, 'expected configRegeneration to be observed and logged on failure');
 });
 
-// NCOW-31 fix pass 2 (reviewer finding B1): the tray's Start/Stop/Restart used
-// to call handlers.proxy.* directly, bypassing ipcMain and therefore the
-// mutex entirely — the interleave-detection mechanism itself is proven
-// separately, behaviourally, by the "tray path" test above (it reproduces the
-// exact `mutexes.proxy.run(...)` call shape off a real context); this test
-// only has to prove index.js's actual createTray({...}) call site really uses
-// that shape, since index.js can't be required under plain `node --test` (see
-// the comment above the previous test).
-test('index.js: the tray Start/Stop/Restart callbacks are wrapped in the proxy mutex, not calling handlers.proxy.* directly', () => {
+// NCOW-31 fix pass 2 (reviewer finding B1) / NCOW-35: the tray's
+// Start/Stop/Restart used to call handlers.proxy.* directly, bypassing
+// ipcMain and therefore the mutex entirely. The original fix inlined
+// `onStart: () => mutexes.proxy.run(() => handlers.proxy.start())` etc.
+// straight into index.js's createTray({...}) call, provable only by a
+// source-text regex over index.js — review pass 2 found that regex has a real
+// identity gap: it only checks that the text `mutexes.proxy.run(...)` appears
+// at the call site, not that `mutexes` resolves to the SAME lock instance
+// ipc.js and engine-context.js use, so a mutation shadowing `mutexes` in a
+// nested scope right around this call (giving the tray its own private,
+// unshared lock) still passed every test that regex could offer.
+//
+// NCOW-35 pulls that wiring into tray.js's exported createTrayActions({
+// mutexes, handlers }) instead (mirroring menu.js's buildMenuTemplate). The
+// identity proof — that the tray, ipc.js, and engine-context.js all contend
+// for one shared mutex instance, and that a shadowed/private set is
+// detectably different — is now a BEHAVIOURAL test against the real seam, in
+// test/main/tray-actions.test.js.
+//
+// NCOW-35 fix pass (mandatory review): that behavioural test, and the
+// call-site regex below, each reach only part of the chain. The behavioural
+// test proves createTrayActions({ mutexes, handlers }) shares a lock with
+// ipc.js/engine-context.js whenever it is invoked with the SAME `mutexes`
+// binding — but it imports tray.js directly and cannot see what identifier
+// index.js itself passes in. The call-site regex below only confirms the
+// text `...createTrayActions({ mutexes, handlers })` appears inside the
+// createTray({...}) call; it is blind to whether `mutexes` resolves to the
+// shared instance or a private one, exactly as review pass 2's original
+// `mutexes.proxy.run(...)` regex was. A nested block scope wrapped around
+// createTray({...}) that shadows `mutexes` with its own
+// `require('./mutex').createDomainMutexes()` right before spreading it in
+// passes both checks and still leaves the tray fully unlocked — this was
+// reproduced against a real reviewer pass and confirmed to slip through
+// npm test unnoticed.
+//
+// index.js itself can't be required under plain `node --test` (electron.app
+// at module scope), so this file closes the gap with a second, file-wide
+// static check just below: that the `mutexes` identifier is bound exactly
+// once anywhere in index.js — the createEngineContext() destructure at the
+// top of whenReady() — with no other declaration and no bare reassignment.
+// "Is this identifier rebound or re-declared anywhere in this file" is a
+// source property a static check can legitimately settle, unlike "does this
+// lock actually serialize" (which only the behavioural test can reach).
+// Neither check proves full identity alone; together — the behavioural test
+// for what it CAN reach, the single-binding check for what it CAN'T — they
+// close the chain honestly.
+test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+  assert.match(
+    source,
+    /const \{ createTray, createTrayActions \} = require\(['"]\.\/tray['"]\)/,
+    'expected index.js to import createTrayActions alongside createTray from tray.js'
+  );
+
   const trayCallAt = source.indexOf('createTray({');
   assert.ok(trayCallAt > -1, 'expected to find the createTray({...}) call');
   const trayCallEnd = source.indexOf('});', trayCallAt);
@@ -765,17 +814,58 @@ test('index.js: the tray Start/Stop/Restart callbacks are wrapped in the proxy m
 
   assert.match(
     trayBlock,
-    /onStart:\s*\(\)\s*=>\s*mutexes\.proxy\.run\(\(\)\s*=>\s*handlers\.proxy\.start\(\)\)/,
-    'tray Start must be serialized behind mutexes.proxy, not call handlers.proxy.start() unlocked'
+    /\.\.\.createTrayActions\(\{\s*mutexes,\s*handlers\s*\}\)/,
+    'createTray({...}) must spread createTrayActions({ mutexes, handlers }) in, using those exact bindings'
+  );
+});
+
+// NCOW-35 fix pass (mandatory review, finding F1): the check above is a
+// call-site regex — it cannot tell a genuinely shared `mutexes` from one
+// shadowed by a nested block scope wrapped around the whole createTray({...})
+// call, e.g.:
+//
+//   let tray;
+//   {
+//     const mutexes = require('./mutex').createDomainMutexes();
+//     tray = createTray({ ...createTrayActions({ mutexes, handlers }) });
+//   }
+//
+// That reproduces the exact mutation class review pass 2 identified for the
+// old inline `mutexes.proxy.run(...)` wiring — the identity gap didn't close
+// when that wiring moved into createTrayActions(), it just moved with it —
+// and it passed the call-site regex (and the full suite) before this test
+// existed. Checking "is `mutexes` rebound or re-declared anywhere in this
+// file" is something a static check CAN legitimately settle (unlike lock
+// behaviour), so this asserts index.js binds the identifier exactly once —
+// the createEngineContext() destructure — with no shadowing re-declaration
+// and no bare reassignment anywhere else in the file.
+test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration or bare reassignment anywhere else in the file', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+
+  // Every place `mutexes` is *bound* to a value via a declaration keyword:
+  // the bare form (`const mutexes = ...`) or the destructured form
+  // (`const { ..., mutexes, ... } = ...`).
+  const declarationPattern = /\b(?:const|let|var)\s+(?:\{[^{}]*\bmutexes\b[^{}]*\}|mutexes\b)\s*=/g;
+  const declarations = source.match(declarationPattern) ?? [];
+  assert.equal(
+    declarations.length,
+    1,
+    `expected exactly one declaration binding "mutexes" in index.js (the createEngineContext() destructure), found ${declarations.length}: ${JSON.stringify(declarations)}`
   );
   assert.match(
-    trayBlock,
-    /onStop:\s*\(\)\s*=>\s*mutexes\.proxy\.run\(\(\)\s*=>\s*handlers\.proxy\.stop\(\)\)/,
-    'tray Stop must be serialized behind mutexes.proxy, not call handlers.proxy.stop() unlocked'
+    declarations[0],
+    /const \{ handlers, pm2Control, configRegeneration, mutexes \}\s*=$/,
+    'the sole "mutexes" binding must be the createEngineContext() destructure, not some other declaration'
   );
-  assert.match(
-    trayBlock,
-    /onRestart:\s*\(\)\s*=>\s*mutexes\.proxy\.run\(\(\)\s*=>\s*handlers\.proxy\.restart\(\)\)/,
-    'tray Restart must be serialized behind mutexes.proxy, not call handlers.proxy.restart() unlocked'
+
+  // A bare reassignment (`mutexes = ...`, no declaration keyword) rebinds the
+  // identifier just as effectively as a shadowing re-declaration, and is
+  // equally invisible to a regex scoped to the createTray({...}) call site.
+  const bareAssignmentPattern = /(?<!(?:const|let|var)\s+)\bmutexes\s*=(?!=)/g;
+  const bareAssignments = source.match(bareAssignmentPattern) ?? [];
+  assert.equal(
+    bareAssignments.length,
+    0,
+    `expected no bare "mutexes = ..." reassignment anywhere in index.js, found: ${JSON.stringify(bareAssignments)}`
   );
 });
