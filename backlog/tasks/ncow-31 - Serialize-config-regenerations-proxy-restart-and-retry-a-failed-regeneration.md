@@ -4,7 +4,7 @@ title: 'Serialize config-regeneration''s proxy restart, and retry a failed regen
 status: In Progress
 assignee: []
 created_date: '2026-08-04 06:27'
-updated_date: '2026-08-04 15:49'
+updated_date: '2026-08-04 18:47'
 labels:
   - pm2
   - packaging
@@ -74,3 +74,16 @@ from a thrown error).
 - [ ] #3 A regression test covers: (a) the mutex actually prevents an interleaved user-initiated proxy operation during a background restart, (b) a failed/timed-out restart is retried on the next launch rather than silently skipped
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Verify the mutex.js extraction left by a crashed prior worker session is complete and correct (electron-free FIFO per-domain mutex module) -- do not rewrite it.
+2. Finish wiring src/main/ipc.js: accept an injected mutex set via opts.mutexes; invert the prior worker's SERIALIZED_METHODS allowlist to an UNSERIALIZED_METHODS denylist (proxy.getStatus/getRecentLogs only) so any proxy method added later is serialized by default rather than silently unlocked -- the allowlist form would have shipped a real regression (unlocking start/stopLogTail, which mutate engine-context's single logTailUnsubscribe slot).
+3. Wire src/main/index.js to actually pass the shared mutex set through to registerIpcHandlers -- without this the whole mechanism is inert in the real app (registerIpcHandlers would build its own private lock set).
+4. engine-context.js creates the shared mutexes, exposes them (context.mutexes), and injects a runProxyOperation bound to mutexes.proxy.run into configGen.regenerateStaleConfig() -- the status read (getStatus) is inside the SAME critical section as the restart, not just the restart, so a Stop landing between the read and the restart can't race it.
+5. configGen.js: stamp generated_by_version only after a confirmed-successful restart; recognize and distinctly log both failure shapes (a thrown error, and pm2Control.startOrRestart()'s {ok:false,error} return, e.g. HEALTH_CHECK_TIMEOUT) instead of only the thrown-error shape.
+6. Deliberately leave shutdown.js's before-quit proxy stop UNSERIALIZED against this lock -- queueing it behind a background restart that can hold the lock for up to 60s would make the app unquittable while wedged, which CLAUDE.md forbids outright. Documented as a deliberate choice, not a silent gap.
+7. Regression tests for both ACs, including a negative control proving the pre-fix code actually interleaves (so the test measures the lock, not luck), and mutation-testing 10 distinct reverts against the new tests.
+8. npm test, commit in 2 logical commits, push.
+<!-- SECTION:PLAN:END -->
