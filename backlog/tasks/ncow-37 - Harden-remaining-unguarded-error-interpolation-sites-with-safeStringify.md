@@ -4,7 +4,7 @@ title: Harden remaining unguarded error-interpolation sites with safeStringify()
 status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-04 22:25'
+updated_date: '2026-08-04 22:31'
 labels: []
 dependencies:
   - NCOW-36
@@ -24,3 +24,19 @@ NCOW-36 introduced safeStringify()/describeThrownValue() in src/engine/configGen
 - [ ] #3 A regression test proves both sites log safely (do not throw) when given a hostile/malformed error value, mirroring NCOW-36's own adversarial test style
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Reuse configGen.js's existing safeStringify()/describeThrownValue() helpers (from NCOW-36) rather than inventing new ones; export them from the module.
+2. In regenerateStaleConfig()'s 'restart-failed' branch, add a safeReadProperty(obj, key) helper (guards a hostile throwing getter) and route error.code/error.message through safeStringify().
+3. In src/main/autoUpdate.js's electron-updater 'error' handler, replace 'err?.message ?? String(err)' with describeThrownValue(err) imported from ../engine/configGen (matches existing main/->engine/ import precedent).
+4. Add adversarial regression tests mirroring NCOW-36's style (throwing getters, Object.create(null)) in test/engine/configGen.test.js and test/main/autoUpdate.test.js.
+5. Stay within src/engine/configGen.js, src/main/autoUpdate.js, and their two test files only; do not touch index.js/engine-context.js.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented by worker (worktree fix/NCOW-37-safestringify-remaining-sites, commit 08ea3b8, pushed to origin). Added safeReadProperty() helper + routed the restart-failed branch's error.code/error.message through the existing safeStringify(); exported safeStringify/describeThrownValue from configGen.js; autoUpdate.js's error handler now uses describeThrownValue(err) instead of bare String(err). 5 new adversarial tests added (3 in test/engine/configGen.test.js, 2 in test/main/autoUpdate.test.js) covering throwing getters and Object.create(null) shapes. npm test: 348/348 passing (run twice, consistent). Confirmed via git diff --stat that only the 4 in-scope files were touched.
+<!-- SECTION:NOTES:END -->
