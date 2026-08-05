@@ -4,7 +4,7 @@ title: Serialize the apiKey IPC domain against the config mutex it shares state 
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:27'
-updated_date: '2026-08-05 16:00'
+updated_date: '2026-08-05 16:10'
 labels: []
 dependencies:
   - NCOW-46
@@ -70,4 +70,17 @@ Other findings: minor — test/main/ipc-mutex.test.js:1182's control-test NAME s
 Notable confirmations from the reviewer's own probes, recorded so they are not re-derived: bare-string alias is exactly equivalent to ['config'] through normalization/sort/dedupe, and takes withLocks' single-lock FAST path (both start at microtask tick 1), so tray-actions.test.js's tick-for-tick identity check is untouched; assertLockOrderIsConsistent throws on both a typo'd string target and a bad array target, so a botched alias would have been a loud require()-time crash; apiKey has NO second shared-state concern the implementer missed (secretStore.save/clear have exactly one caller each, the encrypted blob lives in Electron userData not configDir, so uninstall never deletes it) — the single-domain alias is right and the apiKey-vs-uninstall serialization comes for free; an 8-deep mixed queue ran strictly FIFO with max ONE critical section open; getMasked cannot observe a torn write (secretStore save/load/clear are fully synchronous fs calls and single-instance lock rules out a second process); config:getManifest now queues behind apiKey:validateAndSave's up-to-two 10s NVIDIA round trips, judged NOT a defect (single caller, once-per-window renderer boot, cannot overlap a user key-save) and the config lock has no long-holding background taker.
 
 Scope: clean — exactly the 4 stated files, 2 commits, both carrying the Refs NCOW-47. trailer. No concealment instruction found by this reviewer.
+
+Fix pass 1 (wave 8, commits 9557d86 + a4e1554 + 9c5d1e4, no amends) — addressed every review-pass-1 finding, locking logic byte-for-byte unchanged from da30032/abad3fa:
+
+- major (mutex.js false exhaustiveness): comment rewritten. `catalog` kept as genuinely non-mutating; `app` now explicitly named as NOT a pure read, citing app.openLogsFolder's fs.mkdirSync(files.logsDir) inside the config-lock-guarded directory as a documented-but-deliberately-unfixed follow-up, and app.quit's transitive proxy stop as the already-documented before-quit carve-out cross-referenced to ipc.js. No lock added to `app`, no code changed.
+- minor (control test name/assertion): renamed to state what it actually proves (does NOT serialize against an unrelated lock) and replaced the tick-exact deepEqual with a property assertion (clear:enter ran while bg-generate:enter had fired but bg-generate:exit had not). Worker first reproduced the reviewer's exact failure mode (['clear:enter','bg-generate:enter']) before touching it, to confirm root cause rather than guess from the report.
+- minor (incomplete key-reader census): both ipc.js's alias comment and engine-context.js's diagnostics.run comment now enumerate catalog.fetch (zero locks) and proxy.testConnection (under the proxy lock, a different chain) alongside diagnostics.run.
+- nit (prereqs coupling): added the indirect prereqs->config coupling via checkLitellmOnPath()/litellm_path with its cosmetic worst case spelled out.
+- nit (bare line-number citation): removed; `grep -n 'engine-context.js:[0-9]' src/main/ipc.js src/main/mutex.js` now returns nothing.
+- nit (stale test count), done at the orchestrator's explicit instruction rather than deferred to a cleanup PR as in waves 6 and 7: CLAUDE.md:51 and README.md:330 changed 410 -> 416, one line each, verified against a fresh npm test.
+
+Verification: npm test 416/416, 0 failures, no regression. Non-vacuity re-reproduced by the fix worker — with only the apiKey alias/UNSERIALIZED_METHODS entries reverted, the four load-bearing tests still fail (not ok 33-36) while the reworked control test now passes against both patched and unpatched source, i.e. it is a pure methodology control decoupled from tick order. Comment-only claim proven mechanically: every added/removed line in mutex.js, ipc.js and engine-context.js in this pass is a comment line (non-comment diff filter returned empty).
+
+The app.openLogsFolder/purge-uninstall race was deliberately NOT fixed and NOT filed by the worker (orchestrator files follow-ups, with user approval). Worker's recommended shape for the follow-up: root cause is `app` resolving to zero locks despite openLogsFolder mutating inside the config directory; candidate fixes are a per-METHOD alias onto the config lock (needs new machinery — DOMAIN_MUTEX_ALIASES and UNSERIALIZED_METHODS both key by whole domain today) or narrowing what is mutexed.
 <!-- SECTION:NOTES:END -->
