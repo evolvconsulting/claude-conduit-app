@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 11:43'
-updated_date: '2026-08-05 12:27'
+updated_date: '2026-08-05 12:39'
 labels: []
 dependencies:
   - NCOW-32
@@ -87,4 +87,58 @@ prior waves. All tool outputs were plain, expected output.
 
 Branch fix/NCOW-45-multi-domain-uninstall-mutex pushed to origin. Two commits: fix(ipc)
 widening the alias mechanism; test(ipc) adding the regression coverage.
+
+REVIEW (opus, independent): verdict APPROVE. All 6 ACs independently confirmed with genuine
+concurrency stress-testing (treated as the most structurally complex change of the campaign
+so far, given proportionally more scrutiny):
+- AC#1/#2: traced the primitive-level mechanism in mutex.js (a promise-chain FIFO; queue
+  position fixed synchronously at call time) and how withLocks() exploits it (every lock's
+  slot claimed in the same tick as dispatch, fn starts only after ALL ready signals resolve,
+  every lock stays occupied until the shared result settles). Independently reproduced both
+  directions for config and claudeCode (an in-flight config:generate blocks uninstall:run and
+  vice versa; same for claudeCode:configure/remove). Confirmed uninstall.js touches exactly
+  claudeCode/proxy/config, not claudeDesktop, and verified uninstall never touches the
+  claudeDesktop lock.
+- AC#3: confirmed the test file has 245 insertions/0 deletions -- every pre-existing NCOW-31/
+  NCOW-32 test is byte-identical and all 15 still pass. Independently reproduced the NCOW-32
+  scenario and confirmed update still resolves to proxy ALONE (config/claudeCode stay free
+  during update:install).
+- AC#4: confirmed by independent grep that uninstall is genuinely the only multi-lock
+  acquirer in the codebase. Stress-tested with 4 adversarial scenarios: the exact
+  last-domain-competitor race the worker's fix pass caught once already (queues correctly);
+  the starvation case distinguishing "reserved" from "running" (passes -- no window exists
+  between reservation and body-start, this fails on dev and passes on the branch); two
+  concurrent uninstalls (strictly sequential, no deadlock); both async-rejecting and
+  synchronously-throwing uninstall impls (all locks released, no domain wedged). Found the
+  mechanism is actually STRONGER than documented (atomic single-tick reservation makes even
+  two opposite-order multi-lock callers safe), which is a safe direction to err in.
+- AC#5: reviewer's OWN reproduction (not the worker's claim) -- git checkout dev -- ipc.js,
+  kept tests: 17 pass / 5 fail, read the actual diagnostics (not just counts) confirming a
+  real interleaving occurred on dev, not a bookkeeping artifact.
+- AC#6: reviewer's own npm test run: 394/394 passing.
+
+Scope confirmed: exactly 2 files (ipc.js, ipc-mutex.test.js), zero overlap with NCOW-43
+(index.js/index.test.js both untouched and confirmed present/unmodified).
+
+Non-blocking findings (none require a branch change): (1) CLAUDE.md's test count is stale
+again (388 -> 394) -- deferred to the wave-integration doc pass, same as every prior wave;
+(2) engine-context.js:503-504's comment about NCOW-32's alias mechanism is now only accurate
+for update, not uninstall -- same doc pass; (3) the LOCK_ACQUISITION_ORDER comment's stated
+deadlock-safety RATIONALE slightly mis-locates where the guarantee actually comes from (the
+real invariant is "declare every domain up front and reserve synchronously via
+resolveDomainLocks()/withLocks(), never take a second lock inside an already-held one" --
+reviewer proved a hypothetical future nested-acquisition caller following the canonical
+ORDER but not this invariant would still deadlock permanently) -- worth one added sentence,
+non-blocking since the actual code guidance already points at the safe primitive; (4) a
+latent footgun if two DOMAIN_MUTEX_ALIASES entries ever resolved to the same mutex object
+(self-deadlock) -- not reachable today, cheap to harden with a dedupe, flagged as a future-edit
+hazard only; (5) accepted design consequence: uninstall now holds already-free locks while
+waiting on a contended one, bounded and correct tradeoff; (6) pre-existing, out of scope:
+configGen.regenerateStaleConfig()'s config-file WRITE (as opposed to its pm2-restart half)
+still happens entirely outside the config lock -- AC#1 is satisfied as scoped ("same mutex
+config:generate uses"), but this is a second, unserialized config writer worth a future
+follow-up task.
+
+No injected-instruction pattern encountered on this worktree (slot 2) -- reviewer explicitly
+verified this via independent git checks, not narrative claims.
 <!-- SECTION:NOTES:END -->
