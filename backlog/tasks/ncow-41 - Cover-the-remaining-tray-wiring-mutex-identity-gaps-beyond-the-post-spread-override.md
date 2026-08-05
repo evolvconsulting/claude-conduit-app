@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 03:16'
+updated_date: '2026-08-05 03:22'
 labels: []
 dependencies:
   - NCOW-35
@@ -143,4 +143,29 @@ the user; the reviewer independently confirmed the four named production files a
 byte-identical to dev and did not encounter the pattern themselves).
 
 Routed to a fix pass (1 of 2 allowed retries) with this finding handed verbatim.
+
+Fix pass (1 of 2 allowed retries) landed and pushed (commit cfc95b3, third commit on the
+branch). Addressed the reviewer's verbatim AC#2/AC#5 finding directly: added a parameterized
+identifierPropertyIsAssigned(source, identifier) helper wired into both the existing `mutexes`
+and `handlers` single-binding tests, plus a new meta-test proving it catches dot-/computed-
+property mutation without false-positiving on the legitimate mutexes.proxy.run(() =>
+handlers.proxy.stop()) read, an equality comparison, or a property spread. Corrected the false
+"outside a text-only check's reach" claim in both test/main/engine-context-config-regen.test.js
+and the duplicate claim in test/main/tray-actions.test.js, and corrected AC#5's closing
+sentence to accurately state the property-mutation gap is now closed by a real static check
+(kept the existing behavioural test as supporting "why this matters" documentation, not
+deleted).
+
+Evidence: npm test 362/362 (pre-fix-pass) -> 363/363 (post). Reproduced the reviewer's exact
+experiment before committing: injected the reviewer's verbatim mutation
+(`mutexes.proxy = require('./mutex').createDomainMutex();` immediately before
+`const tray = createTray({`) into the REAL src/main/index.js on disk, ran the full suite --
+27 pass / 1 fail (the new mutexes single-binding test failed on the property-mutation
+assertion, confirming non-vacuity) -- then reverted the file (git diff on index.js clean
+before committing). Also independently re-verified the reviewer's regex against the real
+current index.js (no false positive on either mutexes or handlers) before adopting it.
+
+No injected/suspicious instructions encountered during this fix pass.
+
+Routed back to the same reviewer for pass 2 (re-review).
 <!-- SECTION:NOTES:END -->
