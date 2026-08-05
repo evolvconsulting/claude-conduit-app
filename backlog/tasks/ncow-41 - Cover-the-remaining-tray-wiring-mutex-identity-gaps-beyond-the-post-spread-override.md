@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 03:07'
+updated_date: '2026-08-05 03:16'
 labels: []
 dependencies:
   - NCOW-35
@@ -94,4 +94,53 @@ time.
 
 Files touched: test/main/engine-context-config-regen.test.js, test/main/tray-actions.test.js.
 Two commits on the branch, each with a Refs NCOW-41. trailer.
+
+Reviewed by an independent Opus reviewer in the same worktree (using an isolated probe
+worktree for its own experiments, verified clean/hash-identical afterward). VERDICT:
+request_changes. 6 of 8 ACs (1, 3, 4, 6, 7, 8) confirmed satisfied; AC#5 satisfied in form but
+factually defective; AC#2 empirically disproven, not met.
+
+BLOCKING finding (major, AC#2): the reviewer injected the exact mutation this AC targets
+(`mutexes.proxy = createDomainMutex();` immediately before `createTray({...})`) into a real
+copy of index.js on this branch and ran the full suite: 362/362 still pass. The delivered test
+(tray-actions.test.js) has INVERTED polarity -- it builds its OWN local mutexes, performs the
+mutation ITSELF, and asserts the break happens. It is a demonstration that the bug is real, not
+a guard that catches it in the real wiring. It only goes red if the underlying primitives
+change so the mutation stops breaking serialization -- i.e. it fails on a FIX, not on a
+regression.
+
+BLOCKING finding (major, AC#5, dependent on AC#2): the new comment's justification for the
+test-only approach is factually wrong. It claims "no source-text scan over index.js can
+distinguish a legitimate read from a mutation." The reviewer disproved this directly: the
+regex /\b(?:mutexes|handlers)\s*(?:\.[A-Za-z_$][\w$]*|\[[^\]]*\])\s*=(?!=)/ returns null on the
+real index.js, matches exactly the mutated line on a hostile copy, and does NOT match the
+legitimate `mutexes.proxy.run(() => handlers.proxy.stop())` read. A ~5-line addition to the
+existing `mutexes`/`handlers` single-binding tests would genuinely close AC#2 via the same
+text-only technique already used for declarations/bare-reassignments. AC#5's new closing
+sentence ("NCOW-41 closes all three", "cover every tray-wiring identity gap") is therefore also
+false and needs correcting once AC#2 is actually fixed.
+
+Recommended remedy (from the reviewer, verbatim): add the property-assignment assertion above
+to both the `mutexes` and `handlers` single-binding tests; keep the existing behavioural test
+in tray-actions.test.js as the "why this matters" proof (it's still valid as documentation,
+just not as the AC#2 guard itself); delete the "outside a text-only check's reach" claim from
+the comment; correct AC#5's closing sentence to state what's actually now covered.
+
+Non-blocking findings (low severity, no fix required, informational only): AC#3's
+identifierBoundAsFunctionParam() misses destructured-parameter and class-method-param forms
+(the literal plain-identifier-parameter case AC#3 asked for is solidly covered); AC#6's widened
+regex still misses template-literal/generator-shorthand/same-line-as-spread forms (the 3 forms
+AC#6 explicitly named are all genuinely covered); AC#7's literal ask (throw + explicit
+spread-found assertion) is delivered exactly, no change needed despite a slightly overstated
+comment; commits omit the Claude-Session trailer (cosmetic).
+
+npm test verified by reviewer: 362/362 passing on this branch; independently reconfirmed dev
+baseline is exactly 358/358. Reviewer also verified NO overlap with NCOW-42 (merged both
+branches together in a throwaway worktree: 381/381 green, merge order unconstrained). Reviewer
+found no injected/suspicious instructions during this review pass (this worktree slot had a
+third occurrence during the worker's own implementation, already recorded above and flagged to
+the user; the reviewer independently confirmed the four named production files are
+byte-identical to dev and did not encounter the pattern themselves).
+
+Routed to a fix pass (1 of 2 allowed retries) with this finding handed verbatim.
 <!-- SECTION:NOTES:END -->
