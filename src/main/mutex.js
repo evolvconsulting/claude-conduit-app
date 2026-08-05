@@ -59,8 +59,81 @@ function createDomainMutex() {
 }
 
 /**
- * The domains with a mutating concern. Domains that only ever read (app,
- * catalog, diagnostics-read) don't need one.
+ * The domains with a mutating concern of their own — each gets a dedicated
+ * lock here. This list is NOT the complete answer to "which domains have a
+ * mutating concern" — it only covers the ones that need their OWN lock.
+ * Several other domains genuinely mutate shared state but are deliberately
+ * absent from this array for domain-specific reasons documented elsewhere,
+ * so don't read "not listed here" as "has no mutating concern":
+ *
+ *   - apiKey, uninstall, update: each has a real mutating concern but shares
+ *     (aliases onto) locks from this array instead of getting its own,
+ *     because its mutation touches state one or more of these domains
+ *     already guards. apiKey and update each alias onto a single lock;
+ *     uninstall aliases onto all three, because it mutates claudeCode,
+ *     config, AND proxy state in one call. See DOMAIN_MUTEX_ALIASES in
+ *     ipc.js for exactly which lock(s) each aliases onto and why (NCOW-32/45
+ *     for uninstall/update, NCOW-47 for apiKey).
+ *   - diagnostics, prereqs: checked and confirmed to need NO lock at all —
+ *     not even an alias. diagnostics.run reads the same secretStore state
+ *     apiKey/config now serialize, but is deliberately left unserialized
+ *     (see the comment on diagnostics.run in engine-context.js). prereqs.
+ *     installLitellm shells out to uv/pipx/pip entirely outside the config
+ *     directory, so it cannot collide with the config lock or a purge-
+ *     uninstall (see prereqs.js's installLitellm) — its only coupling to
+ *     `config` is indirect: it changes whether litellm is on PATH, and
+ *     config.generate calls prereqs.checkLitellmOnPath() under the config
+ *     lock and bakes litellmCheck.path into both the generated run.js
+ *     launcher (configGen.js's renderRunLauncherJs) and manifest.litellm_path
+ *     (engine-context.js's config.generate) — NOT ecosystem.config.cjs,
+ *     which only ever gets run.js's own path and the node interpreter
+ *     (renderEcosystemConfigCjs); litellm's path never appears there. Worst
+ *     case of racing the two is a spurious LITELLM_MISSING error, or a path
+ *     baked in that becomes valid a moment later — cosmetic, no corruption,
+ *     and correctly out of scope for a lock.
+ *
+ * `catalog` is the one domain here with genuinely no mutating concern
+ * anywhere in its chain — catalog.fetch reads secretStore.load(), reads the
+ * manifest via getManifest() for nim_base_url, and calls out to the remote
+ * model catalog: reads, all the way down, nothing more. `app` is NOT in that
+ * category, and this comment used to claim otherwise (NCOW-47 fix pass: that
+ * claim was false and concealed a real defect, so don't reintroduce it):
+ *
+ *   - app.openLogsFolder (engine-context.js) runs
+ *     `fs.mkdirSync(files.logsDir, {recursive: true})`, and logsDir lives
+ *     INSIDE the directory the `config` lock guards
+ *     (`logsDir = path.join(configDir, 'logs')`, paths.js) — yet `app`
+ *     resolves to zero locks (no MUTEX_DOMAINS entry, no
+ *     DOMAIN_MUTEX_ALIASES entry). `app` is NOT pure reads, but measuring it
+ *     (NCOW-47 fix-pass-2) rules out this comment's earlier claim that the
+ *     unlocked mkdirSync can land inside the purge critical section: a call
+ *     delivered mid-uninstall — while uninstall.js's one
+ *     `await pm2Control.remove()` is still pending — lands BEFORE
+ *     fs.rmSync(configDir) and is wiped out by that same delete, and even
+ *     scheduled in the exact same tick as uninstall:run it never lands
+ *     between that rmSync and uninstall:run's promise fully settling either:
+ *     everything from rmSync onward (removed.push, then the async returns
+ *     back up through runUninstall -> the handler -> withLocks' sharedRun ->
+ *     ipcMain.handle) is chained-promise microtask work with no macrotask
+ *     boundary in it for a real, macrotask-delivered IPC/menu call to land
+ *     inside. The genuinely reachable defect is different: a click on "Open
+ *     Logs Folder" any time AFTER a purge-uninstall has already reported
+ *     success recreates `<configDir>/logs` (and configDir itself)
+ *     unconditionally — not a serialization gap, and no lock fixes it.
+ *     Aliasing `app` onto `config` is specifically NOT that fix: measured
+ *     doing exactly that, it turns the harmless mid-uninstall case above
+ *     into a genuine resurrection, since the call then queues behind
+ *     uninstall's own lock hold and lands AFTER fs.rmSync instead of before
+ *     it. Left unfixed here (needs a guard in the handler itself — skip the
+ *     mkdirSync when nothing is configured — which belongs in a follow-up
+ *     task, not this one) — named so a future reader neither reaches for
+ *     that alias nor re-assumes "app is pure reads".
+ *   - app.quit (index.js) transitively stops the pm2-supervised proxy via
+ *     before-quit -> stopProxyForShutdown — but that one IS already
+ *     accounted for: it's the documented, deliberate carve-out described in
+ *     ipc.js's DOMAIN_MUTEX_ALIASES comment ("Distinct from main/index.js's
+ *     before-quit shutdown path..."), not an oversight, because a wedged
+ *     pm2 must never make the app unquittable (CLAUDE.md).
  */
 const MUTEX_DOMAINS = ['proxy', 'config', 'claudeDesktop', 'claudeCode'];
 

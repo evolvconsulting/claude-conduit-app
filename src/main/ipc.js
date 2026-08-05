@@ -61,6 +61,14 @@ const UNSERIALIZED_METHODS = {
   // restart would delay every update-status broadcast for no corresponding
   // safety benefit, mirroring proxy's own getStatus/getRecentLogs exemption.
   update: ['check'],
+  // NCOW-47: apiKey.getMasked only calls secretStore.load() and masks the
+  // result for display (engine-context.js) — it persists nothing and cannot
+  // race validateAndSave/clear in any way that corrupts state; the worst
+  // case is a masked value that is already stale by the time it renders,
+  // same as proxy's getStatus/getRecentLogs and update's check above.
+  // validateAndSave and clear are NOT listed here — they persist/delete the
+  // encrypted key and stay locked via DOMAIN_MUTEX_ALIASES below.
+  apiKey: ['getMasked'],
 };
 
 /**
@@ -103,10 +111,51 @@ const UNSERIALIZED_METHODS = {
  * make the app unquittable, per CLAUDE.md) — that path calls
  * stopProxyForShutdown() directly, outside any IPC handler, so it is
  * unaffected by this alias table.
+ *
+ * NCOW-47: `apiKey` aliases onto `config` for the same reason as the two
+ * above — it has a real mutating concern (validateAndSave/clear persist and
+ * delete the encrypted NVIDIA key via secretStore.save()/clear(),
+ * engine-context.js) that shares state with an operation the `config`
+ * domain already guards: config.generate reads that same key via
+ * secretStore.load() *inside* the config lock (engine-context.js's
+ * config.generate). Without this alias, clicking Clear Key while a
+ * config:generate is in flight could interleave a delete with a read that
+ * bakes the key into litellm.env, or the reverse ordering could hand
+ * generate a NO_KEY failure mid-write against a key a save() had already
+ * queued behind it — either way, nothing serialized the two. apiKey has no
+ * mutating concern of its own beyond this one, so — like uninstall/update —
+ * it gets no dedicated entry in MUTEX_DOMAINS (mutex.js), only this alias.
+ * apiKey.getMasked is a pure read and stays exempt via UNSERIALIZED_METHODS
+ * above rather than through this table.
+ *
+ * diagnostics.run is not the only other reader of that identical secretStore
+ * key — nor is it aliased here, and neither are the other two. All three
+ * read the key into a local and never persist or delete it, so nothing
+ * corrupts if one of them races apiKey's validateAndSave/clear; the worst
+ * case in every case below is a stale-key read, same as diagnostics.run's
+ * own NOT_CONFIGURED-on-a-since-cleared-key case:
+ *
+ *   - diagnostics.run (engine-context.js) — deliberately NOT aliased; see
+ *     the comment on diagnostics.run itself for the fuller reasoning, which
+ *     as of this fix pass also names catalog.fetch and proxy.testConnection
+ *     below rather than reading as a census of one.
+ *   - catalog.fetch (engine-context.js) — resolves to zero locks, exactly
+ *     like diagnostics.run.
+ *   - proxy.testConnection (engine-context.js) — locked, but under `proxy`,
+ *     not `config`; different chains means it is NOT serialized against
+ *     apiKey's writes either, it just isn't unserialized for this reason —
+ *     it was already locked before NCOW-47 for reasons unrelated to the key
+ *     (see UNSERIALIZED_METHODS' `proxy` entry above).
+ *
+ * prereqs.installLitellm was also checked (NCOW-47) and needs no alias: it
+ * installs via uv/pipx/pip entirely outside the config directory
+ * (prereqs.js), so it has no shared state with `config` (or any other
+ * domain here) to race in the first place.
  */
 const DOMAIN_MUTEX_ALIASES = {
   uninstall: ['claudeCode', 'config', 'proxy'],
   update: 'proxy',
+  apiKey: 'config',
 };
 
 /**
@@ -338,12 +387,15 @@ const builtinAppHandlers = {
  *   separate set here would silently mean the launch-time config regeneration
  *   and a user-initiated Start/Stop are locked against different chains, i.e.
  *   not serialized at all. Defaults to a private set only so this function
- *   stays callable in isolation. NCOW-32/NCOW-45: 'uninstall' and 'update'
- *   have no entry of their own in this set (see mutex.js's MUTEX_DOMAINS) —
- *   they resolve onto one or more of `mutexes.{proxy,config,claudeCode}` via
- *   DOMAIN_MUTEX_ALIASES above instead. `uninstall` resolves to all three
- *   (acquired in LOCK_ACQUISITION_ORDER via withLocks(), see both above);
- *   `update` still resolves to `proxy` alone.
+ *   stays callable in isolation. NCOW-32/NCOW-45/NCOW-47: 'uninstall',
+ *   'update', and 'apiKey' have no entry of their own in this set (see
+ *   mutex.js's MUTEX_DOMAINS) — they resolve onto one or more of
+ *   `mutexes.{proxy,config,claudeCode}` via DOMAIN_MUTEX_ALIASES above
+ *   instead. `uninstall` resolves to all three (acquired in
+ *   LOCK_ACQUISITION_ORDER via withLocks(), see both above); `update` still
+ *   resolves to `proxy` alone; `apiKey` resolves to `config` alone
+ *   (validateAndSave/clear only — getMasked opts out via
+ *   UNSERIALIZED_METHODS above).
  */
 function registerIpcHandlers(handlers = {}, opts = {}) {
   const mergedHandlers = { ...handlers, app: { ...builtinAppHandlers, ...handlers.app } };
