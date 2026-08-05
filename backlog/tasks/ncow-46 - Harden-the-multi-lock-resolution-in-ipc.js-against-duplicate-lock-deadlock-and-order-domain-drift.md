@@ -3,10 +3,10 @@ id: NCOW-46
 title: >-
   Harden the multi-lock resolution in ipc.js against duplicate-lock deadlock and
   order/domain drift
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 13:11'
-updated_date: '2026-08-05 14:48'
+updated_date: '2026-08-05 15:29'
 labels: []
 dependencies:
   - NCOW-45
@@ -21,12 +21,12 @@ The wave-6 integration review of NCOW-45 found two related hardening gaps in src
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolveDomainLocks() deduplicates the resolved lock objects before returning them, so a domain alias table that resolves two entries to the same underlying mutex degrades to holding it once instead of deadlocking
-- [ ] #2 A test demonstrates that two DOMAIN_MUTEX_ALIASES entries resolving to the same mutex function no longer deadlocks withLocks()
-- [ ] #3 LOCK_ACQUISITION_ORDER is asserted (at module load or via a dedicated test) to be a permutation of the real MUTEX_DOMAINS list, and every value appearing anywhere in DOMAIN_MUTEX_ALIASES is confirmed present in LOCK_ACQUISITION_ORDER
-- [ ] #4 A test demonstrates that an unlisted domain, or two unlisted domains, is caught (fails loudly) rather than silently sorting into an inconsistent or unstable order
-- [ ] #5 The existing uninstall/update behavior and all pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified
-- [ ] #6 npm test passes
+- [x] #1 resolveDomainLocks() deduplicates the resolved lock objects before returning them, so a domain alias table that resolves two entries to the same underlying mutex degrades to holding it once instead of deadlocking
+- [x] #2 A test demonstrates that two DOMAIN_MUTEX_ALIASES entries resolving to the same mutex function no longer deadlocks withLocks()
+- [x] #3 LOCK_ACQUISITION_ORDER is asserted (at module load or via a dedicated test) to be a permutation of the real MUTEX_DOMAINS list, and every value appearing anywhere in DOMAIN_MUTEX_ALIASES is confirmed present in LOCK_ACQUISITION_ORDER
+- [x] #4 A test demonstrates that an unlisted domain, or two unlisted domains, is caught (fails loudly) rather than silently sorting into an inconsistent or unstable order
+- [x] #5 The existing uninstall/update behavior and all pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -76,3 +76,15 @@ Non-blocking findings recorded for disposition, none gating the merge:
 3. Out-of-scope same-family hazards found by probing, both PRE-EXISTING and unchanged by this diff: an alias naming a domain absent from the injected mutexes silently NARROWS locking rather than failing loudly (uninstall got 1 lock instead of 3), and an empty alias array leaves the handler entirely UNSERIALIZED with no warning. The module-load assertion structurally cannot see opts.mutexes or catch an empty array.
 4. Informational: export-surface expansion judged justified, not over-exposure — all 5 new exports are referenced by the new tests and NOTHING in src/ consumes any of them, so it adds zero production coupling. Scope clean: src/main/ipc.js (+95/-11) and test/main/ipc-mutex.test.js (+172/-1), no drive-bys, no dependency changes.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened the two gaps wave 6's integration review found in the NCOW-45 multi-lock mechanism. resolveDomainLocks() now dedupes its resolved locks by mutex-function identity via a Set applied AFTER the LOCK_ACQUISITION_ORDER sort, so an alias table resolving two domains to the same underlying mutex degrades to holding it once instead of deadlocking on a doubly-reserved FIFO chain; and a new exported assertLockOrderIsConsistent(order, domains, aliases) runs at module load against the real constants, throwing if LOCK_ACQUISITION_ORDER is not a permutation of MUTEX_DOMAINS or if any DOMAIN_MUTEX_ALIASES target is missing from it. Adds the first direct test coverage of LOCK_ACQUISITION_ORDER / DOMAIN_MUTEX_ALIASES / resolveDomainLocks / withLocks, which previously had none (all coverage was behavioral, through uninstall).
+
+Verified by an independent review that re-ran everything itself and reproduced non-vacuity exactly: with resolveDomainLocks() reverted and the assertion no-op'd, 6 of the 10 new tests fail (the dedupe test, the end-to-end deadlock test, and all four loud-failure tests), so they prove behavior rather than restate it. The reviewer judged the delivered source-text regex too weak to establish AC#4 in situ and replaced that evidence with 5 real require() loads of mutated module copies — unmutated control loads clean, while one domain dropped, two dropped, a new MUTEX_DOMAINS entry added without updating the order, and an alias target absent from the order list all throw at load. It further confirmed via 13 behavioral probes that dedupe-after-sort never degrades acquisition order (with a shared duplicate spanning first and last, the survivor keeps the earliest slot) and that NCOW-45's queue-race guarantee is intact.
+
+AC#3's authorized open choice (module load vs dedicated test) was resolved as module load, and the reviewer decided rather than escalated it, having established rather than assumed the blast radius: all three inputs are developer-authored module constants, opts.mutexes provably never reaches the assertion, and because two existing suites require ipc.js the assertion runs on every npm test — converting a latent ordering bug into an unshippable build rather than a user-facing boot failure. The wave-7 integration review independently confirmed this by enumerating all three load paths and observing that a mutated order fails BOTH suites (410 -> 376 tests) with the full diagnostic message.
+
+npm test 400 -> 410, re-verified green after rebase and by three separate agents. Merged as PR #42 (19d1ff7), with a follow-on doc cleanup in PR #43 (985389a) refreshing the documented test count and CLAUDE.md's now-incomplete 'per-domain mutex' description. Three out-of-scope findings from the integration review were filed with user approval as NCOW-47, NCOW-48 and NCOW-49.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 14:30'
+updated_date: '2026-08-05 15:30'
 ---
 # Backlog campaign tracker
 
@@ -62,12 +62,16 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 7 dispatch (2026-08-05): 14 resolved (waves 1-6, all Done), 1 dispatched
-(NCOW-46, wave 7), 0 genuinely blocked, 5 excluded pending human decomposition (see Not
-queued). Re-confirmed live at the wave-7 restore that NCOW-46 is still the only ready task —
-`backlog task list --exclude-status Done` returned exactly NCOW-7/11/13/14/15 (all still
-excluded, all still last-updated 2026-07-31, no human action between sessions) plus NCOW-46.
-**Wave 7 = {NCOW-46}, a solo wave by definition.**
+As of wave 7 settlement (2026-08-05): 15 resolved (waves 1-7, all Done), 3 newly queued and
+ready (NCOW-47, NCOW-48, NCOW-49 — all filed this session from wave 7's integration review with
+explicit user approval), 0 genuinely blocked, 5 excluded pending human decomposition (see Not
+queued). **The confirmed queue as drained at init is now EMPTY — every one of NCOW-32 through
+NCOW-46 is Done.** The three new tasks are ready by dependency (NCOW-47 and NCOW-49 depend on
+NCOW-46, Done; NCOW-48 on NCOW-45, Done) and form the live ready set entering wave 8, but their
+file footprints overlap heavily — all three target `src/main/ipc.js` and/or
+`test/main/ipc-mutex.test.js`, and NCOW-47 additionally touches `src/main/mutex.js` — so expect
+the wave builder to degrade to sequential solo waves rather than batching them. Recompute this
+fresh at the next restore rather than trusting it.
 
 **Wave 7 conflict graph (file-citation read against real, current source at this restore, over
 the ready set {NCOW-46})**: trivially empty — a single-member wave has no edges to compute.
@@ -198,7 +202,9 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-46 | proxy-mutex | NCOW-45 (Done) | Dispatched | 7 | Harden ipc.js's new multi-lock mechanism against duplicate-lock deadlock and LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift — filed from wave-6 integration review, ready now |
+| 1 | NCOW-47 | proxy-mutex | NCOW-46 (Done) | To Do | | Serialize the apiKey IPC domain against the config mutex it shares secretStore state with — closes the unmutexed-domain family NCOW-32/NCOW-45 have been draining one instance at a time; also fixes mutex.js:62-64's non-exhaustive comment. Filed from wave-7 integration review, user-approved, ready now |
+| 2 | NCOW-48 | proxy-mutex | NCOW-45 (Done) | To Do | | Bound uninstall.run's unbounded pm2.delete/pm2.dump calls so a wedge cannot freeze the claudeCode+config+proxy locks indefinitely — NCOW-45 widened this blast radius without bounding what can hang. Filed from wave-7 integration review, user-approved, ready now |
+| 3 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
 
 ## Resolved
 
@@ -218,6 +224,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 | 12 | NCOW-44 | Done, 2026-08-05, wave 5 | Widened identifierPropertyIsAssigned() (test/main/engine-context-config-regen.test.js) to catch Object.assign/defineProperty/destructuring/logical-assignment mutation spellings beyond NCOW-41's canonical shape — test-file-only, zero production source changes, matching the precedent set by NCOW-35/38/39/41. Approved on the first review pass (opus): all 6 ACs confirmed via a per-branch regex ablation (each new branch independently load-bearing) plus the reviewer's own non-vacuity reproduction. npm test 382 -> 383 passing, confirmed to still pass 388/388 after rebasing onto NCOW-32's merge (guard genuinely still clean against real index.js, not by luck — independently re-verified by the wave-5 integration reviewer). Merged as PR #37 (e79d8fff). |
 | 13 | NCOW-43 | Done, 2026-08-05, wave 6 | Hardened index.js's config-regen backstop's result.error?.message (~line 94) and err.message (~line 97) reads through describeThrownValue(), mirroring NCOW-42's sibling fix at the auto-update backstop in the same file. Approved on the first review pass (opus): all 4 ACs confirmed via a 21-case adversarial sweep of describeThrownValue() plus the reviewer's own reproduction of the exact unhandledRejection the fix prevents. npm test 388 -> 394 passing. Merged as PR #39 (5287a3a). Zero overlap with NCOW-45's parallel work confirmed by both task reviews and the wave-6 integration review. |
 | 14 | NCOW-45 | Done, 2026-08-05, wave 6 | Widened ipc.js's DOMAIN_MUTEX_ALIASES.uninstall from a single string ('proxy') to an array (['claudeCode','config','proxy']), plus a new LOCK_ACQUISITION_ORDER + withLocks() mechanism that reserves every needed lock synchronously in one tick, making partial-reservation races and lock-ordering deadlocks structurally impossible. Approved on the first review pass (opus, given proportionally more scrutiny as the campaign's first real concurrency primitive): all 6 ACs confirmed via genuine stress-testing — starvation scenarios, two concurrent uninstalls, both async/sync fault paths, and an explicit single-lock-path regression check. npm test 388 -> 394 passing standalone, 400 after rebasing onto NCOW-43. Merged as PR #40 (83f4cc67). Wave-6 integration review ran its own behavioral probes and found the mechanism sound, while surfacing 2 latent hardening gaps (duplicate-lock self-deadlock, LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift) — filed as NCOW-46, correctly out of scope for this task's own ACs. |
+| 15 | NCOW-46 | Done, 2026-08-05, wave 7 | Deduped resolveDomainLocks()'s resolved locks by mutex-function identity (Set, applied AFTER the LOCK_ACQUISITION_ORDER sort so acquisition order is preserved) and added an exported assertLockOrderIsConsistent(order, domains, aliases) called at MODULE LOAD against the real constants. Added the first direct test coverage of LOCK_ACQUISITION_ORDER/DOMAIN_MUTEX_ALIASES/resolveDomainLocks/withLocks, which previously had none. Approved on the first review pass (opus, given the proportionally-deeper scrutiny this campaign's concurrency work has earned): all 6 ACs confirmed. The reviewer judged the delivered source-text regex too weak to establish AC#4 in situ and REPLACED that evidence with 5 real require() loads of mutated module copies (control clean; one domain dropped, two dropped, a new MUTEX_DOMAINS entry added without updating the order, and an absent alias target all throw at load), plus 13 behavioral probes proving dedupe-after-sort never degrades acquisition order (shared duplicate spanning first and last keeps the earliest slot) and NCOW-45's queue-race guarantee intact. Non-vacuity independently reproduced: 6 of 10 new tests fail against reverted source. AC#3's authorized module-load-vs-test choice was DECIDED (not escalated) by the reviewer, which established rather than assumed the blast radius — all inputs are developer-authored constants, opts.mutexes provably cannot reach the assertion, and two existing suites require ipc.js so drift fails CI rather than a user's launch. npm test 400 -> 410. Merged as PR #42 (19d1ff7), plus doc cleanup PR #43 (985389a). Wave-7 integration review filed 3 follow-ups with user approval: NCOW-47, NCOW-48, NCOW-49. |
 
 ## Not queued — needs a human / blocked
 
@@ -234,6 +241,45 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   product decision first.
 
 ## Wave log
+
+- 2026-08-05 — **wave 7 (tasks: NCOW-46)**, a solo wave by definition (the only ready task).
+  Zero request_changes cycles — **three consecutive waves now approved first-pass** (5, 6, 7),
+  though see the caveat below about what "first-pass" did and did not mean here. Dispatched into
+  treehouse slot 1 (the allocator's lowest available; no slot-2 mitigation needed this wave).
+  Worker deduped `resolveDomainLocks()` by lock-function identity and added a module-load
+  `assertLockOrderIsConsistent()`, +10 tests, 400 -> 410. **The task-level reviewer did not
+  merely confirm the delivered evidence — it rejected part of it as too weak and replaced it.**
+  It judged the shipped source-text regex insufficient to prove AC#4's "fails loudly" in situ and
+  substituted 5 real `require()` loads of mutated module copies, which established the guarantee
+  more strongly than the implementer had. This is the pattern worth carrying forward: a reviewer
+  that re-derives the *evidence*, not just re-reads the *diff*. Merged as PR #42 (19d1ff7).
+  **AC#3 carried an authorized open design choice** (module-load assertion vs dedicated test);
+  the worker chose module load and the reviewer DECIDED rather than escalated it under the
+  decide-vs-defer test, having established the blast radius empirically (all inputs
+  developer-authored constants; `opts.mutexes` provably unreachable; two existing suites already
+  require `ipc.js`, so drift becomes an unshippable build rather than a user's failed launch).
+  The wave-7 integration review independently corroborated that by enumerating all three load
+  paths and observing a mutated order fail BOTH suites (410 -> 376 tests).
+  **Wave-level integration review found real material for the 7th consecutive wave.** Three
+  dispositions: (a) narrow doc drift — `CLAUDE.md:51` and `README.md:330` still said "400 tests",
+  a straight repeat of the class wave 6 needed PR #41 for — fixed as a direct worker follow-up +
+  re-review in a fresh worktree off merged `dev`, along with `CLAUDE.md:69`'s now-incomplete
+  "per-domain mutex" (singular) description, merged as PR #43 (985389a); (b) two new-task-worthy
+  hazards and (c) three residuals in NCOW-46's own fix — all proposed to the user via
+  AskUserQuestion, all three approved, filed as **NCOW-47** (apiKey is the last IPC domain with a
+  real mutating concern and zero locks, while the encrypted key it writes is read inside the
+  `config` lock at `engine-context.js:320`), **NCOW-48** (a wedged `uninstall.run` now freezes
+  claudeCode+config+proxy, and `pm2.delete`/`pm2.dump` at `pm2Control.js:508-518` have no timeout
+  at all — NCOW-45 widened the blast radius without bounding what hangs), and **NCOW-49**
+  (identity dedupe misses two *distinct* functions sharing one chain — reproduced, handler never
+  entered after 80 ticks; `LOCK_ACQUISITION_ORDER`'s actual *order* is unchecked, so moving
+  `claudeDesktop` to the front leaves the whole suite green despite `ipc.js:117-121` claiming
+  otherwise; and both exported constants are unfrozen, so a consumer can change real lock
+  resolution *after* the assertion has passed). The integration reviewer also cleared `prereqs`
+  and `diagnostics` as genuinely needing no lock, with reasoning, so NCOW-47 closes that family
+  rather than opening another instance of it.
+  **This drains the queue as confirmed at init: NCOW-32 through NCOW-46 are all Done.** The three
+  new tasks are the next round's work.
 
 - 2026-08-04 — wave 1 dispatched (tasks: NCOW-34, NCOW-33, NCOW-36, NCOW-35): ground-truth
   drift check found no leftover branches/worktrees/PRs from prior init; treehouse pool had 3
