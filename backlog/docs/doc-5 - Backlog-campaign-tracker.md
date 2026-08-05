@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 13:22'
+updated_date: '2026-08-05 14:30'
 ---
 # Backlog campaign tracker
 
@@ -62,12 +62,27 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 6 settlement (2026-08-05): 14 resolved (waves 1-6, all Done), 1 ready (NCOW-46,
-depends on NCOW-45 which is now Done — new, filed from wave 6's integration review), 0
-genuinely blocked, 5 excluded pending human decomposition (see Not queued). **The live ready
-set entering wave 7 is {NCOW-46} — a solo wave by definition (nothing else queued to conflict
-or not conflict with), re-confirm this is still the only ready task at the next restore rather
-than assuming it.**
+As of wave 7 dispatch (2026-08-05): 14 resolved (waves 1-6, all Done), 1 dispatched
+(NCOW-46, wave 7), 0 genuinely blocked, 5 excluded pending human decomposition (see Not
+queued). Re-confirmed live at the wave-7 restore that NCOW-46 is still the only ready task —
+`backlog task list --exclude-status Done` returned exactly NCOW-7/11/13/14/15 (all still
+excluded, all still last-updated 2026-07-31, no human action between sessions) plus NCOW-46.
+**Wave 7 = {NCOW-46}, a solo wave by definition.**
+
+**Wave 7 conflict graph (file-citation read against real, current source at this restore, over
+the ready set {NCOW-46})**: trivially empty — a single-member wave has no edges to compute.
+Footprint confirmed by direct grep against merged `dev` @ `70eaa80`: `src/main/ipc.js` carries
+`DOMAIN_MUTEX_ALIASES` (line 107), `LOCK_ACQUISITION_ORDER` (line 138, currently
+`['claudeCode','claudeDesktop','config','proxy']`), `resolveDomainLocks()` (line 147, with the
+un-deduped `.sort(...)` chain at line 153) and `withLocks()` (line 198) — all four exactly
+where NCOW-45 left them, untouched since. `MUTEX_DOMAINS` (`['proxy','config','claudeDesktop',
+'claudeCode']`) is already exported from `src/main/mutex.js` line 80, so AC#3's permutation
+assertion needs no new export. Confirmed NCOW-46's own premise independently: zero direct test
+references to `LOCK_ACQUISITION_ORDER`, `DOMAIN_MUTEX_ALIASES`, `resolveDomainLocks` or
+`withLocks` exist anywhere under `test/` — all existing `ipc-mutex.test.js` coverage goes
+through `createDomainMutexes()` behaviorally. Real footprint: `src/main/ipc.js` +
+`test/main/ipc-mutex.test.js`. No live-app verification needed (pure unit-level concurrency
+logic), so no Shared Machine State contention.
 
 **Wave 6 conflict graph (file-citation read against real, current source at this restore,
 over the ready set {NCOW-43, NCOW-45})**: confirmed NCOW-43's target is unchanged from wave 5's
@@ -183,7 +198,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-46 | proxy-mutex | NCOW-45 (Done) | To Do | | Harden ipc.js's new multi-lock mechanism against duplicate-lock deadlock and LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift — filed from wave-6 integration review, ready now |
+| 1 | NCOW-46 | proxy-mutex | NCOW-45 (Done) | Dispatched | 7 | Harden ipc.js's new multi-lock mechanism against duplicate-lock deadlock and LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift — filed from wave-6 integration review, ready now |
 
 ## Resolved
 
