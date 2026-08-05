@@ -3,10 +3,10 @@ id: NCOW-42
 title: >-
   Harden the remaining unguarded error chain: updateCheck.js, autoUpdate.js's
   darwin path, and index.js's startup backstop
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 02:39'
-updated_date: '2026-08-05 03:08'
+updated_date: '2026-08-05 04:07'
 labels: []
 dependencies:
   - NCOW-40
@@ -21,11 +21,11 @@ NCOW-40's own reviewer found 2 residual unguarded-interpolation sites out of tha
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/engine/updateCheck.js's err.name/err.message reads are hardened through the existing safe-stringification helpers so a hostile/malformed thrown value cannot make checkLatestRelease() reject, honoring its own 'Always resolves' doc comment
-- [ ] #2 src/main/autoUpdate.js's darwin-path branch gets a real try/catch around checkLatestRelease() (or equivalent), plus a guard against a null/undefined/non-object result, so this path cannot make checkForUpdates() reject either
-- [ ] #3 src/main/index.js's startup backstop (~line 209) no longer interpolates err.message directly; it uses the same safe-stringification approach so it cannot itself throw regardless of what rejects into it
-- [ ] #4 A regression test demonstrates the full chain end-to-end: a hostile/malformed error surfacing from updateCheck.js's fetch layer does not produce an unhandled rejection anywhere in this chain, mirroring NCOW-40's own adversarial test rigor
-- [ ] #5 npm test passes
+- [x] #1 src/engine/updateCheck.js's err.name/err.message reads are hardened through the existing safe-stringification helpers so a hostile/malformed thrown value cannot make checkLatestRelease() reject, honoring its own 'Always resolves' doc comment
+- [x] #2 src/main/autoUpdate.js's darwin-path branch gets a real try/catch around checkLatestRelease() (or equivalent), plus a guard against a null/undefined/non-object result, so this path cannot make checkForUpdates() reject either
+- [x] #3 src/main/index.js's startup backstop (~line 209) no longer interpolates err.message directly; it uses the same safe-stringification approach so it cannot itself throw regardless of what rejects into it
+- [x] #4 A regression test demonstrates the full chain end-to-end: a hostile/malformed error surfacing from updateCheck.js's fetch layer does not produce an unhandled rejection anywhere in this chain, mirroring NCOW-40's own adversarial test rigor
+- [x] #5 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -114,3 +114,9 @@ origin).
 
 Approved for the merge queue.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened all 3 sites in the auto-update error chain using existing safeReadProperty/describeThrownValue helpers: updateCheck.js's catch blocks, autoUpdate.js's darwin-path try/catch + null-result guard, and index.js's startup backstop. Reviewer independently confirmed all 5 ACs with a from-scratch 281-assertion adversarial probe (zero unhandled rejections/uncaught exceptions across the full chain) and reproduced non-vacuity via targeted file reverts. npm test 358 -> 377 passing. Merged as PR #33 (4d56a19).
+<!-- SECTION:FINAL_SUMMARY:END -->

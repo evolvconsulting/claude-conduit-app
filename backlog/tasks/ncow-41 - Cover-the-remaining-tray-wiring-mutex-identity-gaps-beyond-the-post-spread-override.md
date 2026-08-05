@@ -3,10 +3,10 @@ id: NCOW-41
 title: >-
   Cover the remaining tray-wiring mutex-identity gaps beyond the post-spread
   override
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 03:28'
+updated_date: '2026-08-05 04:07'
 labels: []
 dependencies:
   - NCOW-35
@@ -22,14 +22,14 @@ NCOW-35 introduced createTrayActions({ mutexes, handlers }) in tray.js and a par
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single-binding check (static and/or behavioural) exists for 'handlers' equivalent in rigor to the existing 'mutexes' check, so a shadowed/private 'handlers' binding at the createTray({...}) call site is caught
-- [ ] #2 A regression test demonstrates that mutating 'mutexes.proxy' (or the equivalent handlers property) after the createEngineContext() destructure and before createTray({...}) is caught -- this is the gap NCOW-35's own review verified as a REAL serialization break, so prioritize this one if scope needs to be trimmed
-- [ ] #3 A regression test demonstrates that parameter-shadowing the mutexes/handlers identifiers passed into createTray({...}) (e.g. via a wrapping function parameter) is caught
-- [ ] #4 npm test passes
-- [ ] #5 Correct the comment block's closing sentence (introduced by NCOW-38) claiming the existing tests 'cover everything currently provable' -- this overstates, since the handlers gap this task closes was reachable-but-uncovered before this task landed
-- [ ] #6 Widen NCOW-38's post-spread-override regex (or note explicitly why it's intentionally scoped) to also catch quoted keys ('onStop': ...), method-shorthand (onStop() {...}), and computed keys (['onStop']: ...), not just the canonical bare colon-form key -- currently only catches the file's existing one-key-per-line arrow-function style
-- [ ] #7 Make NCOW-38's post-spread-override guard fail loud instead of fail open: findKeyAfterTraySpread() currently returns undefined both when no override exists AND when the ...createTrayActions spread isn't found in the extracted block (e.g. a nested '});' between the spread and an override key truncates the block early), so the exact regression the guard exists to catch can slip through green -- add an explicit assertion that the spread was actually found before asserting no override followed it
-- [ ] #8 Correct the comment block's 'is now CLOSED' framing for the post-spread-override guard if AC#7 above (fail-loud fix) is not yet fixed by the time this task lands, and resolve the dangling '...not X' contrast left over from an earlier edit to the closing sentence
+- [x] #1 A single-binding check (static and/or behavioural) exists for 'handlers' equivalent in rigor to the existing 'mutexes' check, so a shadowed/private 'handlers' binding at the createTray({...}) call site is caught
+- [x] #2 A regression test demonstrates that mutating 'mutexes.proxy' (or the equivalent handlers property) after the createEngineContext() destructure and before createTray({...}) is caught -- this is the gap NCOW-35's own review verified as a REAL serialization break, so prioritize this one if scope needs to be trimmed
+- [x] #3 A regression test demonstrates that parameter-shadowing the mutexes/handlers identifiers passed into createTray({...}) (e.g. via a wrapping function parameter) is caught
+- [x] #4 npm test passes
+- [x] #5 Correct the comment block's closing sentence (introduced by NCOW-38) claiming the existing tests 'cover everything currently provable' -- this overstates, since the handlers gap this task closes was reachable-but-uncovered before this task landed
+- [x] #6 Widen NCOW-38's post-spread-override regex (or note explicitly why it's intentionally scoped) to also catch quoted keys ('onStop': ...), method-shorthand (onStop() {...}), and computed keys (['onStop']: ...), not just the canonical bare colon-form key -- currently only catches the file's existing one-key-per-line arrow-function style
+- [x] #7 Make NCOW-38's post-spread-override guard fail loud instead of fail open: findKeyAfterTraySpread() currently returns undefined both when no override exists AND when the ...createTrayActions spread isn't found in the extracted block (e.g. a nested '});' between the spread and an override key truncates the block early), so the exact regression the guard exists to catch can slip through green -- add an explicit assertion that the spread was actually found before asserting no override followed it
+- [x] #8 Correct the comment block's 'is now CLOSED' framing for the post-spread-override guard if AC#7 above (fail-loud fix) is not yet fixed by the time this task lands, and resolve the dangling '...not X' contrast left over from an earlier edit to the closing sentence
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -200,3 +200,9 @@ encountered during this re-review pass.
 
 WAVE 4 SETTLED: both NCOW-42 and NCOW-41 now carry approve verdicts. Ready for the merge queue.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed all 3 remaining tray-wiring mutex-identity gaps (handlers single-binding check, mutexes.proxy/handlers.proxy property-mutation guard, parameter-shadowing check) plus widened/hardened NCOW-38's post-spread-override regex, entirely within test/main/engine-context-config-regen.test.js and test/main/tray-actions.test.js -- no production source changes needed, confirming the test-file-only hypothesis. Took 2 review passes: pass 1 found AC#2's delivered test had inverted polarity (demonstrated the bug rather than catching it, empirically proven by injecting the mutation and showing the suite still passed); a fix pass added a real identifierPropertyIsAssigned() text-only guard, and pass 2 independently re-injected the same mutation (plus a computed-key variant) and confirmed the suite now correctly fails, with no false positive on the legitimate call-site read. A wave-level integration review after merge re-probed all 4 guard families against the merged index.js with 7 fresh hostile injections, confirming no regressions. npm test 358 -> 382 passing. Merged as PR #34 (78ad549).
+<!-- SECTION:FINAL_SUMMARY:END -->
