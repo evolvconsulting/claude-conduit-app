@@ -426,6 +426,159 @@ test('checkForUpdates: on windows/linux, a replayed re-sync never calls electron
   assert.equal(calls.checkForUpdates, 1, 'a second concurrent electron-updater checkForUpdates() call could race a download against the pending-update cache');
 });
 
+// NCOW-42: performCheck()'s darwin-path branch had NO try/catch at all
+// around `await deps.updateCheck.checkLatestRelease(...)`, and dereferenced
+// `result.ok` with no guard against a null/undefined/non-object result. Any
+// shape below made checkForUpdates() REJECT outright pre-fix (verified by
+// reverting the fix and re-running this file before adding the hardening).
+
+test('checkForUpdates: macOS degrades gracefully instead of rejecting when checkLatestRelease() itself throws', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: async () => {
+        throw new Error('DNS lookup failed');
+      },
+    },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.match(result.error.message, /DNS lookup failed/);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of rejecting when checkLatestRelease() throws a plain null', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: async () => {
+        throw null; // eslint-disable-line no-throw-literal
+      },
+    },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.equal(typeof result.error.message, 'string');
+  assert.equal(deps.statuses.at(-1).state, 'error');
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when checkLatestRelease() resolves with null', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: { checkLatestRelease: async () => null },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when checkLatestRelease() resolves with undefined', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: { checkLatestRelease: async () => undefined },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when checkLatestRelease() resolves with a non-object', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: { checkLatestRelease: async () => 'not-an-object' },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+// AC#4 (NCOW-42): the full chain, end-to-end — the REAL updateCheck.js
+// module (not a fake), fed a genuinely hostile fetchImpl, driven through
+// autoUpdate.js's darwin path. Nothing in this chain may reject.
+
+test("checkForUpdates: full chain — a hostile fetchImpl surfacing from updateCheck.js's fetch layer through autoUpdate.js's darwin path never produces an unhandled rejection", async () => {
+  const realUpdateCheck = require('../../src/engine/updateCheck');
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: (opts) =>
+        realUpdateCheck.checkLatestRelease({
+          ...opts,
+          fetchImpl: async () => {
+            throw null; // eslint-disable-line no-throw-literal
+          },
+        }),
+    },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+test("checkForUpdates: full chain — updateCheck.js's fetch throwing a value with a throwing .name getter still degrades gracefully end-to-end", async () => {
+  const realUpdateCheck = require('../../src/engine/updateCheck');
+  const hostile = {
+    get name() {
+      throw new Error('name getter exploded');
+    },
+    message: 'network unreachable',
+  };
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: (opts) =>
+        realUpdateCheck.checkLatestRelease({
+          ...opts,
+          fetchImpl: async () => {
+            throw hostile;
+          },
+        }),
+    },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.match(deps.statuses.at(-1).message, /network unreachable/);
+});
+
+test("checkForUpdates: full chain — updateCheck.js's response.json() rejecting with Object.create(null) still degrades gracefully end-to-end", async () => {
+  const realUpdateCheck = require('../../src/engine/updateCheck');
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: {
+      checkLatestRelease: (opts) =>
+        realUpdateCheck.checkLatestRelease({
+          ...opts,
+          fetchImpl: async () => ({
+            ok: true,
+            status: 200,
+            json: async () => {
+              throw Object.create(null);
+            },
+          }),
+        }),
+    },
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
 test('installUpdateAndRestart: stops the proxy via the shared shutdown path before installing', async () => {
   const order = [];
   const { autoUpdater } = fakeAutoUpdater();

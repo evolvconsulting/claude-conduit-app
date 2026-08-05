@@ -134,7 +134,33 @@ function createAutoUpdate(deps) {
 
     if (deps.platform === 'darwin') {
       emit({ state: 'checking' });
-      const result = await deps.updateCheck.checkLatestRelease({ currentVersion: deps.currentVersion, repo });
+      let result;
+      try {
+        result = await deps.updateCheck.checkLatestRelease({ currentVersion: deps.currentVersion, repo });
+      } catch (err) {
+        // NCOW-42: this await had NO try/catch at all — updateCheck.js's own
+        // "Always resolves" doc comment made that look safe, but nothing
+        // here actually enforced it, so any future regression there (or a
+        // hostile fake updateCheck dependency, as this module accepts one by
+        // injection) would reject checkForUpdates() outright instead of
+        // degrading gracefully like every other path in this function.
+        // Mirrors the win32/linux catch below exactly.
+        const message = describeThrownValue(err);
+        log(`update check threw unexpectedly, degrading gracefully: ${message}`);
+        emit({ state: 'error', message });
+        return { ok: false, error: { code: 'CHECK_FAILED', message } };
+      }
+
+      if (!result || typeof result !== 'object') {
+        // NCOW-42: `result.ok` below was dereferenced with no guard against
+        // checkLatestRelease() resolving with null/undefined/a non-object —
+        // any of those makes a bare `.ok` read throw.
+        const message = `checkLatestRelease() resolved with a non-object result: ${safeStringify(result)}`;
+        log(`update check failed, degrading gracefully: ${message}`);
+        emit({ state: 'error', message });
+        return { ok: false, error: { code: 'CHECK_FAILED', message } };
+      }
+
       if (!result.ok) {
         // NCOW-40: result.error here is updateCheck.js's own RETURNED failure
         // object, not a thrown value — but it is exactly as exposed to a
