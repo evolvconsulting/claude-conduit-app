@@ -21,6 +21,17 @@
  * separately at every call site.
  */
 
+// NCOW-42: this module's own catch blocks used to read `err.name`/`err.message`
+// straight off the caught value with no guard — a fetchImpl that throws
+// null/undefined, or a response.json() that rejects with a hostile value,
+// makes a bare `.name`/`.message` property read throw a TypeError of its own,
+// which would make checkLatestRelease() REJECT in place of the safe,
+// always-resolving `{ok: false, error}` its module header promises. Reuse
+// configGen.js's safeReadProperty()/describeThrownValue() (the same
+// safe-stringification contract already established by NCOW-36/37/40) rather
+// than re-deriving new guards here.
+const { describeThrownValue, safeReadProperty } = require('./configGen');
+
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 /**
@@ -99,7 +110,16 @@ async function checkLatestRelease(opts) {
     try {
       body = await response.json();
     } catch (err) {
-      return { ok: false, error: { code: 'MALFORMED_RESPONSE', message: `Could not parse GitHub API response: ${err.message}` } };
+      // NCOW-42: a hostile response.json() rejecting with e.g. `null` made
+      // the raw `${err.message}` interpolation itself throw, and that throw
+      // escaped this inner catch straight into the outer one below — which
+      // then misreported a JSON parse failure as a NETWORK_ERROR instead of
+      // MALFORMED_RESPONSE. describeThrownValue() can't throw regardless of
+      // what `err` is, so this stays MALFORMED_RESPONSE.
+      return {
+        ok: false,
+        error: { code: 'MALFORMED_RESPONSE', message: `Could not parse GitHub API response: ${describeThrownValue(err)}` },
+      };
     }
 
     const latestVersion = String(body?.tag_name ?? '').replace(/^v/i, '');
@@ -114,8 +134,19 @@ async function checkLatestRelease(opts) {
       releaseUrl: body.html_url ?? `https://github.com/${opts.repo}/releases/latest`,
     };
   } catch (err) {
-    const code = err.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK_ERROR';
-    return { ok: false, error: { code, message: err.message } };
+    // NCOW-42: `err.name`/`err.message` used to be read directly off the
+    // caught value. A thrown `null`/`undefined` makes a bare `.name` read
+    // throw a TypeError outright (verified pre-fix — see
+    // test/engine/updateCheck.test.js), and a hostile `.name` getter throws
+    // on the read itself; either would make this "Always resolves" function
+    // reject in place of returning a safe failure. safeReadProperty()
+    // absorbs both; describeThrownValue() guarantees `message` is always a
+    // real, safely-stringified string (it also fixes the more subtle case of
+    // a `.message` that reads fine but is itself unstringifiable, e.g. a
+    // Symbol, which used to be assigned raw with no guard at all).
+    const name = safeReadProperty(err, 'name');
+    const code = name === 'AbortError' ? 'TIMEOUT' : 'NETWORK_ERROR';
+    return { ok: false, error: { code, message: describeThrownValue(err) } };
   } finally {
     clearTimeout(timer);
   }

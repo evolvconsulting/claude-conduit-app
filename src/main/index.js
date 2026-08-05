@@ -13,6 +13,7 @@ const { createProxyShutdown } = require('./shutdown');
 const { createAutoUpdate } = require('./autoUpdate');
 const paths = require('../engine/paths');
 const updateCheck = require('../engine/updateCheck');
+const { describeThrownValue } = require('../engine/configGen');
 
 /**
  * NCOW-12 safety net: Electron's userData directory (which holds the
@@ -203,10 +204,17 @@ if (!gotSingleInstanceLock) {
     // failure mode checkForUpdates() can hit already resolves to a status
     // broadcast rather than a rejection (see autoUpdate.js/updateCheck.js) —
     // this catch is only a backstop against a genuinely unexpected
-    // synchronous throw.
+    // synchronous throw. NCOW-42: that backstop used to read `err.message`
+    // directly, which is exactly the unguarded pattern that made this exact
+    // rejection possible in the first place (a null/undefined rejection
+    // propagating up from updateCheck.js/autoUpdate.js would have made bare
+    // `err.message` throw a TypeError here too, turning a safe log line into
+    // an unhandled rejection in the main process). describeThrownValue()
+    // (configGen.js, NCOW-36/37/40) can't throw regardless of what rejects
+    // into it.
     Promise.resolve()
       .then(() => autoUpdate.checkForUpdates())
-      .catch((err) => console.warn('[auto-update] startup check failed unexpectedly:', err.message));
+      .catch((err) => console.warn('[auto-update] startup check failed unexpectedly:', describeThrownValue(err)));
   });
 
   // The one shutdown choke point. Every exit route — the menu's Quit/Exit item,
