@@ -3,9 +3,10 @@ id: NCOW-44
 title: >-
   Widen NCOW-41's mutexes/handlers property-mutation guard to catch
   Object.assign/defineProperty/destructuring/logical-assignment spellings
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 03:59'
+updated_date: '2026-08-05 04:43'
 labels: []
 dependencies:
   - NCOW-41
