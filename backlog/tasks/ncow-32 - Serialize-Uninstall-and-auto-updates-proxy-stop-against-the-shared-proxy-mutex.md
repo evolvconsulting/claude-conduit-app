@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-05 04:50'
+updated_date: '2026-08-05 04:57'
 labels: []
 dependencies:
   - NCOW-31
@@ -89,4 +89,43 @@ prevented by the renderer disabling its own button, not at the IPC layer.
 Branch fix/NCOW-32-serialize-uninstall-update-proxy-mutex pushed to origin. Two commits:
 fix(ipc): serialize uninstall and update-install against the proxy mutex;
 test(ipc): cover NCOW-32's uninstall/update-install mutex aliasing.
+
+REVIEW (opus, independent): verdict APPROVE. All 4 ACs independently confirmed:
+- AC#1: traced uninstall.run's sole call path (engine-context.js -> IPC handler only, no
+  tray/menu route) through resolveDomainLock -> mutexes.proxy, same identity as the
+  background restart's runProxyOperation lock.
+- AC#2: traced update.install's sole call path (index.js:149 IPC handler only;
+  autoInstallOnAppQuit=false rules out an electron-updater quit-time call). Confirmed
+  before-quit's own stopProxyForShutdown() path in index.js is untouched (index.js absent
+  from the diff) and stays outside the mutex, per AC#2's explicit requirement. Checked for a
+  lock-then-quit deadlock -- none, the shuttingDown latch fires first.
+- AC#3: reviewer's OWN adversarial reproduction (not the worker's claim) -- swapped
+  src/main/ipc.js back to dev's version, kept the new tests: 387 -> 383 passing, with exactly
+  the 4 AC#3-relevant tests failing (test 12 fails for an incidental microtask-ordering
+  reason rather than serialization, noted as a non-blocking test-quality nuance, not a
+  correctness problem). Restored ipc.js and SHA-256-verified it matches the pre-experiment
+  copy; worktree left clean at the worker's actual commits.
+- AC#4: reviewer's own npm test run: 387/387 passing on the fixed branch.
+
+Scope confirmed: exactly 3 files (ipc.js, engine-context.js comment-only, ipc-mutex.test.js),
+no drive-bys, MUTEX_DOMAINS unchanged.
+
+Non-blocking findings (none require a branch change): (1) CLAUDE.md's test count is stale
+again (382 -> 387) -- deferred to the wave-integration doc pass, same as prior waves; (2)
+DESIGN.md's proxy-mutex-domain enumeration (~line 400-410) doesn't yet mention
+uninstall/update sharing the lock -- same doc pass; (3) ipc.js's "update:check is a pure
+status read" comment slightly understates checkForUpdates()'s own background-download
+behavior on win32/linux, though the safety reasoning for exempting it from the lock is sound
+and confirmed independently; (4) confirmed the ipc.js-only domain-alias approach is the
+right interpretation and no non-IPC caller of pm2Control.remove()/installUpdateAndRestart()
+exists; (5) confirmed the update:check lock exemption is safe and philosophically consistent
+with the existing proxy-domain exemptions; (6) pre-existing, out of scope: the alias only
+shares the proxy mutex, not the config domain, so uninstall's config-directory purge is not
+serialized against configGen.js's regenerateStaleConfig() config-file-write phase (only its
+pm2.start() phase) -- practically negligible since that write completes synchronously during
+createEngineContext(), before the window is interactive, and outside NCOW-32's own ACs;
+flagged for a future backlog item, not this branch. No overlap risk with NCOW-44 (disjoint
+file sets, dev only advanced via orchestrator bookkeeping commits since branch point).
+
+No injected-instruction pattern encountered on this worktree (slot 1).
 <!-- SECTION:NOTES:END -->
