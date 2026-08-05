@@ -4,7 +4,7 @@ title: Serialize the apiKey IPC domain against the config mutex it shares state 
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:27'
-updated_date: '2026-08-05 15:40'
+updated_date: '2026-08-05 15:48'
 labels: []
 dependencies:
   - NCOW-46
@@ -26,3 +26,17 @@ The wave-7 integration review of NCOW-46 enumerated lock resolution for every CH
 - [ ] #5 diagnostics and prereqs are confirmed to still need no lock, with the reasoning recorded (so a future reader does not re-litigate the whole family)
 - [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read src/main/mutex.js, ipc.js, ipc-channels.js, engine-context.js, src/engine/prereqs.js and the existing ipc-mutex/engine-context-apikey tests to confirm where apiKey's mutating methods live, where config.generate and diagnostics.run read the same secretStore key, and what NCOW-32/45/46 already built.
+2. Add `apiKey: 'config'` to DOMAIN_MUTEX_ALIASES in src/main/ipc.js (single-domain alias, same shape as `update: 'proxy'`), commented with the shared-state reason.
+3. Add `apiKey: ['getMasked']` to UNSERIALIZED_METHODS, documented as a deliberate pure-read exemption alongside the existing proxy.getStatus/update.check precedent (AC#2).
+4. Update registerIpcHandlers()'s JSDoc to mention apiKey resolving to config alone.
+5. Correct src/main/mutex.js's MUTEX_DOMAINS comment (AC#4) to distinguish three categories: aliased (apiKey/uninstall/update), deliberately unlocked (diagnostics/prereqs), and genuinely pure-read (app/catalog).
+6. Extend engine-context.js's existing diagnostics.run comment (AC#5) with why diagnostics still needs no lock despite reading the same key.
+7. Add 6 tests to test/main/ipc-mutex.test.js mirroring the established uninstall/update patterns: resolveDomainLocks() resolving apiKey to mutexes.config; background config:generate blocking apiKey:clear and apiKey:validateAndSave; the reverse ordering; getMasked opting out; a control test with an unrelated mutex set.
+8. Verify non-vacuity by stashing only src/main/ipc.js, running the new tests against unpatched source, observing genuine failures, restoring.
+9. Run full npm test; commit as two logical commits; push.
+<!-- SECTION:PLAN:END -->
