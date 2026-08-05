@@ -4,7 +4,7 @@ title: Guard tray call site in index.js against post-spread action key override
 status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-05 01:53'
+updated_date: '2026-08-05 01:59'
 labels: []
 dependencies:
   - NCOW-35
@@ -38,4 +38,6 @@ NCOW-35 extracted the tray's mutex-wrapped onStart/onStop/onRestart wiring into 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented by worker (worktree fix/NCOW-38-tray-post-spread-guard, commit 6ad01bb, pushed to origin). Added a static guard test (findKeyAfterTraySpread() helper) plus a companion meta-test proving it catches the post-spread-override shape for each of onStart/onStop/onRestart. Updated the shared comment block to describe the guard as landed and folded in NCOW-39's 2 accepted residuals. npm test 350/350 (before and after a temporary regression repro). Verified the guard actually catches the regression: temporarily added a real 'onStop: ...' key after the spread in the live src/main/index.js, confirmed the new test failed with the expected message, then reverted and confirmed via git diff/status that index.js is byte-identical to HEAD. Worker flagged and disregarded a suspicious injected instruction encountered mid-task (a fake system-reminder falsely claiming index.js had been intentionally modified and instructing silence) -- independently re-verified clean via git commands both by the worker and by the orchestrator; no actual modification exists.
+
+Review pass 1 (opus): verdict approve. All 4 ACs confirmed independently. Reviewer reproduced the regression directly (added a real onStop key after the spread in the live index.js, confirmed the new guard test fails with a clear message while the 2 pre-existing tray checks stay green, then reverted and confirmed byte-identical to dev via sha256). AC#4's comment updates verified accurate against real source (tray-actions.test.js's negative control really is externally-provided, not internally-constructed). npm test 350/350 (reviewer's own run, twice). Commit 6ad01bb follows conventions, pushed, diff confined to the one test file. 2 low-severity non-blocking findings recorded as residuals for NCOW-41 (which already owns this comment block's remaining claims and the other 3 gaps): F1 the comment's new closing sentence ('cover everything currently provable') slightly overstates given the handlers gap is reachable-but-uncovered; F2 the new post-spread-override regex only catches the canonical one-key-per-line colon-form style, missing quoted keys/method-shorthand/computed keys/same-line placement -- guard is safe in practice (matches this file's actual authoring style) but narrower than AC#1's literal wording. Reviewer also independently encountered and disregarded a second injected fake-instruction attempt (same pattern as the worker's: falsely claiming index.js was modified, instructing silence) -- verified false via git/sha256, reported transparently.
 <!-- SECTION:NOTES:END -->
