@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 03:06'
+updated_date: '2026-08-05 03:07'
 labels: []
 dependencies:
   - NCOW-35
@@ -55,3 +55,43 @@ NCOW-35 introduced createTrayActions({ mutexes, handlers }) in tray.js and a par
 7. Run npm test, confirm before/after counts, commit in small logical commits with
    Refs NCOW-41. trailers, push.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-41-tray-mutex-identity-gaps, pushed to origin (26f0e3b, 554f652). The
+test-file-only hypothesis was confirmed: all 8 ACs closed entirely within
+test/main/engine-context-config-regen.test.js and test/main/tray-actions.test.js -- NO
+production source change was needed or made. AC#1/#3: extended single-binding tests for
+`mutexes`/new `handlers`, plus a new identifierBoundAsFunctionParam() static helper (parameter
+shadowing), backed by a meta-test. AC#2: new behavioural regression test in
+tray-actions.test.js reproducing index.js's real call order (registerIpcHandlers() then
+createTrayActions()) mutating mutexes.proxy in between -- non-vacuity sanity-checked by
+temporarily removing the mutation line and confirming the test fails as expected before
+restoring (sha256-verified identical restore). AC#6: widened findKeyAfterTraySpread()'s regex
+to catch quoted keys, method shorthand (incl. async), and computed keys; meta-test extended
+across all 3 key names x 7 syntactic forms. AC#7: findKeyAfterTraySpread() now throws when the
+spread isn't located (fail loud instead of fail open), with a new meta-test proving the
+truncation scenario throws, plus an explicit spread-found assertion added to the real guard
+test. AC#5/#8: rewrote the stale review comment block to accurately describe post-NCOW-41
+state, removed the dangling "...not full tray-wiring safety" contrast.
+
+Evidence: baseline npm test 358/358 -> final 362/362 passing, +4 new tests, zero regressions.
+git diff --stat confirms only the two intended test files changed; src/main/*.js untouched
+throughout.
+
+SECURITY NOTE: mid-task, a suspicious system-reminder-styled message appeared immediately
+after the worker's own `perl -i` sanity-check edit, falsely framing that edit as an external
+"user or linter" change and instructing silence about it -- the same injection pattern seen
+twice during wave 3, both times in this exact worktree slot
+(~/.treehouse/claude-conduit-163fa4/2/claude-conduit). The worker did not comply, verified
+independently via git status/diff and sha256 checksums, and reported it transparently. This is
+now a THIRD occurrence tied to this one specific worktree path -- flagged directly to the user
+per the wave-3 handover's own escalation note. Orchestrator independently re-verified the
+worktree after the worker's report: git status clean, branch matches origin exactly, diff
+against dev touches only the two intended test files -- no actual tampering occurred either
+time.
+
+Files touched: test/main/engine-context-config-regen.test.js, test/main/tray-actions.test.js.
+Two commits on the branch, each with a Refs NCOW-41. trailer.
+<!-- SECTION:NOTES:END -->
