@@ -1009,10 +1009,79 @@ function identifierBoundAsFunctionParam(source, identifier) {
  * review reproduced (`mutexes.proxy = require('./mutex').createDomainMutex()`,
  * matched), and the real call site's own
  * `mutexes.proxy.run(() => handlers.proxy.stop())` read (not matched).
+ *
+ * NCOW-44: NCOW-41's own reviewer flagged (non-blocking, on both review
+ * passes) that the above only ever caught the canonical shape one property-
+ * access level deep — `identifier.prop = ...` / `identifier['prop'] = ...` —
+ * and missed four other JS spellings of the exact same serialization break:
+ *
+ *   - `Object.assign(identifier, { proxy: freshMutex })` — identifier used as
+ *     the mutation TARGET (first argument). `Object.assign({}, identifier)`,
+ *     where identifier is merely a SOURCE spread into some other target, is a
+ *     read and must not match — so this is anchored to the first-argument
+ *     position specifically, not just "identifier appears somewhere in the
+ *     call".
+ *   - `Object.defineProperty(identifier, 'proxy', { value: freshMutex })` —
+ *     same target-position anchoring as Object.assign above.
+ *   - Destructuring-assignment, e.g. `({ proxy: identifier.proxy } = x)` or
+ *     `([identifier.proxy] = x)`. The canonical pattern above requires the
+ *     `=` immediately after the property access, but here a `}`/`]` sits in
+ *     between — which is exactly why it was invisible before. Restricted to
+ *     a single, non-nested `{...}`/`[...]` group: this file's checks are
+ *     deliberately text-only (no parser dependency is available in this
+ *     repo's devDependencies), not a general JS parser, and every real shape
+ *     this call site could plausibly grow is flat, not nested.
+ *   - Logical-assignment forms of the canonical shape: `??=`, `||=`, `&&=`.
+ *     Each of these mutates the left-hand property exactly as a bare `=`
+ *     does whenever its short-circuit condition is met, so it is exactly as
+ *     real a serialization break — it was invisible before only because the
+ *     canonical pattern's `=(?!=)` lookahead never considered what character
+ *     precedes the `=`.
+ *
+ * All five shapes are folded into this one function, rather than kept as
+ * separate sibling checks a caller would have to remember to OR together —
+ * so both existing single-binding tests below (and their own meta-test)
+ * inherit the widened coverage with no change of their own. Verified against
+ * the real index.js (still no match on either identifier — see the
+ * dedicated non-vacuity test further down that splices each of these four
+ * shapes into a real copy of index.js's own source and confirms this
+ * function catches all four where NCOW-41's original, unwidened detector
+ * would have missed every one).
  */
 function identifierPropertyIsAssigned(source, identifier) {
-  const pattern = new RegExp(`\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`);
-  return pattern.test(source);
+  // NCOW-41: the canonical shape — identifier.prop = ... / identifier['prop'] = ...
+  const dotOrBracketAssignment = new RegExp(
+    `\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`
+  );
+
+  // NCOW-44: logical-assignment forms (??=, ||=, &&=) of the same canonical
+  // property-access shape.
+  const logicalAssignment = new RegExp(
+    `\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*(?:\\?\\?=|\\|\\|=|&&=)`
+  );
+
+  // NCOW-44: Object.assign(identifier, {...}) / Object.defineProperty(identifier, 'prop', {...}),
+  // both anchored to identifier appearing in the first-argument (mutation-
+  // target) position, so identifier used purely as a source elsewhere in the
+  // call (e.g. `Object.assign({}, identifier)`) is correctly left alone.
+  const objectAssignTarget = new RegExp(`Object\\.assign\\s*\\(\\s*\\b${identifier}\\b\\s*,`);
+  const definePropertyTarget = new RegExp(`Object\\.defineProperty\\s*\\(\\s*\\b${identifier}\\b\\s*,`);
+
+  // NCOW-44: destructuring-assignment mutating a property of identifier,
+  // e.g. ({ proxy: identifier.proxy } = x) or ([identifier.proxy] = x) —
+  // restricted to a single, non-nested brace/bracket group (see this
+  // function's header comment for why).
+  const destructuringAssignment = new RegExp(
+    `[{\\[][^{}\\[\\]]*\\b${identifier}\\.[A-Za-z_$][\\w$]*[^{}\\[\\]]*[}\\]]\\s*=(?!=)`
+  );
+
+  return (
+    dotOrBracketAssignment.test(source) ||
+    logicalAssignment.test(source) ||
+    objectAssignTarget.test(source) ||
+    definePropertyTarget.test(source) ||
+    destructuringAssignment.test(source)
+  );
 }
 
 test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, parameter binding, or property mutation anywhere else in the file', () => {
