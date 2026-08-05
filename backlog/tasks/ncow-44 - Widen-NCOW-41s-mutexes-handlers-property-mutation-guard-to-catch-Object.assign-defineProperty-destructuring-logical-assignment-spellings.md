@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 03:59'
-updated_date: '2026-08-05 04:52'
+updated_date: '2026-08-05 04:59'
 labels: []
 dependencies:
   - NCOW-41
@@ -89,4 +89,44 @@ previously corrected.
 
 Branch fix/NCOW-44-widen-mutation-guard-spellings pushed to origin. Two commits: widened
 function+JSDoc; test coverage/non-vacuity proof.
+
+REVIEW (opus, independent): verdict APPROVE. All 6 ACs independently confirmed:
+- AC#1-#4: traced the actual regex for each new spelling (Object.assign, Object.defineProperty,
+  destructuring-assignment, logical-assignment ??=/||=/&&=) against concrete example strings for
+  both mutexes and handlers, confirmed each matches the mutation shape and that the OLD
+  (unwidened) detector genuinely misses each one. Went further than the worker's own check with
+  a per-branch ablation: replacing each of the 4 new regex branches individually with `false`
+  each caused exactly 2 failures with the branch-specific message, confirming every new branch
+  is individually load-bearing (not just collectively).
+- AC#5: independently reproduced non-vacuity (not trusting the worker's claimed "2 tests fail"
+  number) via a scratch copy with the old detector body swapped in -- same 2 failures. Traced
+  WHY the real index.js source stays clean under the widened detector (destructuring branch
+  can't cross a brace, confining it to brace-free windows the real call site doesn't have).
+  Confirmed additional negative cases (Object.assign source-position, Object.assign(mutexes.proxy,
+  ...)) also don't false-positive.
+- AC#6: reviewer's own npm test run: 383/383 passing; isolated file run 25/25 passing.
+
+Scope confirmed: test/main/engine-context-config-regen.test.js only, zero src/ changes, no
+.only/.skip introduced.
+
+Non-blocking findings (none require a branch change): (1) "any property, not just .proxy"
+judgment call confirmed as the right superset, consistent with NCOW-41's own canonical
+detector; (2) three new false-positive shapes found (destructuring default values reading
+id.prop, computed-key mutation of a DIFFERENT object) -- none reachable in current index.js,
+accepted as loud-failure-not-silent-miss tradeoffs rather than requiring a tighter regex;
+(3) a comment/string quoting the anti-pattern could still trip the guard -- pre-existing in
+kind (dev's detector already had this), just noting the surface grew slightly; (4) two minor
+JSDoc completeness gaps (bracket-property-inside-destructuring not documented as a limitation;
+Reflect.set/defineProperty and `delete` remain uncaught and out of AC scope); (5) CLAUDE.md's
+test count is stale again -- deferred to the wave-integration doc pass, same as NCOW-32's
+review found independently.
+
+Overlap risk: none. Disjoint file set from NCOW-32 (which touches src/main/ipc.js,
+engine-context.js, ipc-mutex.test.js only). One semantic coupling flagged for the
+orchestrator: this file scans index.js's source text and now enforces a tighter constraint on
+it -- if any future task adds Object.assign/defineProperty/destructuring/logical-assignment
+mutation of mutexes/handlers directly inside index.js, this guard will correctly fail where
+dev's wouldn't have. Reviewer confirmed index.js currently contains none of these shapes.
+
+No injected-instruction pattern encountered on this worktree (slot 3).
 <!-- SECTION:NOTES:END -->
