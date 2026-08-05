@@ -1,10 +1,10 @@
 ---
 id: NCOW-47
 title: Serialize the apiKey IPC domain against the config mutex it shares state with
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 15:27'
-updated_date: '2026-08-05 16:47'
+updated_date: '2026-08-05 17:03'
 labels: []
 dependencies:
   - NCOW-46
@@ -19,12 +19,12 @@ The wave-7 integration review of NCOW-46 enumerated lock resolution for every CH
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 apiKey's mutating methods (validateAndSave, clear) are serialized against the same lock that guards config.generate's secretStore.load() read, via whichever existing mechanism fits (a DOMAIN_MUTEX_ALIASES entry resolving apiKey to config, or an equivalent) rather than a new parallel mechanism
-- [ ] #2 apiKey.getMasked is considered explicitly and, if left unserialized as a pure read, is documented as such alongside the existing UNSERIALIZED_METHODS precedent rather than left silently unlocked
-- [ ] #3 A test demonstrates the previously-unserialized interleaving is now prevented: a clear (or validateAndSave) issued while a config:generate is in flight no longer runs concurrently with it, and the test genuinely fails against unpatched source (non-vacuity reproduced and reported)
-- [ ] #4 src/main/mutex.js:62-64's comment is corrected so its list of domains without a mutating concern is accurate and no longer reads as exhaustive while omitting apiKey and prereqs
-- [ ] #5 diagnostics and prereqs are confirmed to still need no lock, with the reasoning recorded (so a future reader does not re-litigate the whole family)
-- [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 apiKey's mutating methods (validateAndSave, clear) are serialized against the same lock that guards config.generate's secretStore.load() read, via whichever existing mechanism fits (a DOMAIN_MUTEX_ALIASES entry resolving apiKey to config, or an equivalent) rather than a new parallel mechanism
+- [x] #2 apiKey.getMasked is considered explicitly and, if left unserialized as a pure read, is documented as such alongside the existing UNSERIALIZED_METHODS precedent rather than left silently unlocked
+- [x] #3 A test demonstrates the previously-unserialized interleaving is now prevented: a clear (or validateAndSave) issued while a config:generate is in flight no longer runs concurrently with it, and the test genuinely fails against unpatched source (non-vacuity reproduced and reported)
+- [x] #4 src/main/mutex.js:62-64's comment is corrected so its list of domains without a mutating concern is accurate and no longer reads as exhaustive while omitting apiKey and prereqs
+- [x] #5 diagnostics and prereqs are confirmed to still need no lock, with the reasoning recorded (so a future reader does not re-litigate the whole family)
+- [x] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -133,3 +133,17 @@ Remaining nits, none blocking: mutex.js:88-90's 'ecosystem.config.cjs only ever 
 
 Scope clean: exactly the 6 expected files, no drive-bys, no probe artifact leaked (git clean -nxd lists only the pre-existing gitignored .env and backlog/ subdirs). Both live test-count references read 416 and match the reviewer's own run. No injection/concealment text anywhere in the branch diff.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Serialized the apiKey IPC domain against the config lock it shares secretStore state with, closing the last IPC domain with a real mutating concern and no lock — the family NCOW-32 and NCOW-45 have been draining one instance at a time.
+
+Three lines of logic: DOMAIN_MUTEX_ALIASES gains `apiKey: 'config'` (a bare string, deliberately not an array, since apiKey's only shared-state concern is config.generate's secretStore.load() read) and UNSERIALIZED_METHODS gains `apiKey: ['getMasked']` for the pure read. Everything else is 242 lines of new tests (a pure append at test/main/ipc-mutex.test.js:1011, no pre-existing test modified anywhere) plus corrected comments in mutex.js, ipc.js and engine-context.js, and a refreshed test count in CLAUDE.md/README.md that this branch itself invalidated.
+
+Verified by three independent opus review passes, each running its own tests rather than trusting the implementer. npm test 410 -> 416, confirmed 416/416 by all three reviewers and again by the orchestrator after the rebase onto dev. Non-vacuity reproduced independently three times: deleting only the `apiKey: 'config'` line fails exactly the 4 load-bearing tests (resolveDomainLocks resolution plus both serialization orderings for clear and validateAndSave), with the getMasked and control tests correctly still passing since neither depends on the alias. Comment-only claims proven by esprima token-stream comparison rather than diff reading — mutex.js, ipc.js and engine-context.js tokenize identically across both fix passes. Regression checks: the single-lock fast path is intact (apiKey enters at the same microtask tick as a direct mutexes.config call, so tray-actions.test.js's tick-for-tick identity check is untouched), the module-load assertLockOrderIsConsistent() still passes and still throws on a botched alias target in all three value shapes, and an 8-deep mixed queue runs strict FIFO with at most one critical section open.
+
+AC#4 took two fix cycles, both rejected for the same failure mode — replacing one unverified absolute claim with another. Pass 1 rejected 'Only app and catalog are domains with genuinely no mutating concern — pure reads, full stop' as false for app. Pass 2 then measured the REPLACEMENT claim as inverted: as shipped an app.openLogsFolder call delivered mid-uninstall lands BEFORE fs.rmSync and is wiped, while aliasing app onto config — the fix that wording implied — is what makes it land after and survive a purge that reports success. Pass 3 independently reproduced all five timings and accepted the final wording because the case analysis is complete rather than sampled: before rmSync is wiped, between rmSync and settlement is unreachable (microtask-only chain, both real callers macrotask-delivered), after settlement is the genuinely reachable defect.
+
+Merged as PR #44 (81b5eb9). Wave-8 integration review then found an emergent hazard this merge introduced, proven causal by a pre-NCOW-47 counterfactual probe: apiKey.validateAndSave awaits up to two sequential 10s NVIDIA round trips before it writes, so config is now the app's first network-bound-holder lock, and NCOW-45's hold-and-wait turns an Uninstall click during a slow Set Key into a ~20s freeze of the window AND tray Start/Stop/Restart, testConnection, log tail, update install and all of claudeCode. Bounded, self-releasing, non-corrupting, app stays quittable — filed as a separate task with user approval, not a defect in this task's own ACs.
+<!-- SECTION:FINAL_SUMMARY:END -->
