@@ -496,9 +496,11 @@ function createEngineContext(deps) {
         const apiKey = secretStore.load();
         if (!manifest || !apiKey) return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Run setup first.' } };
         // NCOW-17 AC#3: a fresh AbortController per run — diagnostics:run
-        // isn't mutex-guarded (see ipc.js: only proxy/config/claudeDesktop/
-        // claudeCode have a domain mutex), so overlapping runs aren't
-        // actually prevented at this layer; the renderer's own button
+        // isn't mutex-guarded (see ipc.js: proxy/config/claudeDesktop/
+        // claudeCode each have their own domain mutex, and NCOW-32 aliases
+        // uninstall/update onto proxy's, but diagnostics has no lock and no
+        // alias at all), so overlapping runs aren't actually prevented at
+        // this layer; the renderer's own button
         // disable-while-running is what stops that in practice. Clearing
         // the controller in `finally` (rather than leaving a stale one
         // around) means a cancel() call after the run has already finished

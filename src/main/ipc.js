@@ -49,7 +49,58 @@ function notImplemented(domain, method) {
  */
 const UNSERIALIZED_METHODS = {
   proxy: ['getStatus', 'getRecentLogs'],
+  // NCOW-32: update:check reaches neither pm2Control nor the config
+  // directory (see autoUpdate.js's performCheck — it only ever talks to
+  // GitHub's Releases API on macOS, or electron-updater's own metadata
+  // fetch on Windows/Linux) and is fired automatically at every app startup,
+  // racing exactly the launch-time background restart that can hold the
+  // proxy lock for up to 60s. update:install is the one method of this
+  // domain that actually reaches into shared proxy state
+  // (installUpdateAndRestart -> stopProxyForShutdown) and stays locked (see
+  // DOMAIN_MUTEX_ALIASES below); queuing this pure status read behind a
+  // restart would delay every update-status broadcast for no corresponding
+  // safety benefit, mirroring proxy's own getStatus/getRecentLogs exemption.
+  update: ['check'],
 };
+
+/**
+ * NCOW-32: domains with no independent mutating concern of their own, but
+ * whose handlers still reach into the same shared state the `proxy` domain
+ * already guards. `uninstall.run()` calls pm2Control.remove() directly
+ * (src/engine/uninstall.js), and `update.install()`
+ * (installUpdateAndRestart -> stopProxyForShutdown, src/main/autoUpdate.js)
+ * stops the very same pm2-supervised proxy the launch-time background
+ * restart and a user-clicked Start/Stop/Restart already serialize against
+ * each other through mutexes.proxy. Without this, an Uninstall click (or an
+ * update install) could interleave with an in-flight restart:
+ * pm2Control.remove()'s deleteAppIfPresent()+save() racing the restart's own
+ * deleteAppIfPresent()->pm2.start() can leave a running proxy behind after
+ * "uninstall complete", or a config directory Uninstall is deleting out from
+ * under a restart that is concurrently regenerating it.
+ *
+ * Deliberately NOT added to MUTEX_DOMAINS in mutex.js — neither domain needs
+ * a *lock of its own*, only to share proxy's, so aliasing keeps
+ * createDomainMutexes() (and its own "exactly these domains" test in
+ * mutex.test.js) describing only the domains with an independent mutating
+ * concern.
+ *
+ * Distinct from main/index.js's before-quit shutdown path, which stays
+ * deliberately unserialized against this same lock (a wedged pm2 must never
+ * make the app unquittable, per CLAUDE.md) — that path calls
+ * stopProxyForShutdown() directly, outside any IPC handler, so it is
+ * unaffected by this alias table.
+ */
+const DOMAIN_MUTEX_ALIASES = {
+  uninstall: 'proxy',
+  update: 'proxy',
+};
+
+/** Resolves the lock a domain's methods should serialize against: its own,
+ *  if MUTEX_DOMAINS covers it, else its alias's (see DOMAIN_MUTEX_ALIASES),
+ *  else none. */
+function resolveDomainLock(mutexes, domain) {
+  return mutexes[domain] ?? mutexes[DOMAIN_MUTEX_ALIASES[domain]];
+}
 
 const ALLOWED_EXTERNAL_URL_PREFIXES = [
   'https://build.nvidia.com',
@@ -101,7 +152,9 @@ const builtinAppHandlers = {
  *   separate set here would silently mean the launch-time config regeneration
  *   and a user-initiated Start/Stop are locked against different chains, i.e.
  *   not serialized at all. Defaults to a private set only so this function
- *   stays callable in isolation.
+ *   stays callable in isolation. NCOW-32: 'uninstall' and 'update' have no
+ *   entry of their own in this set (see mutex.js's MUTEX_DOMAINS) — they
+ *   resolve onto `mutexes.proxy` via DOMAIN_MUTEX_ALIASES above instead.
  */
 function registerIpcHandlers(handlers = {}, opts = {}) {
   const mergedHandlers = { ...handlers, app: { ...builtinAppHandlers, ...handlers.app } };
@@ -109,7 +162,7 @@ function registerIpcHandlers(handlers = {}, opts = {}) {
 
   for (const [domain, spec] of Object.entries(CHANNELS)) {
     const domainHandlers = mergedHandlers[domain] || {};
-    const lock = mutexes[domain];
+    const lock = resolveDomainLock(mutexes, domain);
     const unserialized = UNSERIALIZED_METHODS[domain] ?? [];
     for (const [method, channel] of Object.entries(spec.invoke || {})) {
       const impl = domainHandlers[method] || notImplemented(domain, method);
