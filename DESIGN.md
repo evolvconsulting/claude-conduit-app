@@ -402,7 +402,9 @@ NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions shar
 per-domain lock (`mutexes.proxy`, set up in `src/main/engine-context.js`) so clicking them
 in quick succession queues instead of racing — and, since NCOW-32, Uninstall and an update
 install share that same lock too. (As of NCOW-45, Uninstall also acquires the `config` and
-`claudeCode` locks alongside `proxy`.) `src/main/shutdown.js`'s before-quit stop
+`claudeCode` locks alongside `proxy`.) (As of NCOW-47, the `config` lock also covers the
+encrypted NVIDIA key, so `apiKey`'s validateAndSave/clear now alias onto it too.)
+`src/main/shutdown.js`'s before-quit stop
 reaches `pm2Control` directly instead, on purpose: a background restart can hold that lock
 for 60s+, and queueing the quit-time stop behind it is precisely how a wedged pm2 would make
 the app unquittable — the one outcome the timeout above exists to prevent. So "quit during a

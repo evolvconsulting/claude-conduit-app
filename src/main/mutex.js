@@ -3,7 +3,9 @@
 /**
  * The per-domain serialization primitive for every operation that mutates
  * shared state this app owns (the pm2-supervised proxy, the generated config
- * directory, Claude Desktop's/Claude Code's settings).
+ * directory, Claude Desktop's/Claude Code's settings, and — since NCOW-47 —
+ * the encrypted NVIDIA key at `<userData>/nim-key.enc`, which the `config`
+ * lock also guards even though it lives outside the config directory).
  *
  * NCOW-31: this used to live inside ipc.js as a private module-scope
  * `createDomainMutex()` + `mutexes` pair, which made it reachable from
