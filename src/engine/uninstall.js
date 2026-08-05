@@ -11,19 +11,23 @@ const { removeClaudeCodeSettings } = require('./claudeCodeConfig');
  *
  * NCOW-51: also deliberately does NOT call secretStore.clear() — the
  * encrypted NVIDIA key at `<userData>/nim-key.enc` lives outside `configDir`
- * entirely (see secretStore.js) and survives even `--purge`, which only
- * deletes `litellm.env`'s derived copy. secretStore.clear()'s one existing
- * caller is the Setup view's Clear Key button (engine-context.js's
- * apiKey.clear). Recorded decision (not settled by this task as filed): an
- * "also forget my saved API key" opt-in for this view — mirroring the
- * Claude Desktop opt-in above — is deferred rather than added here, because
- * a sibling in-flight task (NCOW-48) is concurrently changing this same
- * function's and this domain's IPC error-handling shape (bounding
- * pm2Control's calls and how a timeout surfaces through uninstall:run);
- * landing a second structural change to the same handler in the same wave
- * would needlessly raise integration risk. See README.md's "Uninstalling"
- * section for the interim workaround (Clear Key, then uninstall) and
- * DESIGN.md 9.4 for the corrected purge claim.
+ * entirely (see secretStore.js) and survives even Purge, which only deletes
+ * `litellm.env`'s derived copy. secretStore.clear()'s only caller anywhere
+ * in the app is the `apiKey.clear` IPC handler (engine-context.js) — no
+ * shipped UI invokes it, so nothing in the app today actually deletes
+ * `nim-key.enc`. The only way to remove it is to delete the file by hand
+ * from Electron's userData directory (see README.md's "Uninstalling"
+ * section for the per-platform path).
+ *
+ * Recorded decision (not settled by this task as filed): an "also forget my
+ * saved API key" opt-in for this view is warranted on durable product
+ * grounds — it would mirror the Claude Desktop opt-in above and CLAUDE.md's
+ * standing pattern that destructive extras are individually confirmed
+ * opt-ins, never side effects, and today there is no in-app remedy at all.
+ * It is deferred here rather than added, because this task is scoped to
+ * documentation and the opt-in needs its own confirmation-dialog UX and
+ * test coverage — a separate, focused change. See DESIGN.md 9.4 for the
+ * corrected purge claim.
  *
  * @param {object} opts
  * @param {string} opts.configDir

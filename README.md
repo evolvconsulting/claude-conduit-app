@@ -269,7 +269,7 @@ is exactly why it never runs that command itself (see CLAUDE.md).
 | `~/.claude/settings.json` | Claude Code CLI env keys (only the documented ones) |
 | Claude Desktop's `Claude-3p/configLibrary/` | A dedicated "Claude Conduit" entry, created only with your explicit consent, and only after a full backup |
 | `~/.pm2/daemon-interpreter/` (win32/linux only) | A private copy of this app's own runtime, created the first time this app bootstraps a pm2 daemon (NCOW-24). ~227 MiB (the executable plus `icudtl.dat`/`snapshot_blob.bin`/`v8_context_snapshot.bin`/`libffmpeg.so` on Linux), measured live. Survives quitting *and* uninstalling this app — nothing removes it, because the daemon that may still be using it outlives this app's own lifecycle (see `src/engine/uninstall.js`'s comment on why cleaning it up from there isn't safe). |
-| Electron's userData directory (`nim-key.enc`) | Your NVIDIA API key, encrypted at rest by the OS (`secretStore.js`; see "Upgrading from NIM Proxy Manager" below for how this file itself migrates). **Survives every uninstall, including `--purge`** — `src/engine/uninstall.js`'s delete set is the settings-file keys, the `litellm-nim` pm2 app, and (only on `--purge`) the `~/.config/claude-conduit/` directory; it never calls `secretStore.clear()`, whose only caller in the whole app is the Clear Key button (Setup view → `apiKey.clear`). Purging deletes `litellm.env`'s *derived* copy of the key, not this original. |
+| Electron's userData directory (`nim-key.enc`) | Your NVIDIA API key, encrypted at rest by the OS (`secretStore.js`; see "Upgrading from NIM Proxy Manager" below for how this file itself migrates). **Survives this app's own Uninstall flow, including Purge** — `src/engine/uninstall.js`'s delete set is the settings-file keys, the `litellm-nim` pm2 app, and (only when Purge is selected) the `~/.config/claude-conduit/` (macOS/Linux) / `%APPDATA%\claude-conduit\` (Windows) config directory; it never calls `secretStore.clear()` — that function's only caller anywhere in the app is the `apiKey.clear` IPC handler, and no shipped UI currently invokes it, so nothing in the app deletes `nim-key.enc`. Purge deletes `litellm.env`'s *derived* copy of the key, not this original; see "Uninstalling" below for how to remove the original by hand. |
 
 The generated proxy master key lives in `litellm.env`, never in `manifest.json`.
 
@@ -385,11 +385,14 @@ Use the app's **Uninstall** page. It stops and removes the pm2 app, removes the 
 CLI env keys it added, and lets you either keep or purge the config directory. Reverting
 Claude Desktop is a separate, individually confirmed opt-in — it's never a side effect.
 
-**Purging does not remove your saved NVIDIA API key.** It lives encrypted, outside the
+**Purge does not remove your saved NVIDIA API key.** It lives encrypted, outside the
 config directory entirely, in `nim-key.enc` under Electron's userData directory (see
-"Where things live" above) — `--purge` only deletes `litellm.env`'s derived copy. If you
-specifically want the saved key gone too, clear it from the Setup view's **Clear Key**
-button before uninstalling.
+"Where things live" above) — Purge only deletes `litellm.env`'s derived copy. There is
+currently no in-app way to remove the saved key itself. If you specifically want it gone
+too, delete `nim-key.enc` by hand: `~/Library/Application Support/Claude Conduit/` on
+macOS, `~/.config/Claude Conduit/` on Linux, `%APPDATA%\Claude Conduit\` on Windows. The
+app treats a missing key file exactly like one that was never set (`secretStore.js`'s
+`load()`), so it will simply prompt you to re-enter the key next time it's needed.
 
 ---
 
