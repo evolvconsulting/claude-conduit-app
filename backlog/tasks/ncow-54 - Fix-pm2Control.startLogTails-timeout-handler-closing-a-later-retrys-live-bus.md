@@ -4,7 +4,7 @@ title: Fix pm2Control.startLogTail's timeout handler closing a later retry's liv
 status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-05 22:54'
+updated_date: '2026-08-05 23:03'
 labels: []
 dependencies:
   - NCOW-52
@@ -26,3 +26,13 @@ NCOW-52 bounded pm2.launchBus with a manual timeout that, on a late-arriving cal
 - [ ] #5 Normal (non-wedged, non-retried) startLogTail behavior is unchanged
 - [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Root-cause: pm2's real Client.prototype.launchBus (node_modules/pm2/lib/Client.js:434-442) stores the socket on a shared mutable slot (this.sub) and reads it at callback-fire time, so a late callback from a timed-out call #1 can be handed the exact same bus object a subsequent retry (call #2) already resolved with and is actively using.
+2. Fix contained entirely inside pm2Control.js (no engine-context.js changes needed): add a closure-scoped activeLogTailBus variable, set to the bus a call actually resolves with, cleared by that call's own unsubscribe closure only if it still points at that bus.
+3. Late-callback branch closes a late-arriving bus only when bus !== activeLogTailBus -- an identity check against the bus actually returned to a caller (one of the two mechanisms AC#1 names), rather than a generation counter.
+4. Add a fake pm2 launchBus stub that faithfully models the real shared-slot bug (overwrites one shared slot on every launchBus() call, lets a queued callback be fired manually) to reproduce call #1 wedge+timeout -> call #2 retry+success -> call #1 late-fire, and assert call #2's bus is never closed and keeps delivering lines.
+5. Verify non-vacuity by stashing only the pm2Control.js fix and confirming the new test fails against pre-fix source, then restoring and confirming it passes.
+<!-- SECTION:PLAN:END -->
