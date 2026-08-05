@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 17:20'
+updated_date: '2026-08-05 17:26'
 ---
 # Backlog campaign tracker
 
@@ -62,6 +62,14 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
+As of wave 9 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the
+prior handover): **16 resolved** (waves 1-8), 4 queued and **all 4 confirmed ready by
+dependency** (NCOW-48 on NCOW-45 Done; NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47 Done;
+NCOW-51 has no dependencies), 0 genuinely blocked, 5 excluded pending human decomposition
+(re-checked fresh — see Not queued; all five still last-updated 2026-07-31, nothing changed
+between sessions). **Wave 9 = {NCOW-51, NCOW-48}** — see the wave-9 conflict graph below.
+NCOW-49 and NCOW-50 both deferred: each conflicts with NCOW-48 and with each other.
+
 As of wave 8 settlement (2026-08-05): **16 resolved** (waves 1-8, all Done), 4 queued and all ready by dependency (NCOW-48, NCOW-49, and the two filed this wave — NCOW-50 and NCOW-51), 0 genuinely blocked, 5 excluded pending human decomposition (see Not queued). NCOW-48/49/50 all target src/main/ipc.js and/or test/main/ipc-mutex.test.js, so expect the conflict graph to keep forcing solo waves for that trio; NCOW-51 is docs/consent work in DESIGN.md + README.md and is the one item that could genuinely pair with any of them. Prior note, as of wave 7 settlement (2026-08-05): 15 resolved (waves 1-7, all Done), 3 newly queued and
 ready (NCOW-47, NCOW-48, NCOW-49 — all filed this session from wave 7's integration review with
 explicit user approval), 0 genuinely blocked, 5 excluded pending human decomposition (see Not
@@ -72,6 +80,59 @@ file footprints overlap heavily — all three target `src/main/ipc.js` and/or
 `test/main/ipc-mutex.test.js`, and NCOW-47 additionally touches `src/main/mutex.js` — so expect
 the wave builder to degrade to sequential solo waves rather than batching them. Recompute this
 fresh at the next restore rather than trusting it.
+
+**Wave 9 conflict graph (file-citation read against real, current source at this restore,
+over the ready set {NCOW-48, NCOW-49, NCOW-50, NCOW-51})**: footprints resolved by reading each
+task plus the actual files. NCOW-48 = `src/engine/pm2Control.js` (the fix site — `pm2.delete`
+at :509 and `pm2.dump` at :516, both re-confirmed accurate at this restore, unmoved since
+wave 8), `test/engine/pm2Control.test.js`, and `test/main/ipc-mutex.test.js` (AC#3 needs
+withLocks + all three mutexes, so its demonstration necessarily lands there). NCOW-49 =
+`src/main/ipc.js` (resolveDomainLocks / LOCK_ACQUISITION_ORDER / DOMAIN_MUTEX_ALIASES /
+assertLockOrderIsConsistent) + `test/main/ipc-mutex.test.js`. NCOW-50 =
+`src/main/engine-context.js` + `src/main/ipc.js` (UNSERIALIZED_METHODS, AC#5) +
+`src/main/mutex.js` (AC#6 header) + `test/main/ipc-mutex.test.js` (AC#7 rework at :1106-1142).
+NCOW-51 = `DESIGN.md` + `README.md`, with an AC#4-dependent tail: if its worker implements the
+opt-in rather than deferring it, it additionally reaches `src/engine/uninstall.js`,
+`src/main/ipc.js`/`ipc-channels.js`, `src/main/engine-context.js` and
+`src/renderer/views/uninstall-view.js`.
+
+Edges: **NCOW-48↔NCOW-49**, **NCOW-48↔NCOW-50** and **NCOW-49↔NCOW-50** all real, via
+`test/main/ipc-mutex.test.js` (all three) and `src/main/ipc.js` (the latter two) — the trio is
+pairwise-conflicting exactly as waves 7 and 8 predicted, so at most one of them can be in this
+wave. **No edge NCOW-51↔NCOW-48**, decided deliberately rather than by the blanket same-file
+rule: NCOW-48's fix site `src/engine/pm2Control.js` is a file NCOW-51 has no path to under
+either AC#4 outcome, and NCOW-51's docs targets are `DESIGN.md` (line 604, see the drift note
+below) and `README.md`'s "Where things live" table at :266-273, which is ~57 lines from the
+only `README.md` line NCOW-48 needs (the test-count at :330) — read both regions directly, so
+this is a characterized non-overlap, not an ambiguity being waved through. The residual risk is
+NCOW-51's undetermined opt-in tail reaching `src/main/ipc.js`; both workers are briefed to
+declare `files_touched` precisely and both reviewers get the sibling manifest.
+
+Greedy over the confirmed ordering principle (docs-only first, isolated hardening next,
+structural next, mutex-serialization last), which — unlike the wave-8 round — genuinely
+discriminates here: NCOW-51 added first (docs-only, sorts first under the confirmed rule even
+though the Queue table lists it 4th, because that table's numbering predates NCOW-50/51 being
+filed); NCOW-48 added (isolated hardening, bounding pm2 callbacks behind the existing
+shutdown.js precedent, no edge to NCOW-51); NCOW-49 skipped (conflicts with NCOW-48, already in
+wave); NCOW-50 skipped (same). **Wave 9 = {NCOW-51, NCOW-48}.** Neither member needs live-app
+verification (docs + unit-level pm2 callback bounding), so no Shared Machine State contention
+this wave.
+
+**Test-count ownership, assigned at dispatch to prevent a predictable one-line rebase
+conflict**: `CLAUDE.md:51` and `README.md:330` both read 416 at this restore (verified).
+NCOW-48 owns updating both; NCOW-51 is instructed not to touch them even if its AC#5 adds a
+test. NCOW-48 merges second in the queue walk, so its mandatory post-rebase `npm test` is where
+the true final number gets confirmed in-branch — keeping this in-branch per the standing rule
+rather than deferring to a wave-6/7-style cleanup PR.
+
+**Citation drift found and corrected at this restore (NCOW-51)**: its description cites
+`DESIGN.md:597-598` for the `(keys included)` claim; the real location is **line 604**
+(`4. \`--purge\`: delete \`~/.config/claude-conduit/\` entirely (keys included).`). Also found,
+and NOT in the task text: two further purge claims in the same file that a fix should consider
+— `DESIGN.md:765` (`--purge` leaves no trace under `~/.config/claude-conduit/`) and
+`DESIGN.md:784` (T9's uninstall→reinstall master-key row). README's table anchor at :264-273 is
+accurate. Confirmed independently: `grep -n nim-key README.md` returns **nothing**, so AC#2's
+premise that the table omits the file entirely holds.
 
 **Wave 7 conflict graph (file-citation read against real, current source at this restore, over
 the ready set {NCOW-46})**: trivially empty — a single-member wave has no edges to compute.
@@ -202,10 +263,10 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-48 | proxy-mutex | NCOW-45 (Done) | To Do | | Bound uninstall.run's unbounded pm2.delete/pm2.dump calls so a wedge cannot freeze the claudeCode+config+proxy locks indefinitely — NCOW-45 widened this blast radius without bounding what can hang. Filed from wave-7 integration review, user-approved, ready now |
+| 1 | NCOW-48 | proxy-mutex | NCOW-45 (Done) | Dispatched | 9 | Bound uninstall.run's unbounded pm2.delete/pm2.dump calls so a wedge cannot freeze the claudeCode+config+proxy locks indefinitely — NCOW-45 widened this blast radius without bounding what can hang. Filed from wave-7 integration review, user-approved, ready now |
 | 2 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
 | 3 | NCOW-50 | proxy-mutex | NCOW-47 (Done) | To Do | | Stop apiKey.validateAndSave holding the config lock across its NVIDIA network round trips — the emergent ~20s freeze of the proxy AND claudeCode domains that NCOW-47's alias composed with NCOW-45's hold-and-wait. Measured by the wave-8 integration reviewer and proven causal against a pre-NCOW-47 counterfactual. User-approved, ready now. Also carries the config.getManifest exemption inconsistency |
-| 4 | NCOW-51 | docs-consent | (none) | To Do | | Document that <userData>/nim-key.enc survives a purge uninstall and correct DESIGN.md 9.4's '(keys included)' claim; README's 'Where things live' table omits the file entirely. Carries an undecided product question (docs only vs. an opt-in 'also forget my API key' step). Pre-existing, surfaced at wave 8. User-approved |
+| 4 | NCOW-51 | docs-consent | (none) | Dispatched | 9 | Document that <userData>/nim-key.enc survives a purge uninstall and correct DESIGN.md 9.4's '(keys included)' claim; README's 'Where things live' table omits the file entirely. Carries an undecided product question (docs only vs. an opt-in 'also forget my API key' step). Pre-existing, surfaced at wave 8. User-approved |
 
 ## Resolved
 

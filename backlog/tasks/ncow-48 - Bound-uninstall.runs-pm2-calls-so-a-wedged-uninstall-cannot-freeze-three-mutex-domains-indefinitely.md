@@ -3,10 +3,10 @@ id: NCOW-48
 title: >-
   Bound uninstall.run's pm2 calls so a wedged uninstall cannot freeze three
   mutex domains indefinitely
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 17:05'
+updated_date: '2026-08-05 17:26'
 labels: []
 dependencies:
   - NCOW-45

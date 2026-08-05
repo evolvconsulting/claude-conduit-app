@@ -3,9 +3,10 @@ id: NCOW-51
 title: >-
   Document that the encrypted NVIDIA key survives a purge uninstall, and correct
   DESIGN.md 9.4's '(keys included)' claim
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 17:04'
+updated_date: '2026-08-05 17:26'
 labels:
   - documentation
 dependencies: []
