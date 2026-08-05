@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 02:39'
-updated_date: '2026-08-05 02:48'
+updated_date: '2026-08-05 03:01'
 labels: []
 dependencies:
   - NCOW-40
@@ -27,3 +27,26 @@ NCOW-40's own reviewer found 2 residual unguarded-interpolation sites out of tha
 - [ ] #4 A regression test demonstrates the full chain end-to-end: a hostile/malformed error surfacing from updateCheck.js's fetch layer does not produce an unhandled rejection anywhere in this chain, mirroring NCOW-40's own adversarial test rigor
 - [ ] #5 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read updateCheck.js/autoUpdate.js/index.js source at the cited regions to confirm exact
+   line numbers and existing safe-stringification helper exports (safeReadProperty,
+   describeThrownValue in src/engine/configGen.js, already imported into autoUpdate.js by
+   NCOW-36/37/40).
+2. Write adversarial tests FIRST against the unfixed source to empirically prove each of the
+   3 defects is real (hostile thrown values: null/undefined, throwing .name/.message getters,
+   Object.create(null), Symbol-valued message).
+3. Harden updateCheck.js's two catch blocks (JSON-parse + outer network-error) to read
+   err.name/err.message through the existing safe helpers.
+4. Add a real try/catch + null/non-object guard around autoUpdate.js's darwin-path
+   checkLatestRelease() call in performCheck().
+5. Harden index.js's startup .catch() backstop (~line 209) to stop interpolating err.message
+   directly.
+6. Add an end-to-end regression test driving the real updateCheck.js module through
+   autoUpdate.js's darwin path with a hostile fetchImpl, proving no unhandled rejection
+   anywhere in the chain.
+7. Run npm test, confirm before/after counts, commit in small logical commits with
+   Refs NCOW-42. trailers, push.
+<!-- SECTION:PLAN:END -->
