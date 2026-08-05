@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 11:55'
+updated_date: '2026-08-05 12:11'
 ---
 # Backlog campaign tracker
 
@@ -62,14 +62,27 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 5 settlement (2026-08-05): 12 resolved (waves 1-5, all Done), 1 ready
-(NCOW-45, depends on NCOW-32 which is now Done — new, filed from wave 5's integration
-review), 1 deferred to a future solo wave (NCOW-43, conflicts with NCOW-32's now-merged
-index.js-adjacent changes — re-derive fresh, don't assume the old conflict note still
-applies verbatim now that NCOW-32 is actually merged), 0 genuinely blocked, 5 excluded
-pending human decomposition (see Not queued). **The live ready set entering wave 6 is
-{NCOW-43, NCOW-45} — re-derive the conflict graph fresh at the next restore; do not assume
-they conflict or don't just because their originating tasks did/didn't.**
+As of wave 6 dispatch (2026-08-05): 12 resolved (waves 1-5, all Done), wave 6 dispatched
+(NCOW-43, NCOW-45), 0 genuinely blocked, 5 excluded pending human decomposition (see Not
+queued).
+
+**Wave 6 conflict graph (file-citation read against real, current source at this restore,
+over the ready set {NCOW-43, NCOW-45})**: confirmed NCOW-43's target is unchanged from wave 5's
+prediction — `src/main/index.js`'s config-regen backstop at lines 91-97 (still there,
+untouched by NCOW-32's merge, which landed entirely in `ipc.js` instead), needing only
+`safeReadProperty()` imported alongside the already-imported `describeThrownValue()` (both
+already exist in `src/engine/configGen.js` — confirmed by reading it directly, no source
+change needed there) — so NCOW-43's real footprint is `src/main/index.js` +
+`test/main/index.test.js` (confirmed: that file already carries NCOW-42's sibling
+startup-backstop tests at lines 25-70, the natural home for NCOW-43's new ones). NCOW-45's
+target is `src/main/ipc.js` (widening `DOMAIN_MUTEX_ALIASES`'s value type to support multiple
+alias targets per domain, or an equivalent mechanism, per its own description) and
+`src/engine/uninstall.js`, tested via `test/main/ipc-mutex.test.js` (confirmed: already carries
+NCOW-32's own uninstall/update-install tests, the natural home for NCOW-45's multi-domain
+ones) and/or `test/engine/uninstall.test.js`. **No edge NCOW-43 ↔ NCOW-45** — confirmed
+disjoint: NCOW-43 never touches `ipc.js` or `uninstall.js`; NCOW-45 never touches `index.js`.
+This is the first wave since wave 2 where the two ready tasks turned out fully
+conflict-free without any greedy-drop needed. **Wave 6 = {NCOW-43, NCOW-45}.**
 
 **Wave 5 conflict graph (file-citation read against real, current source at that restore,
 over the ready set {NCOW-32, NCOW-43, NCOW-44})**: read `src/main/index.js` directly —
@@ -167,8 +180,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-43 | error-hardening | NCOW-42 (Done) | To Do | | Harden index.js's config-regen backstop's remaining unguarded err.message reads (~lines 94/97) — deferred to wave 6; re-derive its conflict status fresh (NCOW-32, the task it was predicted to conflict with, landed entirely outside index.js — see Frontier) |
-| 2 | NCOW-45 | proxy-mutex | NCOW-32 (Done) | To Do | | Serialize Uninstall against the config/claudeCode mutex domains it also touches (proxy-domain half already closed by NCOW-32) — filed from wave-5 integration review, ready now |
+| 1 | NCOW-43 | error-hardening | NCOW-42 (Done) | Dispatched | 6 | Harden index.js's config-regen backstop's remaining unguarded err.message reads (~lines 94/97) — confirmed conflict-free with NCOW-45 this wave |
+| 2 | NCOW-45 | proxy-mutex | NCOW-32 (Done) | Dispatched | 6 | Serialize Uninstall against the config/claudeCode mutex domains it also touches (proxy-domain half already closed by NCOW-32) — confirmed conflict-free with NCOW-43 this wave |
 
 ## Resolved
 
@@ -432,6 +445,16 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   byte-for-byte, via comment-stripped diffing against dev, that both touched .js files carry zero
   logic changes), merged as PR #38 (6c7ba049, trailers on both NCOW-32/44). Final suite: 388/388
   passing on merged dev.
+- 2026-08-05 — wave 6 dispatched (tasks: NCOW-43, NCOW-45): ground-truth drift check found dev
+  in sync with origin/dev at ceca8dd, all wave-5 PRs (including the cleanup PR #38) merged, all
+  4 treehouse trees available (none leased), tracker matched the handover exactly -- no drift.
+  Fresh file-citation conflict read (see Frontier above) found NCOW-43 and NCOW-45 fully
+  disjoint -- NCOW-43 confirmed to still target src/main/index.js's config-regen backstop
+  (untouched by NCOW-32's merge, which landed entirely in ipc.js instead) plus
+  test/main/index.test.js; NCOW-45 targets src/main/ipc.js/src/engine/uninstall.js plus
+  test/main/ipc-mutex.test.js. No edge between them -- the first wave since wave 2 where both
+  ready tasks landed in the same wave with zero greedy-drop. Wave 6 = {NCOW-43, NCOW-45}. Wave
+  base pinned at ceca8dd (`ceca8dd65cc4e52ade9f39267d429764343ca9f6`).
 
 ## Not queued — needs a human / blocked
 
