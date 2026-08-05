@@ -78,10 +78,40 @@ function createDomainMutex() {
  *     (see the comment on diagnostics.run in engine-context.js). prereqs.
  *     installLitellm shells out to uv/pipx/pip entirely outside the config
  *     directory, so it cannot collide with the config lock or a purge-
- *     uninstall (see prereqs.js's installLitellm).
+ *     uninstall (see prereqs.js's installLitellm) — its only coupling to
+ *     `config` is indirect: it changes whether litellm is on PATH, and
+ *     config.generate calls prereqs.checkLitellmOnPath() under the config
+ *     lock and bakes litellmCheck.path into both ecosystem.config.cjs and
+ *     manifest.litellm_path (engine-context.js's config.generate). Worst
+ *     case of racing the two is a spurious LITELLM_MISSING error, or a path
+ *     baked in that becomes valid a moment later — cosmetic, no corruption,
+ *     and correctly out of scope for a lock.
  *
- * Only app and catalog are domains with genuinely no mutating concern
- * anywhere in the chain — pure reads, full stop.
+ * `catalog` is the one domain here with genuinely no mutating concern
+ * anywhere in its chain — it only reads secretStore.load() and calls out to
+ * the remote model catalog, full stop. `app` is NOT in that category, and
+ * this comment used to claim otherwise (NCOW-47 fix pass: that claim was
+ * false and concealed a real defect, so don't reintroduce it):
+ *
+ *   - app.openLogsFolder (engine-context.js) runs
+ *     `fs.mkdirSync(files.logsDir, {recursive: true})`, and logsDir lives
+ *     INSIDE the directory the `config` lock guards
+ *     (`logsDir = path.join(configDir, 'logs')`, paths.js) — yet `app`
+ *     resolves to zero locks (no MUTEX_DOMAINS entry, no
+ *     DOMAIN_MUTEX_ALIASES entry). That unlocked mkdirSync can land inside a
+ *     purge-uninstall's fs.rmSync(configDir) critical section (uninstall.js,
+ *     held under claudeCode+config+proxy) and resurrect `<configDir>/logs`
+ *     after uninstall has already reported success — a real, reproducible
+ *     defect of exactly the family this task closes for apiKey. Deliberately
+ *     left unfixed here (belongs in a follow-up task, not this one) — this
+ *     comment names it so a future reader can find it instead of assuming
+ *     "app is pure reads" the way this comment used to claim.
+ *   - app.quit (index.js) transitively stops the pm2-supervised proxy via
+ *     before-quit -> stopProxyForShutdown — but that one IS already
+ *     accounted for: it's the documented, deliberate carve-out described in
+ *     ipc.js's DOMAIN_MUTEX_ALIASES comment ("Distinct from main/index.js's
+ *     before-quit shutdown path..."), not an oversight, because a wedged
+ *     pm2 must never make the app unquittable (CLAUDE.md).
  */
 const MUTEX_DOMAINS = ['proxy', 'config', 'claudeDesktop', 'claudeCode'];
 

@@ -128,9 +128,25 @@ const UNSERIALIZED_METHODS = {
  * apiKey.getMasked is a pure read and stays exempt via UNSERIALIZED_METHODS
  * above rather than through this table.
  *
- * diagnostics.run reads that identical secretStore key
- * (engine-context.js:502) but is deliberately NOT aliased here — see the
- * comment on diagnostics.run itself for why it stays fully unserialized.
+ * diagnostics.run is not the only other reader of that identical secretStore
+ * key — nor is it aliased here, and neither are the other two. All three
+ * read the key into a local and never persist or delete it, so nothing
+ * corrupts if one of them races apiKey's validateAndSave/clear; the worst
+ * case in every case below is a stale-key read, same as diagnostics.run's
+ * own NOT_CONFIGURED-on-a-since-cleared-key case:
+ *
+ *   - diagnostics.run (engine-context.js) — deliberately NOT aliased; see
+ *     the comment on diagnostics.run itself for the fuller reasoning, which
+ *     as of this fix pass also names catalog.fetch and proxy.testConnection
+ *     below rather than reading as a census of one.
+ *   - catalog.fetch (engine-context.js) — resolves to zero locks, exactly
+ *     like diagnostics.run.
+ *   - proxy.testConnection (engine-context.js) — locked, but under `proxy`,
+ *     not `config`; different chains means it is NOT serialized against
+ *     apiKey's writes either, it just isn't unserialized for this reason —
+ *     it was already locked before NCOW-47 for reasons unrelated to the key
+ *     (see UNSERIALIZED_METHODS' `proxy` entry above).
+ *
  * prereqs.installLitellm was also checked (NCOW-47) and needs no alias: it
  * installs via uv/pipx/pip entirely outside the config directory
  * (prereqs.js), so it has no shared state with `config` (or any other

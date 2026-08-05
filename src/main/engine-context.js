@@ -525,6 +525,16 @@ function createEngineContext(deps) {
         // today (getManifest()/secretStore.load() above are two unguarded
         // reads back-to-back) and both cosmetic — no corrupted state, no
         // partial write, nothing for a future reader to "fix" here.
+        //
+        // diagnostics.run is not the only other reader of this key, so don't
+        // read this comment as a complete census: catalog.fetch (this file's
+        // catalog.fetch, zero locks) and proxy.testConnection (this file's
+        // proxy.testConnection, locked under `proxy` — a different chain
+        // than `config`, so still not serialized against apiKey's writes)
+        // call the identical secretStore.load(). Same reasoning applies to
+        // both: a read into a local, no persistence, worst case a stale key.
+        // See ipc.js's DOMAIN_MUTEX_ALIASES comment for the cross-reference
+        // from the other direction.
         diagnosticsAbortController = new AbortController();
         try {
           const result = await diagnostics.runDiagnostics({
