@@ -505,13 +505,26 @@ function createEngineContext(deps) {
         // isn't mutex-guarded (see ipc.js: proxy/config/claudeDesktop/
         // claudeCode each have their own domain mutex, and NCOW-32 aliases
         // update onto proxy's (as of NCOW-45, uninstall aliases onto
-        // claudeCode+config+proxy instead of proxy alone), but diagnostics
-        // has no lock and no alias at all), so overlapping runs aren't
-        // actually prevented at this layer; the renderer's own button
+        // claudeCode+config+proxy instead of proxy alone; as of NCOW-47,
+        // apiKey's validateAndSave/clear alias onto config's), but
+        // diagnostics has no lock and no alias at all), so overlapping runs
+        // aren't actually prevented at this layer; the renderer's own button
         // disable-while-running is what stops that in practice. Clearing
         // the controller in `finally` (rather than leaving a stale one
         // around) means a cancel() call after the run has already finished
         // is a no-op instead of accidentally aborting a *later* run.
+        //
+        // NCOW-47 re-checked this deliberately: the secretStore.load() two
+        // lines up reads the exact same encrypted key that apiKey.clear and
+        // config.generate now serialize against each other via the config
+        // lock. diagnostics.run stays unlocked anyway — it only reads the
+        // key into a local, doesn't persist or delete anything, and the
+        // worst case of it racing a clear/validateAndSave is a diagnostics
+        // pass that either NOT_CONFIGURED's on a since-cleared key or runs
+        // against a key that's about to be replaced, both already possible
+        // today (getManifest()/secretStore.load() above are two unguarded
+        // reads back-to-back) and both cosmetic — no corrupted state, no
+        // partial write, nothing for a future reader to "fix" here.
         diagnosticsAbortController = new AbortController();
         try {
           const result = await diagnostics.runDiagnostics({

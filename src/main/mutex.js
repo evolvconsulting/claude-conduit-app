@@ -59,8 +59,29 @@ function createDomainMutex() {
 }
 
 /**
- * The domains with a mutating concern. Domains that only ever read (app,
- * catalog, diagnostics-read) don't need one.
+ * The domains with a mutating concern of their own — each gets a dedicated
+ * lock here. This list is NOT the complete answer to "which domains have a
+ * mutating concern" — it only covers the ones that need their OWN lock.
+ * Several other domains genuinely mutate shared state but are deliberately
+ * absent from this array for domain-specific reasons documented elsewhere,
+ * so don't read "not listed here" as "has no mutating concern":
+ *
+ *   - apiKey, uninstall, update: each has a real mutating concern but shares
+ *     (aliases onto) one of these four locks instead of getting its own,
+ *     because its mutation touches state one of these domains already
+ *     guards. See DOMAIN_MUTEX_ALIASES in ipc.js for exactly which lock each
+ *     aliases onto and why (NCOW-32/45 for uninstall/update, NCOW-47 for
+ *     apiKey).
+ *   - diagnostics, prereqs: checked and confirmed to need NO lock at all —
+ *     not even an alias. diagnostics.run reads the same secretStore state
+ *     apiKey/config now serialize, but is deliberately left unserialized
+ *     (see the comment on diagnostics.run in engine-context.js). prereqs.
+ *     installLitellm shells out to uv/pipx/pip entirely outside the config
+ *     directory, so it cannot collide with the config lock or a purge-
+ *     uninstall (see prereqs.js's installLitellm).
+ *
+ * Only app and catalog are domains with genuinely no mutating concern
+ * anywhere in the chain — pure reads, full stop.
  */
 const MUTEX_DOMAINS = ['proxy', 'config', 'claudeDesktop', 'claudeCode'];
 
