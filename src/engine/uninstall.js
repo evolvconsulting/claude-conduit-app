@@ -9,6 +9,26 @@ const { removeClaudeCodeSettings } = require('./claudeCodeConfig');
  * domain (claudeDesktopConfig.js) requiring its own explicit confirmation,
  * per this task's description.
  *
+ * NCOW-51: also deliberately does NOT call secretStore.clear() — the
+ * encrypted NVIDIA key at `<userData>/nim-key.enc` lives outside `configDir`
+ * entirely (see secretStore.js) and survives even Purge, which only deletes
+ * `litellm.env`'s derived copy. secretStore.clear()'s only caller anywhere
+ * in the app is the `apiKey.clear` IPC handler (engine-context.js) — no
+ * shipped UI invokes it, so nothing in the app today actually deletes
+ * `nim-key.enc`. The only way to remove it is to delete the file by hand
+ * from Electron's userData directory (see README.md's "Uninstalling"
+ * section for the per-platform path).
+ *
+ * Recorded decision (not settled by this task as filed): an "also forget my
+ * saved API key" opt-in for this view is warranted on durable product
+ * grounds — it would mirror the Claude Desktop opt-in above and CLAUDE.md's
+ * standing pattern that destructive extras are individually confirmed
+ * opt-ins, never side effects, and today there is no in-app remedy at all.
+ * It is deferred here rather than added, because this task is scoped to
+ * documentation and the opt-in needs its own confirmation-dialog UX and
+ * test coverage — a separate, focused change. See DESIGN.md 9.4 for the
+ * corrected purge claim.
+ *
  * @param {object} opts
  * @param {string} opts.configDir
  * @param {object} opts.manifest — may be null if nothing was ever configured
