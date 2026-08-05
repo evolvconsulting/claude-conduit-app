@@ -3,10 +3,10 @@ id: NCOW-41
 title: >-
   Cover the remaining tray-wiring mutex-identity gaps beyond the post-spread
   override
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 02:39'
+updated_date: '2026-08-05 02:48'
 labels: []
 dependencies:
   - NCOW-35
