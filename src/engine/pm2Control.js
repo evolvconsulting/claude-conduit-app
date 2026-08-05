@@ -418,26 +418,84 @@ function spawnDaemon(opts = {}) {
  *
  * @param {import('pm2')} pm2 — injected so this module stays plain-Node
  *   and mockable in tests without touching a real pm2 daemon.
- * @param {{probeDaemonAlive?: () => Promise<boolean>, spawnDaemon?: () => Promise<any>, ensureConnectedTimeoutMs?: number}} [deps]
+ * @param {{probeDaemonAlive?: () => Promise<boolean>, spawnDaemon?: () => Promise<any>, ensureConnectedTimeoutMs?: number, pm2CallTimeoutMs?: number}} [deps]
  *   probeDaemonAlive/spawnDaemon are optional (NCOW-22): when supplied (see
  *   engine-context.js for the real wiring), ensureConnected() bootstraps a
  *   missing daemon itself before ever calling pm2.connect(). When omitted —
  *   as every pre-existing test in pm2Control.test.js does — ensureConnected()
  *   falls back to the simpler pre-NCOW-22 behaviour of calling pm2.connect()
- *   directly, still bounded by ensureConnectedTimeoutMs.
+ *   directly, still bounded by ensureConnectedTimeoutMs. pm2CallTimeoutMs
+ *   (NCOW-48) bounds listApps()'s pm2.list call, deleteAppIfPresent()'s
+ *   pm2.delete call, and save()'s pm2.dump call — reachable from
+ *   uninstall.run(), from proxy:start/proxy:restart (via startOrRestart()),
+ *   and from the 5-second status poll (via getStatus() -> findApp() ->
+ *   listApps()) — see withTimeout below for why those three specifically
+ *   needed it.
  */
 function createPm2Control(pm2, deps = {}) {
   let connected = null;
   const ensureConnectedTimeoutMs = deps.ensureConnectedTimeoutMs ?? 30_000;
+  // NCOW-48: listApps()'s pm2.list callback, deleteAppIfPresent()'s pm2.delete
+  // callback, and save()'s pm2.dump callback were the last three raw,
+  // unbounded pm2 callbacks reachable from uninstall.run() — ensureConnected()
+  // below was already bounded (NCOW-22), but a daemon that accepts the
+  // connection and then never calls back to pm2.list/pm2.delete/pm2.dump
+  // sailed straight past that bound and hung forever.
+  //
+  // Fix-pass correction: an earlier pass of this task bounded only pm2.delete
+  // and pm2.dump, one call too late — deleteAppIfPresent() (and remove(),
+  // which calls it) reaches findApp() -> listApps() -> pm2.list BEFORE it
+  // ever reaches pm2.delete, so a daemon wedged at pm2.list sailed straight
+  // past both of those bounds without either ever engaging. listApps()'s own
+  // bound below closes that gap.
+  //
+  // Since NCOW-45/NCOW-47 widened uninstall's IPC alias to hold the
+  // claudeCode, config, AND proxy locks for the whole call (see ipc.js's
+  // DOMAIN_MUTEX_ALIASES), an unbounded wait anywhere in this chain freezes
+  // Start/Stop/Restart, config generation, Claude Code configure/remove, and
+  // apiKey:validateAndSave/apiKey:clear all at once.
+  //
+  // This bound is reachable well beyond uninstall.run(), on two more paths:
+  // - startOrRestart() calls deleteAppIfPresent() before pm2.start() and
+  //   save() after the health check succeeds, so proxy:start/proxy:restart
+  //   can now also surface PM2_DELETE_TIMEOUT/PM2_SAVE_TIMEOUT. That widens
+  //   what this bound touches but is a net improvement, not a new hazard —
+  //   nothing outside ipc.js/engine-context.js reads error.code.
+  // - getStatus() -> findApp() -> listApps() puts this same bound on
+  //   status-poller.js's 5-second poll. Today (verified against
+  //   src/main/status-poller.js), a wedged pm2.list silently accumulates one
+  //   pending promise per tick forever: setInterval calls tick() again every
+  //   5s regardless of whether the previous tick's `await
+  //   pm2Control.getStatus()` ever settled, and nothing times that out. After
+  //   this bound, getStatus() instead rejects once pm2CallTimeoutMs elapses,
+  //   tick()'s existing `catch { onStatus({status:'errored'}) }` fires, and
+  //   the status pill reports errored instead of silently freezing at its
+  //   last value — and the per-tick promise accumulation stops.
+  //
+  // 15s matches main/shutdown.js's own bounded pm2.stop() precedent — long
+  // enough that a slow-but-healthy daemon still completes normally (this is
+  // the success path AC#5 requires to stay unchanged), short enough that a
+  // genuinely wedged daemon can no longer hang the app indefinitely.
+  const pm2CallTimeoutMs = deps.pm2CallTimeoutMs ?? 15_000;
 
-  function withTimeout(promise, ms, message) {
+  function withTimeout(promise, ms, message, code) {
     let timer;
     // Deliberately not unref'd: this timer is the only thing that will ever
     // settle the race if the connect attempt is genuinely wedged (NCOW-22
     // AC#3), so letting the loop exit past it is exactly the hang it exists
     // to prevent — same reasoning as main/shutdown.js's identical helper.
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
+      timer = setTimeout(() => {
+        const err = new Error(message);
+        // NCOW-48 AC#2: a `code` lets a timeout here surface through
+        // ipc.js's handler wrapper as a specific, actionable
+        // {ok:false, error:{code, message}} — e.g. PM2_DELETE_TIMEOUT —
+        // rather than falling through to that wrapper's generic
+        // 'UNEXPECTED' fallback (ipc.js only substitutes that fallback when
+        // `err.code` is falsy).
+        if (code) err.code = code;
+        reject(err);
+      }, ms);
     });
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
@@ -491,9 +549,14 @@ function createPm2Control(pm2, deps = {}) {
 
   async function listApps() {
     await ensureConnected();
-    return new Promise((resolve, reject) => {
-      pm2.list((err, list) => (err ? reject(err) : resolve(list)));
-    });
+    return withTimeout(
+      new Promise((resolve, reject) => {
+        pm2.list((err, list) => (err ? reject(err) : resolve(list)));
+      }),
+      pm2CallTimeoutMs,
+      `pm2 list timed out after ${pm2CallTimeoutMs}ms`,
+      'PM2_LIST_TIMEOUT'
+    );
   }
 
   async function findApp() {
@@ -505,16 +568,26 @@ function createPm2Control(pm2, deps = {}) {
     await ensureConnected();
     const existing = await findApp();
     if (!existing) return;
-    await new Promise((resolve, reject) => {
-      pm2.delete(APP_NAME, (err) => (err ? reject(err) : resolve()));
-    });
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        pm2.delete(APP_NAME, (err) => (err ? reject(err) : resolve()));
+      }),
+      pm2CallTimeoutMs,
+      `pm2 delete timed out after ${pm2CallTimeoutMs}ms`,
+      'PM2_DELETE_TIMEOUT'
+    );
   }
 
   async function save() {
     await ensureConnected();
-    return new Promise((resolve, reject) => {
-      pm2.dump((err) => (err ? reject(err) : resolve()));
-    });
+    return withTimeout(
+      new Promise((resolve, reject) => {
+        pm2.dump((err) => (err ? reject(err) : resolve()));
+      }),
+      pm2CallTimeoutMs,
+      `pm2 dump timed out after ${pm2CallTimeoutMs}ms`,
+      'PM2_SAVE_TIMEOUT'
+    );
   }
 
   /**
