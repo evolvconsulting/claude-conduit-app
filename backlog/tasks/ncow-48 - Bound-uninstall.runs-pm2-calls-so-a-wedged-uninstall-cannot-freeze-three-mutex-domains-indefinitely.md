@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 18:12'
+updated_date: '2026-08-05 18:13'
 labels: []
 dependencies:
   - NCOW-45
@@ -219,4 +219,10 @@ Commit `2c0ec4f` on top of `9215910`. One file, 3 insertions / 3 deletions, test
 **Purity re-verified by the orchestrator against the merge base**: `git diff 84bb0d0...HEAD --numstat` gives `215/0` for test/engine/pm2Control.test.js and `310/0` for test/main/ipc-mutex.test.js — **zero deletions relative to merge base in either file**, so this commit's 3 deletions are all against lines this branch itself introduced. AC#5/AC#6's 'no pre-existing test modified' still holds.
 
 **npm test**: 425/425 pass, unchanged — no test added or removed, so CLAUDE.md:51 and README.md:330 remain correct at 425 and were deliberately not touched.
+
+## Hygiene-fix confirmation — APPROVE STANDS at `2c0ec4f` (same reviewer, narrow re-check)
+
+1. **No weakening from the fixture change.** `hangingDeletePm2` has exactly ONE consumer — the hanging-delete test at :243 — and that test asserts only `rejects` with `/pm2 delete timed out/` + PM2_DELETE_TIMEOUT; **it never inspects `calls`**. The `calls.includes('delete:litellm-nim')` assertions at :62 and :280 belong to `fakePm2`, which already used that format and is untouched. The format change is therefore unobservable to every test that consumes it, and the fixture set is now internally consistent (fakePm2 / hangingListPm2 / hangingDeletePm2 all record `delete:${name}`).
+2. **Non-vacuity re-proven by the reviewer's OWN injection**, not the worker's: making `hangingListPm2.list` also push `'delete:litellm-nim'` gives `not ok 6 … expected: true, actual: false`, 35 tests / 34 pass / 1 fail / 0 cancelled. Worktree restored clean.
+3. **approve stands. All six ACs remain confirmed.** npm test 425/425, 0 fail, 0 cancelled; both doc lines still read the true count. Nothing in the delta touches source, the AC#5 success-path tests, or their assertions. The pass-2 residual minors (recovery flap, engine-context.js:367 log-tail loss, uninstall partial-state docs) are unchanged and non-blocking.
 <!-- SECTION:NOTES:END -->
