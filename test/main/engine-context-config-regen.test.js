@@ -831,13 +831,13 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 //   static check exists to catch, just introduced via a function parameter
 //   instead of a declaration or reassignment — also passed the full suite.
 //
-// NCOW-41 closes all three. `handlers` turned out to be exactly as
-// reachable by the same single-binding technique as `mutexes` — it simply
-// didn't have one yet — and so did parameter shadowing: it is the same
-// nested-scope-shadowing class the declaration/reassignment checks already
-// covered, just arriving via a third JS binding mechanism (a parameter)
-// instead of a `const` re-declaration or a bare reassignment, and a
-// text-only regex can see a parameter list exactly as well as it can see a
+// Two of the three are reachable by the same single-binding technique
+// already used for `mutexes`. `handlers` turned out to need exactly that —
+// it simply didn't have one yet — and so did parameter shadowing: it is the
+// same nested-scope-shadowing class the declaration/reassignment checks
+// already covered, just arriving via a third JS binding mechanism (a
+// parameter) instead of a `const` re-declaration or a bare reassignment, and
+// a text-only regex can see a parameter list exactly as well as it can see a
 // declaration. Both are folded into the identifier-binding tests below.
 //
 // NCOW-41 fix pass (reviewer finding): property-level mutation of
