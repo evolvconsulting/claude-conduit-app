@@ -755,6 +755,22 @@ function createPm2Control(pm2, deps = {}) {
     };
   }
 
+  // NCOW-54: pm2's own Client.launchBus (node_modules/pm2/lib/Client.js)
+  // stores the bus/socket pair on a shared mutable slot (`this.sub`,
+  // `this.sub_sock`) and reads that slot back at *callback-fire* time rather
+  // than from a value captured when launchBus() was called. That means a
+  // call whose own PM2_LOG_TAIL_TIMEOUT has already fired can still have its
+  // raw pm2.launchBus callback invoked later with the SAME bus object a
+  // subsequent, currently live retry already resolved with and is actively
+  // tailing. NCOW-52's fix assumed "my timeout already fired" was sufficient
+  // proof a late bus is stale and closed it unconditionally — that assumption
+  // is exactly what's wrong: it can close a healthy, in-use retry instead of
+  // the actually-stale one (which nobody would then close at all). Tracking
+  // the bus object that was actually handed back to a caller lets a late
+  // callback tell the two cases apart by identity, not by which call it
+  // originated from.
+  let activeLogTailBus = null;
+
   /**
    * Live log tail via pm2's own bus (works regardless of which process
    * started litellm-nim, matching the shared-daemon interop above).
@@ -781,7 +797,9 @@ function createPm2Control(pm2, deps = {}) {
    * The manual timeout below keeps the same PM2_LOG_TAIL_TIMEOUT contract but
    * closes any bus that arrives after the bound already gave up, mirroring
    * spawnDaemon()'s own "never leave a live resource behind a timeout"
-   * discipline elsewhere in this file.
+   * discipline elsewhere in this file — EXCEPT (NCOW-54) when that
+   * late-arriving bus turns out, by identity, to be the same object a
+   * subsequent retry is currently using; see `activeLogTailBus` above.
    *
    * @param {(entry: {process: string, data: string, at: 'out'|'err'}) => void} onLine
    * @returns {Promise<() => void>} unsubscribe function
@@ -803,10 +821,14 @@ function createPm2Control(pm2, deps = {}) {
 
       pm2.launchBus((err, bus) => {
         if (settled) {
-          // The bound already fired and this call's caller has moved on —
-          // close a late-arriving bus rather than leak it (see doc comment
-          // above).
-          if (!err && bus) {
+          // This call's own bound already fired. NCOW-54: that alone does
+          // NOT prove `bus` is stale — pm2's shared this.sub slot (see the
+          // doc comment above) means this late callback can receive the
+          // exact same object a subsequent, currently live retry already
+          // resolved with and is actively tailing. Only close it when it
+          // demonstrably isn't the bus currently in live use; otherwise
+          // leave it alone so the retry keeps working, per AC#1/AC#3.
+          if (!err && bus && bus !== activeLogTailBus) {
             try {
               bus.close();
             } catch {
@@ -824,9 +846,14 @@ function createPm2Control(pm2, deps = {}) {
         };
         bus.on('log:out', handler);
         bus.on('log:err', handler);
+        activeLogTailBus = bus;
         resolve(() => {
           bus.off('log:out', handler);
           bus.off('log:err', handler);
+          // Only clear the shared "live" slot if it still points at THIS
+          // bus — a later call may already have taken it over, and this
+          // unsubscribe must not blow away that newer call's live state.
+          if (activeLogTailBus === bus) activeLogTailBus = null;
           bus.close();
         });
       });
