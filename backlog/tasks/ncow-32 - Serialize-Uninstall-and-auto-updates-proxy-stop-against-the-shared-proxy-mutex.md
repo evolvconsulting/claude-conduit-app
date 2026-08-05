@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-05 04:43'
+updated_date: '2026-08-05 04:50'
 labels: []
 dependencies:
   - NCOW-31
@@ -26,3 +26,67 @@ NCOW-31 gave engine-context.js's background config-regeneration restart and ipc.
 - [ ] #3 A regression test demonstrates a background restart and an Uninstall (or auto-update install) attempt can no longer interleave
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read mutex.js, ipc.js, uninstall.js, autoUpdate.js, index.js, engine-context.js, and
+   relevant existing tests (ipc-mutex.test.js, mutex.test.js, auto-update-wiring.test.js,
+   uninstall.test.js, engine-context-config-regen.test.js, tray-actions.test.js) to confirm
+   both unlocked call sites and understand exactly how registerIpcHandlers resolves
+   per-domain locks.
+2. Confirm both uninstall.run and update.install already flow through registerIpcHandlers()
+   with the same shared mutexes object index.js passes everywhere else -- fix can live
+   entirely in ipc.js, zero wiring changes needed in index.js/engine-context.js.
+3. Implement a domain-alias mechanism in src/main/ipc.js: a DOMAIN_MUTEX_ALIASES map
+   ({ uninstall: 'proxy', update: 'proxy' }) plus a resolveDomainLock(mutexes, domain)
+   helper that falls back to a domain's alias when mutexes has no lock of its own for it.
+   Serializes every method of uninstall/update by default (opt-out philosophy matching
+   UNSERIALIZED_METHODS), rather than hand-wrapping individual call sites.
+4. Add update: ['check'] to UNSERIALIZED_METHODS -- update:check never touches pm2Control
+   or the config directory (unlike update:install), so it should keep firing immediately at
+   startup rather than queuing behind a background restart.
+5. Deliberately do NOT add uninstall/update to mutex.js's MUTEX_DOMAINS -- they only need to
+   share proxy's lock, keeping createDomainMutexes()'s own "exactly these domains" test
+   unaffected.
+6. Update one stale comment in engine-context.js (diagnostics handler) that enumerated "only
+   proxy/config/claudeDesktop/claudeCode have a domain mutex" -- no longer fully accurate
+   post-alias.
+7. Add 5 regression tests to test/main/ipc-mutex.test.js reusing the existing fake-electron
+   require.cache shim and held-mutex pattern from NCOW-31's own tests.
+8. Verify before/after test counts and that the new tests fail without the fix.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+IMPLEMENTED (worker report). Baseline before fix: npm test 382/382 passing. After fix: npm
+test 387/387 passing (5 new tests, nothing else changed). AC#3 verification: temporarily
+stashed only src/main/ipc.js (keeping the new tests) and reran test/main/ipc-mutex.test.js --
+4 of the 5 new tests failed, demonstrating the exact interleaving the fix prevents
+(update:install's body and uninstall:run's body both entered while the background restart
+holding mutexes.proxy was still in flight, instead of queuing behind it). The 5th test
+(update:check opting out of the lock) passed either way, as expected. Restored ipc.js and
+reran -- all 5 pass with correct FIFO ordering (bg-restart:enter -> bg-restart:exit ->
+uninstall:enter/install:enter).
+
+Files touched: src/main/ipc.js (DOMAIN_MUTEX_ALIASES, resolveDomainLock(),
+UNSERIALIZED_METHODS.update, doc comments), src/main/engine-context.js (one comment
+correction, no behavior change), test/main/ipc-mutex.test.js (5 new regression tests).
+
+Judgment calls: (1) chose the generic domain-alias approach in ipc.js over hand-wrapping
+installUpdateAndRestart/uninstall.run at their call sites in index.js/engine-context.js --
+required touching only ipc.js and kept the existing opt-out-list philosophy; (2) exempted
+update:check from the alias lock (added to UNSERIALIZED_METHODS) since it never touches
+pm2Control and locking it would delay the startup update-check broadcast for no safety
+benefit -- pinned with a dedicated test.
+
+Follow-up flagged as out of scope (not created as a task yet, needs user approval per
+campaign convention): diagnostics:run remains completely unmutexed (pre-existing, called out
+in both NCOW-17's and this task's comments) -- overlapping diagnostic runs are only
+prevented by the renderer disabling its own button, not at the IPC layer.
+
+Branch fix/NCOW-32-serialize-uninstall-update-proxy-mutex pushed to origin. Two commits:
+fix(ipc): serialize uninstall and update-install against the proxy mutex;
+test(ipc): cover NCOW-32's uninstall/update-install mutex aliasing.
+<!-- SECTION:NOTES:END -->
