@@ -408,6 +408,185 @@ test('ipc: omitting opts still works (a private mutex set), so registerIpcHandle
   assert.deepEqual(order, ['start:enter', 'start:exit', 'stop:enter']);
 });
 
+test('ipc: NCOW-32 AC#1 — a background proxy operation holding the injected lock blocks uninstall:run', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          return { ok: true, data: { removed: ['pm2-app'], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // Exactly what engine-context.js's regenerateStaleConfig() wiring does —
+  // and, per NCOW-32, exactly what a user-clicked Uninstall must now queue
+  // behind rather than interleave with.
+  const background = mutexes.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.deepEqual(order, ['bg-restart:enter'], 'the Uninstall click must be queued, not interleaved with the in-flight restart');
+
+  gate.resolve();
+  await background;
+  await uninstallRun;
+  assert.deepEqual(order, ['bg-restart:enter', 'bg-restart:exit', 'uninstall:enter']);
+});
+
+test('ipc: NCOW-32 — uninstall has no lock of its own, but shares mutexes.proxy (not a separately-constructed set)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          return { ok: true, data: { removed: [], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // A second, unrelated set — the mis-wiring shape this test guards against.
+  const other = createDomainMutexes();
+  const background = other.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  await invoke('uninstall:run', { purge: false });
+  assert.deepEqual(order, ['bg-restart:enter', 'uninstall:enter'], 'interleaved, as expected against an unrelated lock');
+
+  gate.resolve();
+  await background;
+});
+
+test('ipc: NCOW-32 AC#2 — a background proxy operation holding the injected lock blocks update:install', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      update: {
+        check: async () => ({ ok: true }),
+        install: async () => {
+          order.push('install:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  const installRun = invoke('update:install');
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.deepEqual(order, ['bg-restart:enter'], 'update:install must be queued, not interleaved with the in-flight restart');
+
+  gate.resolve();
+  await background;
+  await installRun;
+  assert.deepEqual(order, ['bg-restart:enter', 'bg-restart:exit', 'install:enter']);
+});
+
+test('ipc: NCOW-32 — update:check deliberately opts out of the alias lock, so it is never delayed by a background restart', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      update: {
+        check: async () => {
+          order.push('check');
+          return { ok: true };
+        },
+        install: async () => {
+          order.push('install:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  const checkResult = await invoke('update:check');
+  assert.deepEqual(checkResult, { ok: true });
+  assert.ok(order.includes('check'), 'update:check resolved without waiting on the proxy lock');
+  assert.equal(order.includes('bg-restart:exit'), false, 'the background restart must still be in flight — check did not wait for it');
+
+  gate.resolve();
+  await background;
+});
+
+test('ipc: NCOW-32 — uninstall:run and update:install still stay serialized against EACH OTHER (both alias the same proxy lock)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          await gate.promise;
+          order.push('uninstall:exit');
+          return { ok: true, data: { removed: [], kept: [] } };
+        },
+      },
+      update: {
+        install: async () => {
+          order.push('install:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+  const installRun = invoke('update:install');
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.deepEqual(order, ['uninstall:enter'], 'update:install must queue behind the in-flight uninstall, not interleave');
+
+  gate.resolve();
+  await uninstallRun;
+  await installRun;
+  assert.deepEqual(order, ['uninstall:enter', 'uninstall:exit', 'install:enter']);
+});
+
 test('index.js: passes engine-context\'s own mutexes into registerIpcHandlers', () => {
   // index.js can't be required under plain `node --test` (electron.app at
   // module scope) — same static-source approach as quit.test.js. This is the
