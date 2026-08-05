@@ -41,7 +41,7 @@ require.cache[electronPath].exports = {
 };
 
 const { registerIpcHandlers } = require('../../src/main/ipc');
-const { createDomainMutexes } = require('../../src/main/mutex');
+const { createDomainMutex, createDomainMutexes } = require('../../src/main/mutex');
 const { createTrayActions } = require('../../src/main/tray');
 
 /** Invokes a registered IPC channel the way ipcMain would (with an event arg). */
@@ -192,4 +192,84 @@ test('createTrayActions: negative control — a DIFFERENT (shadowed) mutex set f
 
   gate.resolve();
   await ipcRestart;
+});
+
+// NCOW-41 (AC#2): the negative control above reproduces a `mutexes`
+// identifier that is shadowed with an entirely different object — the same
+// class of bug the index.js identifier-binding checks in
+// engine-context-config-regen.test.js are built to catch. This test
+// reproduces a DIFFERENT mutation, one those checks cannot see at all:
+// `mutexes` itself is never reassigned or shadowed, but the `.proxy`
+// PROPERTY on the one shared `mutexes` object is swapped out for a fresh
+// lock between registerIpcHandlers() and createTrayActions() — exactly the
+// index.js call order (createEngineContext() destructure, then
+// registerIpcHandlers(handlers, { mutexes }), then later
+// createTray({ ...createTrayActions({ mutexes, handlers }) })). NCOW-35's
+// own review empirically verified this exact mutation as a REAL
+// serialization break (a tray Stop ran concurrently with an in-flight
+// IPC-triggered restart), and it passed the full suite regardless — a
+// source-text scan can't distinguish this from a legitimate
+// `mutexes.proxy.run(...)` read, so this stays a behavioural proof only.
+test('createTrayActions: regression — mutating `mutexes.proxy` to a fresh lock AFTER registerIpcHandlers() has already captured the old one, but before createTrayActions() is called, breaks serialization even though `mutexes` itself is never reassigned or shadowed', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  const handlers = {
+    proxy: {
+      restart: async () => {
+        order.push('ipc-restart:enter');
+        await gate.promise;
+        order.push('ipc-restart:exit');
+        return { ok: true };
+      },
+      stop: async () => {
+        order.push('tray-stop:enter');
+        return { ok: true };
+      },
+    },
+  };
+
+  // registerIpcHandlers() reads `mutexes[domain]` ONCE, at registration time
+  // (see ipc.js: `const lock = mutexes[domain];`), and closes over that lock
+  // instance for every future dispatch on this channel — it never re-reads
+  // `mutexes.proxy` again afterwards.
+  registerIpcHandlers(handlers, { mutexes });
+
+  // This is the mutation itself: the `mutexes` identifier is untouched (no
+  // reassignment, no shadowing declaration, no parameter) — only the
+  // `.proxy` property on the object it points to changes. Both of
+  // NCOW-35/39's identity checks (declaration count, bare reassignment) see
+  // `mutexes` bound exactly once, and the call-site regex still finds
+  // `...createTrayActions({ mutexes, handlers })` verbatim.
+  mutexes.proxy = createDomainMutex();
+
+  // createTrayActions()'s callbacks read `mutexes.proxy` fresh on every
+  // call (`() => mutexes.proxy.run(...)`), so they pick up the NEW lock —
+  // registerIpcHandlers() above is still holding the OLD one in its closure.
+  const trayActions = createTrayActions({ mutexes, handlers });
+
+  const ipcRestart = invoke('proxy:restart');
+  const trayStop = trayActions.onStop();
+
+  // Wait for the restart to be genuinely in flight (a condition, not a
+  // fixed number of microtask turns), then let everything else that CAN
+  // progress, progress — mirroring the interleave-detection technique the
+  // other tests in this file and engine-context-config-regen.test.js use.
+  while (!order.includes('ipc-restart:enter')) await new Promise((r) => setImmediate(r));
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+
+  assert.deepEqual(
+    order,
+    ['ipc-restart:enter', 'tray-stop:enter'],
+    'the tray Stop landed while the restart was still in flight — a shared `mutexes` OBJECT is not enough ' +
+      'if its `.proxy` property was swapped after registerIpcHandlers() already captured the old lock; the ' +
+      'tray now runs against an independent, always-free lock, proving this mutation is a real, ' +
+      'independent serialization break from the shadowed-identifier class the negative control above covers'
+  );
+
+  gate.resolve();
+  await ipcRestart;
+  await trayStop;
 });
