@@ -1011,3 +1011,202 @@ test('ipc: NCOW-46 AC#4 — a DOMAIN_MUTEX_ALIASES target absent from an otherwi
     'a domain DOMAIN_MUTEX_ALIASES depends on must be caught even when order and domains agree with each other'
   );
 });
+
+// --- NCOW-47: apiKey's mutating methods (validateAndSave, clear) alias onto
+// the `config` lock, because config.generate reads the exact same
+// secretStore state (secretStore.load()) inside that lock. Before this task,
+// resolveDomainLocks(mutexes, 'apiKey') returned an empty array — apiKey had
+// neither a MUTEX_DOMAINS entry nor a DOMAIN_MUTEX_ALIASES entry — so a
+// Clear Key click could interleave with an in-flight config:generate.
+
+test('ipc: NCOW-47 AC#1 — resolveDomainLocks() resolves apiKey onto the config lock (single alias, not a new mechanism)', () => {
+  const mutexes = createDomainMutexes();
+  const locks = resolveDomainLocks(mutexes, 'apiKey');
+  assert.deepEqual(locks, [mutexes.config], 'apiKey must resolve to exactly mutexes.config, nothing else');
+});
+
+test('ipc: NCOW-47 AC#1+#3 — a background config:generate holding the config lock blocks apiKey:clear (the previously-unserialized interleaving)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      apiKey: {
+        clear: async () => {
+          order.push('clear:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // Stands in for an in-flight config:generate call — it holds mutexes.config
+  // exactly the way registerIpcHandlers() itself would lock a real
+  // config:generate handler.
+  const background = mutexes.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+    order.push('bg-generate:exit');
+  });
+
+  const clearRun = invoke('apikey:clear');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['bg-generate:enter'],
+    'apiKey:clear must be queued, not interleaved with the in-flight config:generate'
+  );
+
+  gate.resolve();
+  await background;
+  await clearRun;
+  assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'clear:enter']);
+});
+
+test('ipc: NCOW-47 AC#1+#3 — an in-flight apiKey:clear blocks a subsequent config:generate (reverse ordering)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      apiKey: {
+        clear: async () => {
+          order.push('clear:enter');
+          await gate.promise;
+          order.push('clear:exit');
+          return { ok: true };
+        },
+      },
+      config: {
+        generate: async () => {
+          order.push('generate:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const clearRun = invoke('apikey:clear');
+  const generateRun = invoke('config:generate', {});
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['clear:enter'], 'config:generate must queue behind the in-flight apiKey:clear, not interleave');
+
+  gate.resolve();
+  await clearRun;
+  await generateRun;
+  assert.deepEqual(order, ['clear:enter', 'clear:exit', 'generate:enter']);
+});
+
+test('ipc: NCOW-47 AC#1+#3 — a background config:generate holding the config lock also blocks apiKey:validateAndSave', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      apiKey: {
+        validateAndSave: async () => {
+          order.push('validateAndSave:enter');
+          return { ok: true, data: { maskedKey: 'nvapi-…c123', models: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+    order.push('bg-generate:exit');
+  });
+
+  const saveRun = invoke('apikey:validate-and-save', 'nvapi-abc123');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['bg-generate:enter'],
+    'apiKey:validateAndSave must be queued, not interleaved with the in-flight config:generate'
+  );
+
+  gate.resolve();
+  await background;
+  await saveRun;
+  assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'validateAndSave:enter']);
+});
+
+test('ipc: NCOW-47 AC#2 — apiKey:getMasked deliberately opts out of the lock, so a long config:generate cannot delay it', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      config: {
+        generate: async () => {
+          order.push('generate:enter');
+          await gate.promise;
+          order.push('generate:exit');
+          return { ok: true };
+        },
+      },
+      apiKey: {
+        getMasked: async () => {
+          order.push('getMasked');
+          return { ok: true, data: { maskedKey: 'nvapi-…c123' } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const generateRun = invoke('config:generate', {});
+  const maskedResult = await invoke('apikey:get-masked');
+
+  assert.deepEqual(maskedResult, { ok: true, data: { maskedKey: 'nvapi-…c123' } });
+  assert.ok(order.includes('getMasked'), 'getMasked resolved without waiting on the config lock');
+  assert.equal(order.includes('generate:exit'), false, 'the generate call must still be in flight — getMasked did not wait for it');
+
+  gate.resolve();
+  await generateRun;
+  assert.equal(order.at(-1), 'generate:exit');
+});
+
+test('ipc: NCOW-47 — apiKey:clear and config:generate stay serialized against EACH OTHER even with a DIFFERENT mutex set (proves the previous tests measure the shared config lock, not luck)', async () => {
+  reset();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      apiKey: {
+        clear: async () => {
+          order.push('clear:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes: createDomainMutexes() }
+  );
+
+  // A second, unrelated set — the mis-wiring shape this test guards against.
+  const other = createDomainMutexes();
+  const background = other.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+    order.push('bg-generate:exit');
+  });
+
+  await invoke('apikey:clear');
+  assert.deepEqual(order, ['bg-generate:enter', 'clear:enter'], 'interleaved, as expected against an unrelated lock');
+
+  gate.resolve();
+  await background;
+});
