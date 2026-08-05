@@ -48,7 +48,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 400 tests. Run before AND after any change.
+npm test          # node --test, 410 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change
@@ -66,9 +66,11 @@ step that could produce it, and the packaging allowlist copies it straight off d
   safeStorage, fs paths), which is what makes it unit-testable without an app.
 - `src/main/` — Electron main. `engine-context.js` is the composition root wiring every
   engine module to real dependencies; `ipc.js` registers channels from `ipc-channels.js`
-  behind a per-domain mutex; `menu.js` exports `buildMenuTemplate(actions, platform)` so
-  the Windows/Linux branches are testable from macOS; `shutdown.js` stops the proxy on
-  quit; plus `windows.js`, `tray.js`, `status-poller.js`, `app-icon.js`.
+  behind per-domain mutexes — `uninstall` aliases to three (`claudeCode`, `config`,
+  `proxy`), acquired together in a fixed order via `withLocks()`; `menu.js` exports
+  `buildMenuTemplate(actions, platform)` so the Windows/Linux branches are testable from
+  macOS; `shutdown.js` stops the proxy on quit; plus `windows.js`, `tray.js`,
+  `status-poller.js`, `app-icon.js`.
 - `src/preload/index.js` — derives the entire `window.nimProxy` bridge automatically from
   `CHANNELS`. Adding a channel + handler is all that is needed; don't hand-edit the preload.
 - `src/renderer/` — plain HTML/CSS/ES modules. No bundler, no framework. Hash router with
