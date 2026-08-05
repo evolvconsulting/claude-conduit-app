@@ -119,7 +119,7 @@ test("shutdown: NCOW-52 AC#8 — pm2Control.stop()'s new internal bound changes 
   // ensureConnected() resolving before stop()'s own inner timer even starts
   // means the inner timer can never fire strictly first when both start
   // counting from the same instant.
-  const pm2Control = createPm2Control(wedgedPm2, { pm2CallTimeoutMs: 10_000 });
+  const pm2Control = createPm2Control(wedgedPm2, { pm2CallTimeoutMs: 1_000 });
 
   const started = Date.now();
   const result = await createProxyShutdown({ pm2Control, timeoutMs: 50, log: silent })();
@@ -127,8 +127,8 @@ test("shutdown: NCOW-52 AC#8 — pm2Control.stop()'s new internal bound changes 
 
   assert.deepEqual(result, { stopped: false, reason: 'failed' });
   assert.ok(
-    elapsed < 2000,
-    `expected this module's own 50ms outer bound to win the race against pm2Control's 10000ms inner one; took ${elapsed}ms`
+    elapsed < 300,
+    `expected this module's own 50ms outer bound to win the race against pm2Control's 1000ms inner one; took ${elapsed}ms`
   );
 });
 
