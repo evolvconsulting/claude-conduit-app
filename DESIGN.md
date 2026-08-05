@@ -399,19 +399,19 @@ make the app unquittable.
 
 **The before-quit stop is deliberately not serialized against the proxy mutex (NCOW-31,
 NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions share one
-per-domain lock (`mutexes.proxy`, set up in `src/main/engine-context.js`) so clicking them
-in quick succession queues instead of racing — and, since NCOW-32, Uninstall and an update
+per-domain lock (`mutexes.proxy`, set up in `src/main/engine-context.js`) so clicking them in
+quick succession queues instead of racing — and, since NCOW-32, Uninstall and an update
 install share that same lock too. (As of NCOW-45, Uninstall also acquires the `config` and
-`claudeCode` locks alongside `proxy`.) (As of NCOW-47, the `config` lock also covers the
-encrypted NVIDIA key, so `apiKey`'s validateAndSave/clear now alias onto it too.)
-`src/main/shutdown.js`'s before-quit stop
-reaches `pm2Control` directly instead, on purpose: a background restart can hold that lock
-for 60s+, and queueing the quit-time stop behind it is precisely how a wedged pm2 would make
-the app unquittable — the one outcome the timeout above exists to prevent. So "quit during a
+`claudeCode` locks alongside `proxy`.) `src/main/shutdown.js`'s before-quit stop reaches
+`pm2Control` directly instead, on purpose: a background restart can hold that lock for 60s+,
+and queueing the quit-time stop behind it is precisely how a wedged pm2 would make the app
+unquittable — the one outcome the timeout above exists to prevent. So "quit during a
 background restart" remains unserialized, by choice, while the window/tray Stop and Restart
 paths are serialized. See `engine-context.js`'s own comment at the mutex's construction site
-for the full reasoning, including the pre-existing, out-of-scope edge case it leaves behind
-(a quit landing in `startOrRestart()`'s `deleteAppIfPresent()` → `pm2.start()` gap).
+for the full reasoning, including the pre-existing, out-of-scope edge case it leaves behind (a
+quit landing in `startOrRestart()`'s `deleteAppIfPresent()` → `pm2.start()` gap). (As
+of NCOW-47, the `config` lock also covers the encrypted NVIDIA key, so `apiKey`'s
+validateAndSave/clear now alias onto it too.)
 
 **The daemon itself can still be running after quit — corrected by NCOW-24.** If
 `ensureConnected()` (`pm2Control.js`) had to bootstrap a pm2 daemon itself (`spawnDaemon()`,
