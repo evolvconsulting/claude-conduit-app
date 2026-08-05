@@ -107,6 +107,81 @@ test('checkForUpdates: macOS degrades gracefully when the GitHub check fails', a
   assert.equal(deps.statuses.at(-1).state, 'error');
 });
 
+// NCOW-40: performCheck()'s darwin-path branch interpolated
+// `result.error.code`/`result.error.message` raw. `result.error` is
+// updateCheck.js's own RETURNED failure object (not thrown), but it is
+// exactly as exposed to a hostile/malformed shape as any thrown value is —
+// and pre-fix, this line (and the "Always resolves" doc comment on
+// performCheck() above it) could be falsified by any of the shapes below.
+// Each of these genuinely threw synchronously out of the old raw
+// interpolation (verified by reverting the fix and re-running this file
+// before adding the hardening): `result.error` itself being null/undefined
+// makes a bare `.code`/`.message` property read throw a TypeError; a
+// throwing `.code` getter throws on the read itself; and a `.message` that
+// is an unstringifiable null-prototype object makes the template literal's
+// own implicit ToString conversion throw ("Cannot convert object to
+// primitive value") even though the property read itself succeeds.
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when result.error itself is null', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: fakeUpdateCheck({ ok: false, error: null }),
+  });
+
+  // Must not reject — awaiting it directly is the test. Pre-fix, bare
+  // `result.error.code` would have thrown "Cannot read properties of null".
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when result.error is missing entirely (undefined)', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: fakeUpdateCheck({ ok: false }),
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when result.error has a throwing .code getter', async () => {
+  const hostileError = {
+    get code() {
+      throw new Error('code getter exploded');
+    },
+    message: 'network unreachable',
+  };
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: fakeUpdateCheck({ ok: false, error: hostileError }),
+  });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.match(deps.statuses.at(-1).message, /network unreachable/);
+});
+
+test('checkForUpdates: macOS degrades gracefully instead of throwing when result.error.message is an unstringifiable null-prototype object', async () => {
+  const deps = baseDeps({
+    platform: 'darwin',
+    updateCheck: fakeUpdateCheck({ ok: false, error: { code: 'E_WEIRD', message: Object.create(null) } }),
+  });
+
+  // Pre-fix, the template literal's own ToString conversion of
+  // Object.create(null) would have thrown ("Cannot convert object to
+  // primitive value") even though `result.error.message` itself reads fine.
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+  assert.equal(typeof deps.statuses.at(-1).message, 'string');
+  assert.match(deps.statuses.at(-1).message, /null prototype/);
+});
+
 test('checkForUpdates: windows/linux drive electron-updater and forward its events', async () => {
   const { autoUpdater, calls } = fakeAutoUpdater();
   const deps = baseDeps({ platform: 'win32', autoUpdater });
@@ -199,6 +274,86 @@ test('checkForUpdates: a rejecting checkForUpdates() degrades gracefully instead
   const result = await createAutoUpdate(deps).checkForUpdates();
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.equal(deps.statuses.at(-1).state, 'error');
+});
+
+// NCOW-40: performCheck()'s own doc comment promises "Always resolves ... so
+// a caller can fire this from app startup without an enclosing try/catch" —
+// but its catch block used to interpolate `err.message` raw, which is
+// exactly the unguarded pattern the au.on('error', ...) handler above was
+// already hardened away from (NCOW-37). Each shape below genuinely rejected
+// checkForUpdates() under the old raw `err.message` code (verified by
+// reverting the fix and re-running this file before adding the hardening):
+// a plain thrown `null`/`undefined` makes bare `.message` property access
+// throw a TypeError outright, and a `.message` that is itself a Symbol makes
+// the template literal's own implicit ToString conversion throw ("Cannot
+// convert a Symbol value to a string") even though the property read itself
+// succeeds.
+
+test('checkForUpdates: a rejecting checkForUpdates() that throws a plain null degrades gracefully instead of rejecting', async () => {
+  const { autoUpdater } = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = async () => {
+    throw null; // eslint-disable-line no-throw-literal
+  };
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+
+  // Must not reject — awaiting it directly is the test. Pre-fix, bare
+  // `err.message` on a thrown `null` would have thrown "Cannot read
+  // properties of null (reading 'message')" instead of degrading gracefully.
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.equal(typeof result.error.message, 'string');
+  assert.equal(deps.statuses.at(-1).state, 'error');
+});
+
+test('checkForUpdates: a rejecting checkForUpdates() that throws undefined degrades gracefully instead of rejecting', async () => {
+  const { autoUpdater } = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = async () => {
+    throw undefined; // eslint-disable-line no-throw-literal
+  };
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.equal(typeof result.error.message, 'string');
+  assert.equal(deps.statuses.at(-1).state, 'error');
+});
+
+test('checkForUpdates: a rejecting checkForUpdates() whose thrown value has a throwing .message getter degrades gracefully instead of rejecting', async () => {
+  const { autoUpdater } = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = async () => {
+    throw {
+      get message() {
+        throw new Error('message getter exploded');
+      },
+    };
+  };
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.equal(typeof result.error.message, 'string');
+  assert.doesNotMatch(result.error.message, /message getter exploded/);
+  assert.equal(deps.statuses.at(-1).state, 'error');
+});
+
+test('checkForUpdates: a rejecting checkForUpdates() whose thrown value has a Symbol .message degrades gracefully instead of rejecting', async () => {
+  const { autoUpdater } = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = async () => {
+    throw { message: Symbol('boom') };
+  };
+  const deps = baseDeps({ platform: 'win32', autoUpdater });
+
+  // Pre-fix, `${err.message}` interpolating a Symbol directly would have
+  // thrown "Cannot convert a Symbol value to a string" even though
+  // `err.message` itself read fine.
+  const result = await createAutoUpdate(deps).checkForUpdates();
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CHECK_FAILED');
+  assert.match(result.error.message, /Symbol\(boom\)/);
   assert.equal(deps.statuses.at(-1).state, 'error');
 });
 

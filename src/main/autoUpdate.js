@@ -26,7 +26,7 @@
  * other module under src/main/ and src/engine/.
  */
 
-const { describeThrownValue } = require('../engine/configGen');
+const { describeThrownValue, safeStringify, safeReadProperty } = require('../engine/configGen');
 
 const DEFAULT_REPO = 'evolvconsulting/claude-conduit';
 
@@ -136,8 +136,20 @@ function createAutoUpdate(deps) {
       emit({ state: 'checking' });
       const result = await deps.updateCheck.checkLatestRelease({ currentVersion: deps.currentVersion, repo });
       if (!result.ok) {
-        log(`update check failed, degrading gracefully: ${result.error.code} ${result.error.message}`);
-        emit({ state: 'error', message: result.error.message });
+        // NCOW-40: result.error here is updateCheck.js's own RETURNED failure
+        // object, not a thrown value — but it is exactly as exposed to a
+        // hostile/malformed shape as pm2Control's equivalent RETURNED failure
+        // object is (configGen.js's regenerateStaleConfig() 'restart-failed'
+        // branch, NCOW-37): a throwing `.code`/`.message` getter, or a field
+        // whose bare String() itself throws (e.g. Object.create(null)), or
+        // `result.error` itself being null/undefined. Read and stringify both
+        // fields through the same safe guards rather than interpolating them
+        // raw, so this line — and this function's own "Always resolves" doc
+        // comment above — can't be falsified by a hostile check result.
+        const errorCode = safeStringify(safeReadProperty(result.error, 'code'));
+        const errorMessage = safeStringify(safeReadProperty(result.error, 'message'));
+        log(`update check failed, degrading gracefully: ${errorCode} ${errorMessage}`);
+        emit({ state: 'error', message: errorMessage });
         return result;
       }
       emit(
@@ -160,10 +172,18 @@ function createAutoUpdate(deps) {
       // checkForUpdates() rejecting outright (offline, DNS failure, no
       // publish config resolvable, GitHub down, ...) must degrade exactly
       // like every other failure mode here — never throw out of this
-      // function.
-      log(`checkForUpdates() rejected, degrading gracefully: ${err.message}`);
-      emit({ state: 'error', message: err.message });
-      return { ok: false, error: { code: 'CHECK_FAILED', message: err.message } };
+      // function. NCOW-40: this used to interpolate `err.message` raw, which
+      // is exactly the unguarded pattern the au.on('error', ...) handler
+      // above was already hardened away from (NCOW-37) — a thrown
+      // Object.create(null) makes bare `.message` access moot but a plain
+      // `null`/`undefined` thrown value makes `err.message` itself throw
+      // (Cannot read properties of null/undefined), which would make this
+      // "Always resolves" function's own catch block reject in its place.
+      // Reuse describeThrownValue() exactly as that handler does.
+      const message = describeThrownValue(err);
+      log(`checkForUpdates() rejected, degrading gracefully: ${message}`);
+      emit({ state: 'error', message });
+      return { ok: false, error: { code: 'CHECK_FAILED', message } };
     }
   }
 
