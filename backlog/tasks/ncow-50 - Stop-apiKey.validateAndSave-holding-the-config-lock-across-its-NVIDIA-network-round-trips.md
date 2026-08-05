@@ -3,9 +3,10 @@ id: NCOW-50
 title: >-
   Stop apiKey.validateAndSave holding the config lock across its NVIDIA network
   round trips
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 17:04'
+updated_date: '2026-08-05 22:54'
 labels:
   - concurrency
 dependencies:
