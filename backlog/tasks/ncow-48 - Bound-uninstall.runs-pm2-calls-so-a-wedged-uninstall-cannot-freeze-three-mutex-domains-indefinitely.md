@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 17:59'
+updated_date: '2026-08-05 18:07'
 labels: []
 dependencies:
   - NCOW-45
@@ -138,4 +138,71 @@ Four new commits on top of `ea38690` (`cfd21c7`, `3b11f0c`, `90b44b1`, `9215910`
 **Purity preserved**: both test files remain pure appends relative to dev (215/0 and 310/0, zero deletion lines), so AC#5/AC#6's 'no pre-existing test modified' still holds across the whole branch.
 
 **npm test**: 425/425 pass, 0 fail, 0 cancelled (up from 421). CLAUDE.md:51 and README.md:330 both re-bumped to 425 — orchestrator confirmed both lines read 425 and that only the test-count line in README.md was touched, leaving the wave-mate's regions alone.
+
+## Wave 9 review pass 2 — APPROVE (same opus reviewer, resumed for the delta; recorded by the orchestrator)
+
+**Verdict: approve. All 6 acceptance criteria now independently confirmed (#1-#6).**
+
+### AC#1 is genuinely met, not merely moved one hop — proven two independent ways
+
+The reviewer explicitly refused to take this on reading, given the first pass failed by bounding some calls and leaving an earlier one.
+
+**(a) Mechanical wedge sweep** — every pm2 member reachable from remove() wedged one at a time, bound 40ms:
+
+    wedge=connect -> rejected code=undefined            msg='pm2 connect timed out after 40ms' (+42ms)
+    wedge=list    -> rejected code=PM2_LIST_TIMEOUT     msg='pm2 list timed out after 40ms'    (+41ms)
+    wedge=delete  -> rejected code=PM2_DELETE_TIMEOUT   msg='pm2 delete timed out after 40ms'  (+41ms)
+    wedge=dump    -> rejected code=PM2_SAVE_TIMEOUT     msg='pm2 dump timed out after 40ms'    (+42ms)
+    wedge=none    -> resolved (+0ms)
+
+and through the real IPC handler all four release everything: `locks=released: ["claudeCode-bg","config-bg","proxy-bg","apiKey:clear"]`.
+
+**(b) Exhaustiveness census** — a Proxy over the pm2 fake recording every member the chain actually touches, so 'nothing left unbounded' is a measurement rather than a reading claim:
+
+    pm2 members touched by remove():    ["connect","delete","dump","list"]
+    pm2 members touched by save():      ["dump"]
+    pm2 members touched by getStatus(): ["list"]
+
+All four bounded (connect by ensureConnected's pre-existing 30s). **pm2.start, pm2.stop and pm2.launchBus are provably NOT on any of these paths** — correctly out of scope, and the pass-1 follow-up recommendation for proxy:stop/proxy:start stands unchanged as a separate task.
+
+### The cancellation cascade is fixed AND the safety-timeout polarity is correct
+`withSafetyTimeout`'s timeout branch **rejects** (never resolves), and each assertion is wrapped as `withSafetyTimeout(assert.rejects(...))` / `(assert.doesNotReject(...))`, so a missing bound makes assert.rejects never settle and the safety timer fails that one test with its own message. Verified by observation, not inspection.
+
+### Non-vacuity — the reviewer ran BOTH reverts (the worker reported only the delta one)
+- **Delta revert** (pass-1 source: delete/dump bounded, list not): 425 tests, 421 pass, 4 fail, **0 cancelled** — failures 152 (listApps), 153 (getStatus), 154 (deleteAppIfPresent via remove, before pm2.delete is ever reached), 355 (ipc AC#1/#3). Each names its regression, e.g. 'getStatus() did not reject within 2000ms — this is the path status-poller.js polls every 5s'.
+- **Full revert to merge-base** (no bounds at all): 425 tests, 418 pass, **7 fail, 0 cancelled** — exactly the 7 load-bearing tests, with both AC#5 control tests correctly still PASSING. **The arithmetic closes from both ends: 425-7=418, and 416 baseline + 9 new = 425.**
+
+### getStatus impact — measured against the real poller, and the ruling on bound length
+Real status-poller run (interval 50ms, wedged pm2.list, ~400ms window):
+
+    BASE (unbounded list):    pm2.list invocations=8  getStatus settled=0  onStatus=[]
+    HEAD (list bounded 60ms): pm2.list invocations=8  getStatus settled=7  onStatus=[7x "errored"]
+
+Both worker claims hold: tick()'s setInterval fires regardless of whether the previous tick's await settled (8 invocations either way, so **ticks genuinely overlap**), pre-fix a wedged pm2.list accumulates one never-settling promise per tick forever and the pill never updates, post-fix the existing `catch { onStatus({status:'errored'}) }` fires and the accumulation stops. Rulings on the three hazards: overlapping polls are **pre-existing, not introduced**; the pile-up is **genuinely fixed, not merely slowed** (bounded steady state of ~3 in-flight at 15s/5s, each guaranteed to settle, versus unbounded monotonic growth); flapping is **real and new but recovery-only, ~3 alternations, self-clearing**.
+
+**Ruling: the poll path should NOT get a shorter bound than 15s.** A shorter bound buys a marginally faster 'Error' label while adding a second knob and a real false-errored risk on a slow-but-alive daemon (the poller has no retry or hysteresis to absorb it), and it would only shorten the flap, not remove it. The pill is 5s-granular and advisory. If the flap is worth fixing, fix it where it lives — have status-poller drop a result from a tick older than the newest one that has already reported.
+
+**PM2_LIST_TIMEOUT surfacing verified on all three paths**: uninstall:run (observed `{ok:false,error:{code:'PM2_LIST_TIMEOUT'}}`; uninstall-view.js:81-87 renders error.message and re-enables the button); proxy:start/restart (engine-context.js:358-369 has no try/catch, so it reaches ipc.js:416's wrapper unchanged); the 5s poll (correctly does NOT go through the IPC wrapper — status-poller's catch discards the error and emits `{status:'errored'}`, which status-pill.js maps to 'Error'). Zero unhandled rejections in every probe. The pass-1 census of `error.code` readers still holds; nothing new reads it.
+
+### AC#5 re-verified with the list bound now in the path (real 40ms per pm2 round trip)
+
+    BASE (no bounds):        {"ok":true,"data":{"removed":["pm2-app"],"kept":[]}}
+                             uninstall:exit@165ms, then claudeCode/config/proxy-bg @165ms
+    HEAD (all three bounded): identical result shape
+                             uninstall:exit@163ms, then claudeCode/config/proxy-bg @163ms
+
+Real hold unchanged, background work still strictly after uninstall:exit — **NCOW-45's multi-lock fairness guarantee intact.**
+
+### COMPOSITE WORST CASE UPDATED: ~75s, not the ~60s accepted at pass 1 and not 15s
+connect (≤30s) + list (≤15s) + delete (≤15s) + dump (≤15s), each stage slow-but-just-under-bound with the last timing out. Contrived in practice, still bounded, still self-clearing, renderer shows 'Uninstalling…' throughout. Accepted — **but recorded as ~75s so no future reader infers 15s.**
+
+**npm test**: reviewer's own run at 9215910 — 425/425 pass, 0 fail, 0 cancelled. Both doc lines read the true count. Scope clean, 5 files, no drive-bys, no probe artifacts, conventions OK, nothing touches or kills the shared pm2 daemon.
+
+### Residual minors — one being fixed in-branch, the rest carried to the wave integration review
+- **BEING FIXED NOW (test hygiene): a vacuous assertion at test/engine/pm2Control.test.js:239.** It asserts `!pm2.calls.includes('delete')`, but hangingListPm2's delete pushes `delete:${name}` while hangingDeletePm2 (the pass-1 fixture) pushes the bare `'delete'` — **the two fixtures disagree, so the guard can never fail.** Demonstrated: `calls=['connect','list','delete:litellm-nim','dump']`, `calls.includes('delete') -> false`, `calls.some(c=>c.startsWith('delete')) -> true`. The test's load-bearing assertion (rejects with PM2_LIST_TIMEOUT) IS genuinely non-vacuous, so this is hygiene rather than a false pass of the test — but a knowingly-vacuous assertion should not ship.
+- **minor (new)**: engine-context.js:367/372 can now convert a more useful error into a less useful one — `broadcast('proxy:status-changed', await pm2Control.getStatus())` runs after startOrRestart() resolves, so if startOrRestart returns the ok:false HEALTH_CHECK_TIMEOUT result (which carries outTail/errTail log tails) and pm2.list then wedges, that await rejects and the handler surfaces a bare PM2_LIST_TIMEOUT with the log tails discarded. Narrow window; pre-fix that line hung forever holding the proxy lock, so still a net improvement.
+- **minor (new)**: status pill flaps for ~3 poll cycles after a wedged daemon recovers. Measured (bound 300ms, interval 100ms, recovery at 250ms): `[errored@302,running@303,errored@401,running@403,errored@502,running@502,running@604,running@704,running@805]`. At production values ~3 alternations over ~15s, then steady. Fix belongs in status-poller.js, not in a shorter bound.
+- **minor (carried from pass 1, unchanged)**: uninstall.js strips the Claude Code CLI env keys BEFORE pm2Control.remove(), so any of the three timeouts returns an error after those settings are already reverted, and with purge:true the config dir is kept despite the user asking to purge. Retry is safe (re-verified: no unhandled rejections, subsequent uninstalls succeed), though a successful retry's summary omits 'claude-code-cli-config'.
+- **nit (positive, worth recording)**: src/renderer/app.js:44 awaits proxy.getStatus() before rendering the pill or subscribing to status changes, so **pre-fix a wedged pm2.list hung the renderer's entire boot sequence forever**; it now recovers after the bound. Cosmetic consequence: that boot path does `if (statusResult.ok)`, so the pill reads 'Not configured' rather than 'Error' until the poller's next broadcast corrects it.
+- **nit**: 'pure appends' is loose but harmless — zero deletions vs the merge base in both test files, though pm2Control.test.js's insertion point is line 69 (mid-file) rather than EOF. No pre-existing test line is touched; the delta's deletions are the fix pass rewriting its OWN pass-1 lines.
 <!-- SECTION:NOTES:END -->
