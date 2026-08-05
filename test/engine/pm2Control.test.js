@@ -66,6 +66,97 @@ test('remove: deletes the app if present and always saves, without throwing when
   await ctl.remove();
 });
 
+// --- NCOW-48 regressions ---------------------------------------------------
+//
+// uninstall.run() -> pm2Control.remove() -> deleteAppIfPresent() -> pm2.delete
+// (pm2Control.js:509) and remove() -> save() -> pm2.dump (pm2Control.js:516)
+// were the last two raw pm2 callbacks reachable from Uninstall with no
+// timeout at all — ensureConnected() was already bounded (NCOW-22), but a
+// daemon that accepts the connection and then never calls back to
+// pm2.delete/pm2.dump sailed straight past that bound. Because ipc.js's
+// DOMAIN_MUTEX_ALIASES now holds the claudeCode, config, AND proxy locks for
+// uninstall:run's full duration (NCOW-45/NCOW-47), that one unbounded wait
+// froze all three indefinitely (plus apiKey:validateAndSave/apiKey:clear,
+// which alias onto config) — see ipc-mutex.test.js's NCOW-48 AC#3 test for
+// the end-to-end demonstration of that. These two mirror the existing
+// "connect attempt that never calls back" tests below, at the two call sites
+// this task adds a bound to.
+
+function hangingDeletePm2(apps) {
+  const calls = [];
+  return {
+    calls,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    list: (cb) => {
+      calls.push('list');
+      cb(null, apps);
+    },
+    delete: () => {
+      calls.push('delete');
+      // Never calls back — simulates a wedged daemon.
+    },
+    dump: (cb) => {
+      calls.push('dump');
+      cb(null);
+    },
+  };
+}
+
+function hangingDumpPm2() {
+  const calls = [];
+  return {
+    calls,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    list: (cb) => {
+      calls.push('list');
+      cb(null, []);
+    },
+    dump: () => {
+      calls.push('dump');
+      // Never calls back — simulates a wedged daemon.
+    },
+  };
+}
+
+test('deleteAppIfPresent (via remove): a pm2.delete call that never calls back rejects within the bound instead of hanging forever, and reports PM2_DELETE_TIMEOUT', async () => {
+  const pm2 = hangingDeletePm2([{ name: 'litellm-nim', pm2_env: { status: 'online' } }]);
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await assert.rejects(ctl.remove(), (err) => {
+    assert.match(err.message, /pm2 delete timed out/i);
+    assert.equal(err.code, 'PM2_DELETE_TIMEOUT');
+    return true;
+  });
+});
+
+test('save: a pm2.dump call that never calls back rejects within the bound instead of hanging forever, and reports PM2_SAVE_TIMEOUT', async () => {
+  const pm2 = hangingDumpPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await assert.rejects(ctl.save(), (err) => {
+    assert.match(err.message, /pm2 dump timed out/i);
+    assert.equal(err.code, 'PM2_SAVE_TIMEOUT');
+    return true;
+  });
+});
+
+test('remove: AC#5 — the success path is unaffected by the new bound: a normal (fast) delete+dump still completes cleanly even against a tight timeout window', async () => {
+  const pm2 = fakePm2({ apps: [{ name: 'litellm-nim', pm2_env: { status: 'online' } }] });
+  // A tight bound here proves this isn't passing merely because the default
+  // 15s window is wide: even a near-instant timeout does not fire against
+  // calls that genuinely complete.
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+  await assert.doesNotReject(ctl.remove());
+  assert.ok(pm2.calls.includes('delete:litellm-nim'));
+  assert.ok(pm2.calls.includes('dump'));
+});
+
 test('ensureConnected: only calls pm2.connect once across multiple operations', async () => {
   const pm2 = fakePm2();
   const ctl = createPm2Control(pm2);
