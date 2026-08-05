@@ -425,11 +425,13 @@ function spawnDaemon(opts = {}) {
  *   as every pre-existing test in pm2Control.test.js does — ensureConnected()
  *   falls back to the simpler pre-NCOW-22 behaviour of calling pm2.connect()
  *   directly, still bounded by ensureConnectedTimeoutMs. pm2CallTimeoutMs
- *   (NCOW-48) bounds listApps()'s pm2.list call, deleteAppIfPresent()'s
- *   pm2.delete call, and save()'s pm2.dump call — reachable from
- *   uninstall.run(), from proxy:start/proxy:restart (via startOrRestart()),
- *   and from the 5-second status poll (via getStatus() -> findApp() ->
- *   listApps()) — see withTimeout below for why those three specifically
+ *   (NCOW-48, widened by NCOW-52) bounds six raw pm2 calls: listApps()'s
+ *   pm2.list, deleteAppIfPresent()'s pm2.delete, save()'s pm2.dump, stop()'s
+ *   pm2.stop, startOrRestart()'s pm2.start, and startLogTail()'s
+ *   pm2.launchBus — reachable from uninstall.run(), proxy:start/
+ *   proxy:restart (via startOrRestart()), proxy:stop, proxy:startLogTail,
+ *   and the 5-second status poll (via getStatus() -> findApp() ->
+ *   listApps()) — see withTimeout below for why those six specifically
  *   needed it.
  */
 function createPm2Control(pm2, deps = {}) {

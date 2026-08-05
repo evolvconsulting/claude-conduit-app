@@ -395,18 +395,25 @@ Code CLI have no proxy to route to until it is started again.
 The pm2 **daemon** is never killed. It runs against the shared default `PM2_HOME`
 (`~/.pm2`), so killing it would stop unrelated apps the user supervises with pm2. Only the
 `litellm-nim` app is stopped, and the stop is bounded by a timeout so a wedged pm2 cannot
-make the app unquittable. (As of NCOW-48, that before-quit stop is not the app's only
-bounded pm2 call: `pm2Control.js`'s `listApps()`, `deleteAppIfPresent()`, and `save()` are
-separately bounded by their own `pm2CallTimeoutMs`, default 15s, surfacing
-`PM2_LIST_TIMEOUT`, `PM2_DELETE_TIMEOUT`, and `PM2_SAVE_TIMEOUT` respectively on a wedge
-rather than hanging forever — but not every call site can reach all three: `uninstall.run()`
-and `startOrRestart()` (proxy start/restart) reach `listApps()`, `deleteAppIfPresent()`, and
-`save()` alike (the last only once `startOrRestart()`'s health check has succeeded), so
-either can surface any of the three codes, while the 5-second status poll reaches only
-`listApps()` (via `getStatus()` -> `findApp()`) and so can only ever surface
-`PM2_LIST_TIMEOUT`. Unlike the before-quit stop, a timeout on those paths is an observable
-*failure* the caller must handle, not a guarantee that the underlying pm2 effect completed —
-see 9.4 and acceptance criterion 5 for what that means for `--purge` specifically.)
+make the app unquittable. (As of NCOW-48, widened by NCOW-52, that before-quit stop is not
+the app's only bounded pm2 call: `pm2Control.js`'s `listApps()`, `deleteAppIfPresent()`,
+`save()`, `stop()`, `startOrRestart()`'s `pm2.start`, and `startLogTail()`'s
+`pm2.launchBus` are separately bounded by their own `pm2CallTimeoutMs`, default 15s,
+surfacing `PM2_LIST_TIMEOUT`, `PM2_DELETE_TIMEOUT`, `PM2_SAVE_TIMEOUT`,
+`PM2_STOP_TIMEOUT`, `PM2_START_TIMEOUT`, and `PM2_LOG_TAIL_TIMEOUT` respectively on a
+wedge rather than hanging forever — but not every call site can reach all six:
+`uninstall.run()` reaches `listApps()`, `deleteAppIfPresent()`, and `save()` alike (via
+`remove()`), so it can surface any of those three codes; `startOrRestart()` (proxy
+start/restart) reaches those same three plus its own `pm2.start` (the `save()` call only
+once `startOrRestart()`'s health check has succeeded), so it can surface any of four
+codes; the `proxy:stop` channel and the tray's Stop menu item reach only `stop()` and so
+can only ever surface `PM2_STOP_TIMEOUT`; the `proxy:startLogTail` channel reaches only
+`startLogTail()` and so can only ever surface `PM2_LOG_TAIL_TIMEOUT`; while the 5-second
+status poll reaches only `listApps()` (via `getStatus()` -> `findApp()`) and so can only
+ever surface `PM2_LIST_TIMEOUT`. Unlike the before-quit stop, a timeout on those paths is
+an observable *failure* the caller must handle, not a guarantee that the underlying pm2
+effect completed — see 9.4 and acceptance criterion 5 for what that means for `--purge`
+specifically.)
 
 **The before-quit stop is deliberately not serialized against the proxy mutex (NCOW-31,
 NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions share one
