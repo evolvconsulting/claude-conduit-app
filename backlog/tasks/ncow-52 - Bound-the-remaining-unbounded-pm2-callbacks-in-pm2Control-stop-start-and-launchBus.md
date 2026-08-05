@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 18:39'
-updated_date: '2026-08-05 19:51'
+updated_date: '2026-08-05 21:30'
 labels:
   - concurrency
 dependencies:
@@ -33,3 +33,33 @@ Found by the wave-9 integration review of NCOW-48, and recommended as a follow-u
 - [ ] #9 Comments and JSDoc name every call site that can now raise the new codes, following the correction NCOW-48 needed when its own bound turned out to also cover proxy:start/restart and the 5-second status poll
 - [ ] #10 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Census every raw pm2.* callback in src/engine/pm2Control.js (pm2.connect/disconnect/list/delete/dump already bounded by NCOW-22/NCOW-48; pm2.start, pm2.stop, pm2.launchBus unbounded).
+2. Bound stop() and startOrRestart()'s pm2.start via the existing withTimeout() + pm2CallTimeoutMs, following NCOW-48's precedent exactly: PM2_STOP_TIMEOUT, PM2_START_TIMEOUT.
+3. Bound startLogTail()'s pm2.launchBus with a manual timeout rather than plain withTimeout(), because a late-arriving callback there hands back a live bus handle that must be closed on timeout to avoid leaking an open pm2 pub-socket connection: PM2_LOG_TAIL_TIMEOUT.
+4. Verify ipc.js needs no change for AC#2 (its generic handler wrapper already turns err.code into {ok:false, error:{code, message}}).
+5. Add unit coverage in test/engine/pm2Control.test.js, an IPC-level demonstration in test/main/ipc-mutex.test.js (AC#3), and an integration test in test/main/shutdown.test.js (AC#8) proving the pre-existing outer shutdown bound still wins the race.
+6. Non-vacuity: reproduce all three call sites hanging against unpatched source with a wedged pm2 fake (real-clock bounded reproduction, no cancelled tests), then confirm they reject promptly with the fix.
+7. Document every call site that can now raise the new codes; bump the two live test-count references.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented and pushed to fix/NCOW-52-bound-pm2-stop-start-launchbus (commits 7ceffb4, 0909ede, 1132332, e8c4479, 6f16692). All three named call sites bounded: pm2Control.stop() -> PM2_STOP_TIMEOUT, startOrRestart()'s pm2.start -> PM2_START_TIMEOUT, startLogTail()'s pm2.launchBus -> PM2_LOG_TAIL_TIMEOUT (a manual timeout, not plain withTimeout(), because a late callback there yields a live bus handle that must be explicitly closed on timeout or it leaks an open pm2 pub-socket connection).
+
+Call-chain census (AC#4): every raw pm2.* callback in pm2Control.js is now accounted for -- connect (NCOW-22), list/delete/dump (NCOW-48), start/stop/launchBus (this task); disconnect is synchronous with no callback. Traced each public method's full chain end to end; nothing unbounded remains reachable from stop()/startOrRestart()/startLogTail().
+
+Non-vacuity (AC#3/#4): stashing only the source fix and running the new tests produced exactly 5 failures (4 in pm2Control.test.js, 1 in ipc-mutex.test.js's AC#3 wedge test), 0 cancelled, each a clean real-clock-bounded 'did not reject/settle' failure rather than a hang -- confirms tests genuinely fail against unpatched source and a future regression fails fast rather than wedging CI (the NCOW-48 '29 cancelled tests' lesson applied here from the start rather than found on review).
+
+AC#5/#6: both pm2.start and pm2.launchBus bounded (not excluded) -- same hazard shape NCOW-48 already fixed elsewhere in this file; launchBus needed the extra close-on-late-callback handling, covered by a dedicated test.
+
+AC#7/#8: added explicit success-path tests (tight timeout, genuine success still completes) for stop/start/launchBus and for proxy:stop at the IPC level; added a shutdown.test.js integration test combining a wedged pm2.stop with the real outer shutdown bound, confirming the pre-existing quit-path bound still wins the race and its result/timing are unchanged.
+
+npm test: 425 -> 435 passing, 0 failing, 0 cancelled (run twice for stability). Files touched: src/engine/pm2Control.js, test/engine/pm2Control.test.js, test/main/ipc-mutex.test.js (append-only), test/main/shutdown.test.js, CLAUDE.md, README.md (test-count bump). Confirmed untouched: pm2.list/delete/dump, engine-context.js, mutex.js, and no pre-existing ipc-mutex.test.js content modified.
+
+Session note: worker was interrupted mid-task by an account weekly API-limit error right before its final census grep; resumed from its own transcript, verified via git status/diff that the worktree was exactly as left, and continued to completion with no lost work.
+<!-- SECTION:NOTES:END -->
