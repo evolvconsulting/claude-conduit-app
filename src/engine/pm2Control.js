@@ -472,6 +472,39 @@ function createPm2Control(pm2, deps = {}) {
   //   the status pill reports errored instead of silently freezing at its
   //   last value — and the per-tick promise accumulation stops.
   //
+  // NCOW-52 closed the same gap for the three raw pm2 callbacks NCOW-48 named
+  // as follow-up (found by NCOW-48's own integration review) but explicitly
+  // left out of scope: stop()'s pm2.stop, startOrRestart()'s pm2.start, and
+  // startLogTail()'s pm2.launchBus. Same lock hazard, one door down:
+  // - stop()'s pm2.stop is now bound to PM2_STOP_TIMEOUT — reachable from the
+  //   proxy:stop IPC channel (engine-context.js's `handlers.proxy.stop`,
+  //   locked under mutexes.proxy) and from tray.js's Stop menu item (which
+  //   runs the same handler under the same lock). It is ALSO reachable from
+  //   main/shutdown.js's stopProxyForShutdown() on the quit path — but that
+  //   caller reaches pm2Control directly, outside any IPC lock, and already
+  //   wraps this same call in its own independent withTimeout() (default
+  //   15s, matching pm2CallTimeoutMs's own default below) — see AC#8's
+  //   reasoning on why stacking a second, inner bound underneath a
+  //   pre-existing outer one changes nothing observable there.
+  // - startOrRestart()'s pm2.start is now bound to PM2_START_TIMEOUT —
+  //   reachable from everywhere startOrRestart() itself already was
+  //   (proxy:start/proxy:restart, and configGen.js's launch-time stale-config
+  //   background restart), for the same reason listApps()'s bound widened to
+  //   cover those callers above.
+  // - startLogTail()'s pm2.launchBus is now bound to PM2_LOG_TAIL_TIMEOUT —
+  //   reachable from the proxy:start-log-tail IPC channel
+  //   (engine-context.js's `handlers.proxy.startLogTail`), which ipc.js's
+  //   UNSERIALIZED_METHODS comment keeps locked under mutexes.proxy because
+  //   it mutates the single `logTailUnsubscribe` slot. Named after the public
+  //   feature (starting the live log tail) rather than the raw pm2 API name,
+  //   the same choice PM2_SAVE_TIMEOUT already made over "PM2_DUMP_TIMEOUT"
+  //   above. Bounding this one needed an extra step the other five didn't:
+  //   pm2.launchBus's callback hands back a live bus handle, not just a
+  //   completion signal, so a callback that fires AFTER the bound has already
+  //   given up must still close that bus, or it leaks an open pm2 pub-socket
+  //   connection with no owner left to ever unsubscribe it — see
+  //   startLogTail()'s own doc comment for how the fix avoids that leak.
+  //
   // 15s matches main/shutdown.js's own bounded pm2.stop() precedent — long
   // enough that a slow-but-healthy daemon still completes normally (this is
   // the success path AC#5 requires to stay unchanged), short enough that a
@@ -622,6 +655,15 @@ function createPm2Control(pm2, deps = {}) {
    * health every 2s up to healthTimeoutMs, save on success, capture the
    * last 50 log lines on timeout.
    *
+   * NCOW-52: the pm2.start callback below is bounded the same way
+   * deleteAppIfPresent()/save() already are (NCOW-48) — a daemon that never
+   * calls back leaves this raw callback the only unbounded step left in the
+   * whole proxy:start/proxy:restart chain. Surfaces as PM2_START_TIMEOUT,
+   * reachable from proxy:start, proxy:restart (which just calls start again),
+   * and the launch-time background restart (configGen.js's
+   * regenerateStaleConfig()), all of which hold mutexes.proxy for the call's
+   * duration.
+   *
    * @param {{ecosystemConfigPath: string, port: number, outLog: string, errLog: string, healthTimeoutMs?: number}} opts
    */
   async function startOrRestart(opts) {
@@ -630,9 +672,14 @@ function createPm2Control(pm2, deps = {}) {
     await ensureConnected();
     await deleteAppIfPresent();
 
-    await new Promise((resolve, reject) => {
-      pm2.start(opts.ecosystemConfigPath, (err) => (err ? reject(err) : resolve()));
-    });
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        pm2.start(opts.ecosystemConfigPath, (err) => (err ? reject(err) : resolve()));
+      }),
+      pm2CallTimeoutMs,
+      `pm2 start timed out after ${pm2CallTimeoutMs}ms`,
+      'PM2_START_TIMEOUT'
+    );
 
     const deadline = Date.now() + healthTimeoutMs;
     while (Date.now() < deadline) {
@@ -654,11 +701,35 @@ function createPm2Control(pm2, deps = {}) {
     return { ok: false, error: { code: 'HEALTH_CHECK_TIMEOUT', message: 'litellm did not become healthy in time.' }, outTail, errTail };
   }
 
+  /**
+   * NCOW-52: bounds the pm2.stop callback the same way NCOW-48 bounded
+   * pm2.list/pm2.delete/pm2.dump — this was the last raw, unbounded pm2
+   * callback on the proxy:stop path. Surfaces as PM2_STOP_TIMEOUT, reachable
+   * from the proxy:stop IPC channel (engine-context.js's
+   * `handlers.proxy.stop`, locked under mutexes.proxy) and from tray.js's
+   * Stop menu item, which runs that same handler under the same lock.
+   *
+   * Also reachable from main/shutdown.js's stopProxyForShutdown() on the quit
+   * path — but that caller already wraps this whole call in its own,
+   * independent withTimeout() (see shutdown.js), reached directly and
+   * deliberately outside any IPC lock so a wedged pm2 can never make the app
+   * unquittable (CLAUDE.md). Adding this inner bound underneath that
+   * pre-existing outer one changes nothing observable at the shutdown call
+   * site (AC#8): a genuine hang was already capped by the outer bound before
+   * this task, a genuine success was already far faster than either bound,
+   * and shutdown.js's own catch-all around the call never inspected
+   * `err.code`, so the newly-populated code is inert there.
+   */
   async function stop() {
     await ensureConnected();
-    return new Promise((resolve, reject) => {
-      pm2.stop(APP_NAME, (err) => (err ? reject(err) : resolve()));
-    });
+    return withTimeout(
+      new Promise((resolve, reject) => {
+        pm2.stop(APP_NAME, (err) => (err ? reject(err) : resolve()));
+      }),
+      pm2CallTimeoutMs,
+      `pm2 stop timed out after ${pm2CallTimeoutMs}ms`,
+      'PM2_STOP_TIMEOUT'
+    );
   }
 
   async function remove() {
@@ -686,13 +757,64 @@ function createPm2Control(pm2, deps = {}) {
    * Live log tail via pm2's own bus (works regardless of which process
    * started litellm-nim, matching the shared-daemon interop above).
    *
+   * NCOW-52: pm2.launchBus's raw callback was the last unbounded pm2
+   * callback in this file — a daemon that never calls back here hangs
+   * proxy:start-log-tail forever, which (per ipc.js's UNSERIALIZED_METHODS
+   * comment) holds mutexes.proxy for the whole call because startLogTail
+   * mutates engine-context.js's single `logTailUnsubscribe` slot. Bounded to
+   * PM2_LOG_TAIL_TIMEOUT, named after the public feature (the live log
+   * viewer) rather than the raw pm2 API — the same choice save()'s
+   * PM2_SAVE_TIMEOUT already made over the raw "pm2.dump" name.
+   *
+   * This one can't reuse the plain withTimeout() helper unchanged, unlike
+   * every other bounded call in this file: pm2.launchBus's callback hands
+   * back a live bus handle, not just a completion signal. withTimeout() only
+   * races the promise — it never cancels the losing side — so if the bound
+   * fires first and the daemon's callback still arrives later, a plain race
+   * would silently attach `handler` to a bus nothing ever unsubscribes or
+   * closes, leaking an open pm2 pub-socket connection with no owner left to
+   * ever call the unsubscribe function this call was supposed to hand back
+   * (stop/start/list/delete/dump have nothing comparable to leak on a late
+   * callback — they either produce no handle at all, or a discarded value).
+   * The manual timeout below keeps the same PM2_LOG_TAIL_TIMEOUT contract but
+   * closes any bus that arrives after the bound already gave up, mirroring
+   * spawnDaemon()'s own "never leave a live resource behind a timeout"
+   * discipline elsewhere in this file.
+   *
    * @param {(entry: {process: string, data: string, at: 'out'|'err'}) => void} onLine
    * @returns {Promise<() => void>} unsubscribe function
    */
   async function startLogTail(onLine) {
     await ensureConnected();
     return new Promise((resolve, reject) => {
+      let settled = false;
+      // Deliberately not unref'd — same reasoning as every other timer in
+      // this file: it is the only thing that settles this promise if
+      // pm2.launchBus never calls back at all.
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const err = new Error(`pm2 launchBus timed out after ${pm2CallTimeoutMs}ms`);
+        err.code = 'PM2_LOG_TAIL_TIMEOUT';
+        reject(err);
+      }, pm2CallTimeoutMs);
+
       pm2.launchBus((err, bus) => {
+        if (settled) {
+          // The bound already fired and this call's caller has moved on —
+          // close a late-arriving bus rather than leak it (see doc comment
+          // above).
+          if (!err && bus) {
+            try {
+              bus.close();
+            } catch {
+              // Best-effort; nothing left to report this to.
+            }
+          }
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         if (err) return reject(err);
         const handler = (packet) => {
           if (packet.process?.name !== APP_NAME) return;
