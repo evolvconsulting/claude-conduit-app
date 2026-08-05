@@ -88,13 +88,32 @@ if (!gotSingleInstanceLock) {
     // exists purely so a failed regeneration/restart leaves a diagnostic
     // trail instead of vanishing silently (the promise's only other consumer
     // would otherwise be nothing at all).
+    //
+    // NCOW-43: both reads below used to be unguarded — `result.error?.message`
+    // (the .then() branch) and a bare `err.message` (the .catch() branch) —
+    // the identical shape and rationale ('this should never fire') as the
+    // auto-update startup backstop's own `err.message` NCOW-42 fixed further
+    // down this file. Optional chaining on `result.error?.message` only
+    // guards `result`/`result.error` being nullish; it does nothing against a
+    // throwing `.message` getter or hostile Proxy, so a hostile/malformed
+    // `error` value could still make this "just log it" .then() handler throw
+    // — which turns into an unhandled rejection in the main process, since
+    // nothing else consumes this promise. `result.error` here is
+    // engine-context.js's own `.catch((err) => ({..., error: err}))` catch of
+    // whatever regenerateStaleConfig() itself threw — an arbitrary caught
+    // value, not a known-shaped RETURNED failure object — so it's the same
+    // case describeThrownValue() exists for (NCOW-36/37/40), and the same
+    // helper the sibling auto-update backstop already reuses at the bottom of
+    // this file. Both reads now go through it instead of interpolating
+    // `.message` raw, so neither branch can itself throw regardless of what
+    // resolves/rejects into it.
     configRegeneration
       .then((result) => {
         if (result?.reason === 'error') {
-          console.warn('[config-regen] stale-config regeneration failed:', result.error?.message);
+          console.warn('[config-regen] stale-config regeneration failed:', describeThrownValue(result.error));
         }
       })
-      .catch((err) => console.warn('[config-regen] stale-config regeneration failed unexpectedly:', err.message));
+      .catch((err) => console.warn('[config-regen] stale-config regeneration failed unexpectedly:', describeThrownValue(err)));
 
     // Created before registerIpcHandlers (and before autoUpdate below) so
     // both the sidebar Quit path and the update-install path can reuse the
