@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 13:11'
-updated_date: '2026-08-05 14:30'
+updated_date: '2026-08-05 14:39'
 labels: []
 dependencies:
   - NCOW-45
@@ -28,3 +28,35 @@ The wave-6 integration review of NCOW-45 found two related hardening gaps in src
 - [ ] #5 The existing uninstall/update behavior and all pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified
 - [ ] #6 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read src/main/ipc.js (DOMAIN_MUTEX_ALIASES, LOCK_ACQUISITION_ORDER, resolveDomainLocks, withLocks, registerIpcHandlers), src/main/mutex.js (MUTEX_DOMAINS, createDomainMutex/createDomainMutexes) and test/main/ipc-mutex.test.js to confirm the exact deadlock mechanism in withLocks() (two reservations onto the same FIFO chain form a fixed-point cycle: the second reservation's release depends on the shared run it is itself blocking).
+2. Gap 1 / AC#1: rewrite resolveDomainLocks() to dedupe by resolved lock *function identity* (a Set over the mapped mutex functions) after sorting into LOCK_ACQUISITION_ORDER, before returning — a collision degrades to holding the shared mutex once instead of reserving its chain twice.
+3. Gap 2 / AC#3+#4: add a pure assertLockOrderIsConsistent(order, domains, aliases) that throws if order is not exactly a permutation of domains, or if any domain named anywhere in aliases is absent from order. DECISION: call it once at **module load** against the real LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS/DOMAIN_MUTEX_ALIASES. Reasoning: the invariant is not test-environment-specific (a shipped build with these three hand-maintained lists out of sync is exactly as broken on a user machine as in CI); the cost is a handful of Set ops over 4-element arrays paid once per process, not per IPC call; a loud require()-time crash beats silently shipping with the ordering guarantee already gone. The function takes its three inputs as parameters and is exported so a dedicated test can call it with deliberately-broken inputs — which is what makes the module-load choice non-vacuous rather than unverifiable.
+4. Export resolveDomainLocks, withLocks, assertLockOrderIsConsistent, DOMAIN_MUTEX_ALIASES, LOCK_ACQUISITION_ORDER from ipc.js (previously only registerIpcHandlers), matching this codebase's plain-named-export convention (cf. mutex.js's MUTEX_DOMAINS).
+5. Add 10 new tests appended after the existing last test in test/main/ipc-mutex.test.js, widening only the top import line: direct dedupe unit test + no-regression companion (AC#1); end-to-end registerIpcHandlers()/uninstall:run with two alias domains on the same mutex proving no deadlock (AC#2) + a lower-level withLocks()-only test proving the raw mechanism DOES deadlock without dedupe; positive-case permutation/coverage test + a module-load wiring check (AC#3); four loud-failure tests against assertLockOrderIsConsistent() — one domain missing, two missing (the silent-instability case), an extra unlisted domain, an alias target absent from an otherwise-consistent order (AC#4).
+6. Bound the two deadlock-reproduction tests to 50 Promise.resolve() microtask ticks rather than awaiting a possibly-permanently-pending result: the chain is pure synchronous Promise.then() with no macrotask/timer, so a real deadlock is a fixed-point cycle further ticks can never resolve — 'no progress after N ticks' is conclusive and can never hang the suite.
+7. Run npm test.
+8. Non-vacuity: revert resolveDomainLocks() to its pre-fix non-deduping body and neuter assertLockOrderIsConsistent() to a no-op with all new tests in place, rerun the file.
+9. Restore the fix, verify byte-identical via git diff, rerun the full suite.
+10. Commit in two logical commits mirroring NCOW-45's precedent (fix, then tests) and push.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Worker implementation evidence (wave 7, sonnet, worktree slot 1, branch fix/NCOW-46-harden-multi-lock-resolution @ base cd32488) — pre-review, not yet independently confirmed:**
+
+- AC#1 (dedupe): direct unit test 'resolveDomainLocks() dedupes when two aliased domains resolve to the SAME underlying mutex function' passes against the fix (locks.length === 2, shared mutex appears once); FAILED against reverted code (locks.length === 3, duplicate present).
+- AC#2 (no deadlock): end-to-end test through registerIpcHandlers()/uninstall:run with claudeCode and config aliased to the same mutex function resolves normally against the fix; against reverted code the same test FAILED (order stayed [] after 50 microtask ticks — the deadlock signature) without hanging the process.
+- AC#3 (permutation assertion): assertLockOrderIsConsistent(LOCK_ACQUISITION_ORDER, MUTEX_DOMAINS, DOMAIN_MUTEX_ALIASES) does not throw against the real shipped constants; a source-text regex test confirms the call is wired at module scope, not merely defined/exported.
+- AC#4 (loud failure): four assert.throws() tests — a domain removed, two domains removed (the sort-instability case), an extra unlisted domain, a DOMAIN_MUTEX_ALIASES target missing from an otherwise-internally-consistent order — all pass against the fix, all FAILED (no throw) against the neutered no-op.
+- **Non-vacuity reproduction (exact):** with resolveDomainLocks() reverted to its pre-fix non-deduping form and assertLockOrderIsConsistent() replaced by a no-op, `node --test test/main/ipc-mutex.test.js` reported '# tests 32 / # pass 26 / # fail 6' in 47ms with no hang — the 6 failures were exactly the AC#1 dedupe test, the AC#2 end-to-end deadlock test, and all four AC#4 loud-failure tests. All 22 pre-existing tests plus the 4 unaffected new tests kept passing. Fix then restored from backup, verified byte-identical via git diff, full suite rerun green.
+- AC#5: `git diff test/main/ipc-mutex.test.js` shows only the top import line widened — every pre-existing test body byte-for-byte unchanged; all 22 pre-existing tests passed in the baseline, post-fix, and non-vacuity runs.
+- AC#6: baseline 400/400 before any change; final npm test '# tests 410 / # pass 410 / # fail 0' — the +10 are exactly the new NCOW-46 tests.
+- **Judgment call flagged by the worker for review:** AC#3's 'module load or dedicated test' was resolved as module-load (see plan item 3) — an interpretive choice the task explicitly left open, not something objectively verified either way.
+
+Files touched: src/main/ipc.js, test/main/ipc-mutex.test.js (nothing outside the predicted footprint). Commits a067090 (fix), bba5f41 (tests), pushed to origin.
+<!-- SECTION:NOTES:END -->
