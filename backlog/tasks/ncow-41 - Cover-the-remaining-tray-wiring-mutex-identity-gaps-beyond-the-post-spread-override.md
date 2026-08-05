@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 01:59'
+updated_date: '2026-08-05 02:39'
 labels: []
 dependencies:
   - NCOW-35
@@ -28,4 +28,6 @@ NCOW-35 introduced createTrayActions({ mutexes, handlers }) in tray.js and a par
 - [ ] #4 npm test passes
 - [ ] #5 Correct the comment block's closing sentence (introduced by NCOW-38) claiming the existing tests 'cover everything currently provable' -- this overstates, since the handlers gap this task closes was reachable-but-uncovered before this task landed
 - [ ] #6 Widen NCOW-38's post-spread-override regex (or note explicitly why it's intentionally scoped) to also catch quoted keys ('onStop': ...), method-shorthand (onStop() {...}), and computed keys (['onStop']: ...), not just the canonical bare colon-form key -- currently only catches the file's existing one-key-per-line arrow-function style
+- [ ] #7 Make NCOW-38's post-spread-override guard fail loud instead of fail open: findKeyAfterTraySpread() currently returns undefined both when no override exists AND when the ...createTrayActions spread isn't found in the extracted block (e.g. a nested '});' between the spread and an override key truncates the block early), so the exact regression the guard exists to catch can slip through green -- add an explicit assertion that the spread was actually found before asserting no override followed it
+- [ ] #8 Correct the comment block's 'is now CLOSED' framing for the post-spread-override guard if AC#7 above (fail-loud fix) is not yet fixed by the time this task lands, and resolve the dangling '...not X' contrast left over from an earlier edit to the closing sentence
 <!-- AC:END -->

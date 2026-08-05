@@ -1,10 +1,10 @@
 ---
 id: NCOW-40
 title: Harden autoUpdate.js's remaining unguarded error-interpolation sites
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 02:00'
+updated_date: '2026-08-05 02:39'
 labels: []
 dependencies:
   - NCOW-37
@@ -19,12 +19,12 @@ NCOW-37 hardened src/main/autoUpdate.js's electron-updater 'error' event handler
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 performCheck()'s catch block no longer interpolates err.message directly; it routes through describeThrownValue()/safeStringify() (or equivalent) so a hostile thrown value cannot cause the handler to reject instead of degrading to a status broadcast, matching the function's own 'Always resolves' doc comment
-- [ ] #2 The darwin-path result.error interpolation is likewise hardened through the same safe-stringification approach
-- [ ] #3 describeThrownValue() in src/engine/configGen.js is refactored to call the existing safeReadProperty() helper instead of carrying its own duplicate inline property-read guards, with no behavior change (existing tests continue to pass unmodified in intent)
-- [ ] #4 The exported safeStringify() either gains a real consumer or is removed from configGen.js's exports if genuinely unused
-- [ ] #5 A regression test proves both hardened sites resolve (not reject) when given a hostile/malformed error value, mirroring NCOW-37's own adversarial test style
-- [ ] #6 npm test passes
+- [x] #1 performCheck()'s catch block no longer interpolates err.message directly; it routes through describeThrownValue()/safeStringify() (or equivalent) so a hostile thrown value cannot cause the handler to reject instead of degrading to a status broadcast, matching the function's own 'Always resolves' doc comment
+- [x] #2 The darwin-path result.error interpolation is likewise hardened through the same safe-stringification approach
+- [x] #3 describeThrownValue() in src/engine/configGen.js is refactored to call the existing safeReadProperty() helper instead of carrying its own duplicate inline property-read guards, with no behavior change (existing tests continue to pass unmodified in intent)
+- [x] #4 The exported safeStringify() either gains a real consumer or is removed from configGen.js's exports if genuinely unused
+- [x] #5 A regression test proves both hardened sites resolve (not reject) when given a hostile/malformed error value, mirroring NCOW-37's own adversarial test style
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -44,4 +44,12 @@ NCOW-37 hardened src/main/autoUpdate.js's electron-updater 'error' event handler
 Implemented by worker (worktree fix/NCOW-40-autoupdate-remaining-sites, commit aef9941, pushed to origin). performCheck()'s catch now uses describeThrownValue(err); darwin-path uses safeStringify(safeReadProperty(result.error, 'code'/'message')). describeThrownValue() refactored to call safeReadProperty() instead of duplicating inline guards (behavior-preserving). safeReadProperty exported from configGen.js; safeStringify now has a real external consumer (autoUpdate.js's darwin path). 8 new adversarial tests added to test/main/autoUpdate.test.js. npm test: 356/356 passing. Pre-fix verification: stashed only the 2 source files (kept new tests), ran against reverted code -- 17 pass / 8 fail, exactly the 8 new tests, with failure messages matching predicted TypeErrors; confirms genuine regression coverage, not happy-path.
 
 Review pass 1 (opus): verdict approve. All 6 ACs confirmed independently. Reviewer's own from-scratch adversarial probe (53 hostile shapes x 3 sites = 159 case-runs: revoked Proxy, all-traps-throwing Proxy, self-recursive getters, throwing toString/valueOf/Symbol.toPrimitive, BigInt, circular objects, 100k-char messages, etc.) found 0 throws/rejections against the fix and 29 genuine throws against unpatched dev (125 total findings incl. non-throw string-type violations); control check confirmed NCOW-37's already-hardened site produced 0 findings both before and after, validating the probe discriminates real gaps rather than flagging noise. AC#3's behavior-preservation verified via a 61-shape differential against a verbatim copy of the old describeThrownValue() implementation, including composition edge cases (throwing constructor getter, throwing .name getter, constructor as Proxy/null/primitive) -- byte-identical outputs on every shape, zero divergence. npm test 356/356 (reviewer's own run; dev baseline 348/348, confirming the reported +8). Pre-fix regression-coverage independently reproduced: reverting the 2 source files while keeping new tests produced exactly 17 pass / 8 fail, all genuine runtime throws. Commit aef9941 follows conventions; diff confined to the 3 expected files, no collision with sibling wave-3 task. 2 new non-blocking residuals found (out of this task's scope, pre-existing on dev, not introduced or worsened here): (1) performCheck()'s darwin branch still has no try/catch around checkLatestRelease() itself -- a rejecting or null-resolving call still makes checkForUpdates() reject despite its own 'Always resolves' doc comment; (2) src/engine/updateCheck.js:116-118 reads err.name off an unguarded caught value with the same NCOW-36/37/40-family shape -- a fetchImpl throwing null/undefined makes checkLatestRelease() reject despite its own 'Always resolves' doc comment. Both are natural next follow-up candidates, to be proposed to the user at wave-3 integration review time, not created unilaterally.
+
+Wave-3 integration review (opus): confirmed no cross-task conflicts with NCOW-38 (disjoint files, no hidden coupling between autoUpdate.js and tray.js/its tests). npm test 358/358 on merged dev. Critically, the reviewer found the severity-bounding argument used to defer this task's 2 residuals was itself wrong: index.js:209's backstop .catch(err => console.warn(..., err.message)) -- cited as proof the consequence was 'just a missed status broadcast' -- has the identical unguarded-read bug. Reproduced the full chain empirically: updateCheck.js's err.name/err.message unguarded (3/5 hostile shapes reject), autoUpdate.js's darwin checkLatestRelease() call has no try/catch and no null-result guard (5/5 shapes reject), and index.js:209's own backstop then throws on a null rejection. Proposed to the user as a new follow-up task covering the full chain; approved and filed as NCOW-42.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened performCheck()'s catch block and autoUpdate.js's darwin-path result.error interpolation, refactored describeThrownValue() to use safeReadProperty(), gave safeStringify() a real consumer. Approved on the first review pass (opus): all 6 ACs confirmed, including a from-scratch 159-case-run adversarial probe (0 failures against the fix, 29 genuine throws against unpatched dev) and a 61-shape behavior-preservation differential proving the describeThrownValue() refactor byte-identical to the original. npm test 356/356 (reviewer's own run). Merged as PR #31 (7fbcc9e). Wave-3 integration review found the 2 residuals this task's reviewer deferred (performCheck()'s darwin branch, updateCheck.js's err.name read) combine with an equally-unguarded backstop at index.js:209 into a real, reproducible unhandled-rejection-shaped chain -- filed as NCOW-42.
+<!-- SECTION:FINAL_SUMMARY:END -->
