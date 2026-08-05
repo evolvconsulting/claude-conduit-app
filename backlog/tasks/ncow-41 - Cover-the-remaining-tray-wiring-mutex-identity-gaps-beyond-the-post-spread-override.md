@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 02:48'
+updated_date: '2026-08-05 03:06'
 labels: []
 dependencies:
   - NCOW-35
@@ -31,3 +31,27 @@ NCOW-35 introduced createTrayActions({ mutexes, handlers }) in tray.js and a par
 - [ ] #7 Make NCOW-38's post-spread-override guard fail loud instead of fail open: findKeyAfterTraySpread() currently returns undefined both when no override exists AND when the ...createTrayActions spread isn't found in the extracted block (e.g. a nested '});' between the spread and an override key truncates the block early), so the exact regression the guard exists to catch can slip through green -- add an explicit assertion that the spread was actually found before asserting no override followed it
 - [ ] #8 Correct the comment block's 'is now CLOSED' framing for the post-spread-override guard if AC#7 above (fail-loud fix) is not yet fixed by the time this task lands, and resolve the dangling '...not X' contrast left over from an earlier edit to the closing sentence
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read the real current content of test/main/engine-context-config-regen.test.js and
+   test/main/tray-actions.test.js to confirm the test-file-only hypothesis (mirroring
+   NCOW-35/38/39's precedent) before implementing anything.
+2. AC#1/AC#3: extend the single-binding-check pattern to cover `handlers` (new, equivalent
+   to the existing `mutexes` check) and function-parameter shadowing (new
+   identifierBoundAsFunctionParam() static helper), each backed by a meta-test.
+3. AC#2: add a behavioural regression test in tray-actions.test.js reproducing index.js's real
+   call order (registerIpcHandlers() then createTrayActions()) and mutating mutexes.proxy in
+   between, sanity-checked to be non-vacuous.
+4. AC#6: widen findKeyAfterTraySpread()'s regex to catch quoted keys, method shorthand
+   (incl. async), and computed keys; extend the meta-test across all 3 key names x 7
+   syntactic forms.
+5. AC#7: make findKeyAfterTraySpread() throw when the spread isn't located (fail loud instead
+   of fail open), plus a meta-test proving the truncation scenario now throws, plus an
+   explicit spread-found assertion in the real guard test.
+6. AC#5/AC#8: rewrite the stale review comment block to accurately describe post-NCOW-41
+   state and remove the dangling contrast sentence.
+7. Run npm test, confirm before/after counts, commit in small logical commits with
+   Refs NCOW-41. trailers, push.
+<!-- SECTION:PLAN:END -->
