@@ -1204,7 +1204,37 @@ test('ipc: NCOW-47 — apiKey:clear does NOT serialize against a config lock fro
     order.push('bg-generate:exit');
   });
 
-  await invoke('apikey:clear');
+  // If createDomainMutexes() ever regressed into a memoizing singleton,
+  // `other.config` would resolve to the SAME underlying lock apiKey:clear
+  // is registered against above, and apiKey:clear would queue behind the
+  // background job — which never releases until gate.resolve() below, a
+  // line this await would then never reach. Race against a short timeout
+  // so that failure mode reports as a normal assertion failure instead of
+  // hanging this test (and, with no --test-timeout configured, the whole
+  // `npm test` process). Cleared as soon as the real call settles, so the
+  // timer never fires — and costs nothing — on the passing path.
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            'apiKey:clear did not resolve within 500ms — it is likely queued behind the unrelated ' +
+              'background lock, i.e. createDomainMutexes() regressed into a shared singleton'
+          )
+        ),
+      500
+    );
+    invoke('apikey:clear').then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
   // Not a tick-exact deepEqual: which of clear:enter/bg-generate:enter lands
   // first is a microtask-hop-count race on two mutually independent lock
   // chains, not a property this test cares about — pinning it made a

@@ -67,11 +67,13 @@ function createDomainMutex() {
  * so don't read "not listed here" as "has no mutating concern":
  *
  *   - apiKey, uninstall, update: each has a real mutating concern but shares
- *     (aliases onto) one of these four locks instead of getting its own,
- *     because its mutation touches state one of these domains already
- *     guards. See DOMAIN_MUTEX_ALIASES in ipc.js for exactly which lock each
- *     aliases onto and why (NCOW-32/45 for uninstall/update, NCOW-47 for
- *     apiKey).
+ *     (aliases onto) locks from this array instead of getting its own,
+ *     because its mutation touches state one or more of these domains
+ *     already guards. apiKey and update each alias onto a single lock;
+ *     uninstall aliases onto all three, because it mutates claudeCode,
+ *     config, AND proxy state in one call. See DOMAIN_MUTEX_ALIASES in
+ *     ipc.js for exactly which lock(s) each aliases onto and why (NCOW-32/45
+ *     for uninstall/update, NCOW-47 for apiKey).
  *   - diagnostics, prereqs: checked and confirmed to need NO lock at all —
  *     not even an alias. diagnostics.run reads the same secretStore state
  *     apiKey/config now serialize, but is deliberately left unserialized
@@ -81,31 +83,51 @@ function createDomainMutex() {
  *     uninstall (see prereqs.js's installLitellm) — its only coupling to
  *     `config` is indirect: it changes whether litellm is on PATH, and
  *     config.generate calls prereqs.checkLitellmOnPath() under the config
- *     lock and bakes litellmCheck.path into both ecosystem.config.cjs and
- *     manifest.litellm_path (engine-context.js's config.generate). Worst
+ *     lock and bakes litellmCheck.path into both the generated run.js
+ *     launcher (configGen.js's renderRunLauncherJs) and manifest.litellm_path
+ *     (engine-context.js's config.generate) — NOT ecosystem.config.cjs,
+ *     which only ever gets run.js's own path and the node interpreter
+ *     (renderEcosystemConfigCjs); litellm's path never appears there. Worst
  *     case of racing the two is a spurious LITELLM_MISSING error, or a path
  *     baked in that becomes valid a moment later — cosmetic, no corruption,
  *     and correctly out of scope for a lock.
  *
  * `catalog` is the one domain here with genuinely no mutating concern
- * anywhere in its chain — it only reads secretStore.load() and calls out to
- * the remote model catalog, full stop. `app` is NOT in that category, and
- * this comment used to claim otherwise (NCOW-47 fix pass: that claim was
- * false and concealed a real defect, so don't reintroduce it):
+ * anywhere in its chain — catalog.fetch reads secretStore.load(), reads the
+ * manifest via getManifest() for nim_base_url, and calls out to the remote
+ * model catalog: reads, all the way down, nothing more. `app` is NOT in that
+ * category, and this comment used to claim otherwise (NCOW-47 fix pass: that
+ * claim was false and concealed a real defect, so don't reintroduce it):
  *
  *   - app.openLogsFolder (engine-context.js) runs
  *     `fs.mkdirSync(files.logsDir, {recursive: true})`, and logsDir lives
  *     INSIDE the directory the `config` lock guards
  *     (`logsDir = path.join(configDir, 'logs')`, paths.js) — yet `app`
  *     resolves to zero locks (no MUTEX_DOMAINS entry, no
- *     DOMAIN_MUTEX_ALIASES entry). That unlocked mkdirSync can land inside a
- *     purge-uninstall's fs.rmSync(configDir) critical section (uninstall.js,
- *     held under claudeCode+config+proxy) and resurrect `<configDir>/logs`
- *     after uninstall has already reported success — a real, reproducible
- *     defect of exactly the family this task closes for apiKey. Deliberately
- *     left unfixed here (belongs in a follow-up task, not this one) — this
- *     comment names it so a future reader can find it instead of assuming
- *     "app is pure reads" the way this comment used to claim.
+ *     DOMAIN_MUTEX_ALIASES entry). `app` is NOT pure reads, but measuring it
+ *     (NCOW-47 fix-pass-2) rules out this comment's earlier claim that the
+ *     unlocked mkdirSync can land inside the purge critical section: a call
+ *     delivered mid-uninstall — while uninstall.js's one
+ *     `await pm2Control.remove()` is still pending — lands BEFORE
+ *     fs.rmSync(configDir) and is wiped out by that same delete, and even
+ *     scheduled in the exact same tick as uninstall:run it never lands
+ *     between that rmSync and uninstall:run's promise fully settling either:
+ *     everything from rmSync onward (removed.push, then the async returns
+ *     back up through runUninstall -> the handler -> withLocks' sharedRun ->
+ *     ipcMain.handle) is chained-promise microtask work with no macrotask
+ *     boundary in it for a real, macrotask-delivered IPC/menu call to land
+ *     inside. The genuinely reachable defect is different: a click on "Open
+ *     Logs Folder" any time AFTER a purge-uninstall has already reported
+ *     success recreates `<configDir>/logs` (and configDir itself)
+ *     unconditionally — not a serialization gap, and no lock fixes it.
+ *     Aliasing `app` onto `config` is specifically NOT that fix: measured
+ *     doing exactly that, it turns the harmless mid-uninstall case above
+ *     into a genuine resurrection, since the call then queues behind
+ *     uninstall's own lock hold and lands AFTER fs.rmSync instead of before
+ *     it. Left unfixed here (needs a guard in the handler itself — skip the
+ *     mkdirSync when nothing is configured — which belongs in a follow-up
+ *     task, not this one) — named so a future reader neither reaches for
+ *     that alias nor re-assumes "app is pure reads".
  *   - app.quit (index.js) transitively stops the pm2-supervised proxy via
  *     before-quit -> stopProxyForShutdown — but that one IS already
  *     accounted for: it's the documented, deliberate carve-out described in
