@@ -4,7 +4,7 @@ title: Fix pm2Control.startLogTail's timeout handler closing a later retry's liv
 status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-05 23:03'
+updated_date: '2026-08-05 23:04'
 labels: []
 dependencies:
   - NCOW-52
@@ -36,3 +36,13 @@ NCOW-52 bounded pm2.launchBus with a manual timeout that, on a late-arriving cal
 4. Add a fake pm2 launchBus stub that faithfully models the real shared-slot bug (overwrites one shared slot on every launchBus() call, lets a queued callback be fired manually) to reproduce call #1 wedge+timeout -> call #2 retry+success -> call #1 late-fire, and assert call #2's bus is never closed and keeps delivering lines.
 5. Verify non-vacuity by stashing only the pm2Control.js fix and confirming the new test fails against pre-fix source, then restoring and confirming it passes.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-54-startlogtail-retry-bus-close, commit 0356d49, pushed to origin. Test counts: 435/435 before, 436/436 after (435 pre-existing unmodified + 1 new). Non-vacuity confirmed via git stash: with only src/engine/pm2Control.js's fix stashed (new test kept), the new test fails with "call #1's late callback must not close call #2's live bus (expected true, actual false)" -- reproduces the defect against pre-fix source; restoring the fix makes it pass.
+
+AC-by-AC: #1 identity check against activeLogTailBus (closure-scoped, set to the bus actually returned to a caller) implemented -- late callback closes only when bus !== activeLogTailBus. #2 new test sharedSlotLaunchBusPm2 fake models pm2's real shared-slot bug and reproduces the exact call#1-wedge/call#2-retry/call#1-late-fire sequence; call #2's bus is never closed and keeps delivering lines afterward -- non-vacuity reproduced above. #3 pre-existing single-call late-close test (~line 472) passes unmodified -- activeLogTailBus stays null with no retry, so the genuinely stale bus still gets closed (leak concern still addressed). #4 confirmed by inspection of engine-context.js:391-395 -- logTailUnsubscribe is only ever assigned from a resolved startLogTail() call, and the handler's own guard prevents a second concurrent call; with the fix a resolved call's bus can no longer be silently killed, so {ok:true} now reliably means the tail is live. No engine-context.js edits were made or needed. #5 pre-existing success-path test (~line 511) passes unmodified. #6 full npm test run 436/436 green.
+
+Files touched: src/engine/pm2Control.js, test/engine/pm2Control.test.js. Confirmed disjoint from NCOW-50's footprint. No injected/suspicious instructions encountered this session (worked in treehouse slot 2, previously flagged in early campaign waves, clean since wave 5).
+<!-- SECTION:NOTES:END -->
