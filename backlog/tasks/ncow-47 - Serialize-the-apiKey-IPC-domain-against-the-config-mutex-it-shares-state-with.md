@@ -40,3 +40,20 @@ The wave-7 integration review of NCOW-46 enumerated lock resolution for every CH
 8. Verify non-vacuity by stashing only src/main/ipc.js, running the new tests against unpatched source, observing genuine failures, restoring.
 9. Run full npm test; commit as two logical commits; push.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worker evidence (wave 8, branch feat/NCOW-47-serialize-apikey-domain, commits da30032 + abad3fa) — recorded by the orchestrator, pending independent review:
+
+- AC#1: single DOMAIN_MUTEX_ALIASES entry `apiKey: 'config'` — no new mechanism. Verified by new ipc-mutex tests (background config:generate blocks apiKey:clear and apiKey:validateAndSave; reverse ordering also holds).
+- AC#2: `apiKey: ['getMasked']` added to UNSERIALIZED_METHODS with a comment on why it is a safe pure read, following the existing precedent list. Covered by a new test.
+- AC#3 non-vacuity REPRODUCED: with only src/main/ipc.js reverted (git stash push -- src/main/ipc.js), `node --test test/main/ipc-mutex.test.js` failed 5 of the new assertions; observed output for test 34 was ['clear:enter','bg-generate:enter'] against expected ['bg-generate:enter','clear:enter'] — apiKey:clear ran immediately instead of queuing behind the in-flight config:generate, exactly the described interleaving. All 5 pass after restoring. The getMasked test passes even unpatched (correct — with no lock at all, 'opts out of a lock' is trivially true) and is explicitly NOT part of the non-vacuity claim.
+- AC#4: mutex.js's MUTEX_DOMAINS comment rewritten into three accurate categories (aliased: apiKey/uninstall/update; deliberately unlocked: diagnostics/prereqs; genuinely pure-read: app/catalog).
+- AC#5: verified against real code — diagnostics.run reads secretStore.load() but never persists/deletes, so racing is cosmetic at worst; prereqs.installLitellm spawns uv/pipx/pip with no reference to configDir/secretStore in the function. Reasoning recorded in mutex.js's comment, ipc.js's alias comment, and as an addendum (not a rewrite) to engine-context.js's existing diagnostics.run comment.
+- AC#6: npm test 416/416 passing (410 baseline + 6 new), 0 failures, no pre-existing test modified.
+
+Worker judgment calls flagged for review: (a) aliased apiKey to config ALONE rather than an array, since the only shared-state concern is config.generate's secretStore.load() — this leaves LOCK_ACQUISITION_ORDER and assertLockOrderIsConsistent() untouched; (b) no engine-context-apikey.test.js-level lock test, because locking is an ipc.js-layer concern and config/uninstall/update locking is likewise tested only in ipc-mutex.test.js.
+
+Process note: the worker again encountered the campaign's known fake 'system-reminder' injected instruction (a message claiming a file was externally modified and asking it to stay silent), this time on treehouse slot 1 and immediately after its OWN deliberate `git stash push -- src/main/ipc.js`. It verified via git that it had caused the change itself, disregarded the concealment instruction, and reported it. First occurrence outside slot 2.
+<!-- SECTION:NOTES:END -->
