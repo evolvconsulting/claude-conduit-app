@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 03:22'
+updated_date: '2026-08-05 03:28'
 labels: []
 dependencies:
   - NCOW-35
@@ -168,4 +168,35 @@ current index.js (no false positive on either mutexes or handlers) before adopti
 No injected/suspicious instructions encountered during this fix pass.
 
 Routed back to the same reviewer for pass 2 (re-review).
+
+Re-reviewed (pass 2 of 2 allowed retries) by the same reviewer. VERDICT: approve. All 8 ACs
+reconfirmed this pass, most by fresh empirical reproduction rather than re-reading: AC#2's
+crux finding is genuinely fixed -- the reviewer re-injected the exact hostile mutation that
+passed 362/362 on pass 1 (`mutexes.proxy = require('./mutex').createDomainMutex();` before
+createTray) and confirmed it NOW correctly fails at the new identifierPropertyIsAssigned()
+assertion (362 pass / 1 fail); separately verified the computed-key `handlers['proxy'] = ...`
+variant also correctly fails; confirmed no false positive against the real call site's
+legitimate read, an equality check, and a property spread via a 21-case regex battery; and
+confirmed the new meta-test (test 279) is a genuine two-polarity proof, not a tautology. Also
+independently reconfirmed no regression in AC#1/#3/#6/#7 via fresh hostile injections (shadowed
+handlers, parameter-shadowing wrapper, quoted post-spread key, block-truncation-throws), and
+that AC#5/#8's corrected comment text is now honestly true given what's actually covered.
+Reverted every injection; index.js sha256-verified identical to baseline before and after.
+
+npm test: 363/363 passing (matches worker's claim exactly), re-verified independently.
+
+Non-blocking findings (informational only, explicitly not requiring further action this task):
+identifierPropertyIsAssigned() catches `id.prop =`/`id[key] =` but not Object.assign(),
+Object.defineProperty(), destructuring-assignment, or logical-assignment (??=/||=/&&=) spellings
+of the same mutation -- noted as a candidate follow-up for spelling parity with what AC#6
+demanded of the sibling post-spread regex, not a blocker since AC#2's canonical + computed
+forms (the ones actually reviewed as real) are both caught. A docblock wording nit (mild
+spelling-exhaustiveness overclaim, same species as AC#5 but not on the AC#5-governed sentence
+itself) and a historical present-tense phrase 16 lines before its own correction, both cosmetic.
+
+Scope confirmed clean (only the two intended test files, tray-actions.test.js's own change
+comment-only). Commit conventions confirmed correct. No injected/suspicious instructions
+encountered during this re-review pass.
+
+WAVE 4 SETTLED: both NCOW-42 and NCOW-41 now carry approve verdicts. Ready for the merge queue.
 <!-- SECTION:NOTES:END -->
