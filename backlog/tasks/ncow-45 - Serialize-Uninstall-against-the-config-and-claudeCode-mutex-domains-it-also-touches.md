@@ -3,9 +3,10 @@ id: NCOW-45
 title: >-
   Serialize Uninstall against the config and claudeCode mutex domains it also
   touches
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 11:43'
+updated_date: '2026-08-05 12:11'
 labels: []
 dependencies:
   - NCOW-32
