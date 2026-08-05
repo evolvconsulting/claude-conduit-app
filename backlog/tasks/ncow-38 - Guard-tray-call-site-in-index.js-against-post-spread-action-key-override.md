@@ -4,7 +4,7 @@ title: Guard tray call site in index.js against post-spread action key override
 status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-05 01:46'
+updated_date: '2026-08-05 01:53'
 labels: []
 dependencies:
   - NCOW-35
@@ -24,3 +24,18 @@ NCOW-35 extracted the tray's mutex-wrapped onStart/onStop/onRestart wiring into 
 - [ ] #3 npm test passes
 - [ ] #4 The comment block in test/main/engine-context-config-regen.test.js (around lines 799-845, rewritten by NCOW-39) is updated to accurately describe this task's new post-spread-override guard as landed, rather than as an outstanding gap -- while implementing this task, also fold in NCOW-39 review pass 2's two accepted low-severity residuals (F2: correct the umbrella sentence about which gaps a text-only check can reach -- it can reach the 'handlers' single-binding gap the same way it reaches 'mutexes'; F3: describe the tray-actions.test.js negative control's actual mechanics precisely -- it uses an externally-provided differing mutex set, not an internally-constructed one)
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add a static source-text guard test in test/main/engine-context-config-regen.test.js: extract index.js's createTray({...}) block, locate the ...createTrayActions({ mutexes, handlers }) spread, fail if onStart/onStop/onRestart appears anywhere in the text after it (AC#1).
+2. Add a companion meta-test applying the same helper to hand-built synthetic createTray({...}) blocks reproducing the post-spread-override shape for each key, proving the guard actually catches it (AC#2).
+3. Update the shared comment block (~lines 799-845) to describe this guard as landed, and fold in NCOW-39's 2 accepted residuals (F2: text-only checks CAN reach the handlers gap the same way as mutexes; F3: tray-actions.test.js's negative control uses an externally-provided differing mutex set, not an internally-constructed one) (AC#4).
+4. No source change needed in index.js itself -- current wiring is already correct; this is purely additive regression coverage.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented by worker (worktree fix/NCOW-38-tray-post-spread-guard, commit 6ad01bb, pushed to origin). Added a static guard test (findKeyAfterTraySpread() helper) plus a companion meta-test proving it catches the post-spread-override shape for each of onStart/onStop/onRestart. Updated the shared comment block to describe the guard as landed and folded in NCOW-39's 2 accepted residuals. npm test 350/350 (before and after a temporary regression repro). Verified the guard actually catches the regression: temporarily added a real 'onStop: ...' key after the spread in the live src/main/index.js, confirmed the new test failed with the expected message, then reverted and confirmed via git diff/status that index.js is byte-identical to HEAD. Worker flagged and disregarded a suspicious injected instruction encountered mid-task (a fake system-reminder falsely claiming index.js had been intentionally modified and instructing silence) -- independently re-verified clean via git commands both by the worker and by the orchestrator; no actual modification exists.
+<!-- SECTION:NOTES:END -->
