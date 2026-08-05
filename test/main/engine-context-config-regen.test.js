@@ -800,19 +800,24 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // prove something narrower than earlier wording here claimed. The
 // behavioural test (test/main/tray-actions.test.js) proves
 // createTrayActions({ mutexes, handlers }) serializes through WHATEVER
-// mutex set it is handed, with a negative control confirming a private,
-// internally-constructed mutex set fails the test — but it imports tray.js
-// directly, so it says nothing about what index.js itself passes in. The
-// static check just below proves only that the `mutexes` identifier —
-// specifically `mutexes`, not `handlers` — is declared/bare-reassigned
-// exactly once anywhere in index.js. Neither check, nor the pair together,
-// closes the full chain; several separately-identified gaps remain outside
-// what a text-only check over a file that can't be required under
-// node --test can reach:
+// mutex set it is handed, with a negative control confirming that an
+// externally-provided, differing mutex set — a parameter passed IN to
+// createTrayActions, not one it constructs itself — fails the test — but it
+// imports tray.js directly, so it says nothing about what index.js itself
+// passes in. The static check just below proves only that the `mutexes`
+// identifier — specifically `mutexes`, not `handlers` — is declared/bare-
+// reassigned exactly once anywhere in index.js. Neither check, nor the pair
+// together, closes the full chain; several separately-identified gaps
+// remain open. Not all of them are actually beyond a text-only check's
+// reach, though: the `handlers` gap immediately below is exactly as
+// reachable by the same single-binding technique the `mutexes` check below
+// already uses — it simply doesn't have one yet (a sibling task, not this
+// one, adds it). The rest genuinely are outside what a text-only check over
+// a file that can't be required under node --test can reach:
 //
-// - `handlers` has no equivalent single-binding check at all. The static
-//   check's one mention of `handlers` only confirms that mutexes' sole
-//   declaration happens to be the
+// - `handlers` has no equivalent single-binding check at all yet. The
+//   static check's one mention of `handlers` only confirms that mutexes'
+//   sole declaration happens to be the
 //   `const { handlers, pm2Control, configRegeneration, mutexes } =`
 //   destructure — it does nothing to forbid a SECOND, shadowing `handlers`
 //   binding wrapped around createTray({...}), giving the tray a private,
@@ -831,17 +836,27 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 //   }))(privateMutexSet)`, is the same nested-scope-shadowing class the
 //   static check exists to catch, just introduced via a function parameter
 //   instead of a declaration or reassignment — also passes the full suite.
-// - A plain object literal override is a fourth, separate gap: if a future
-//   edit adds its own `onStart`/`onStop`/`onRestart` key to the
-//   createTray({...}) object literal AFTER the
-//   `...createTrayActions({ mutexes, handlers })` spread, plain JS object
-//   semantics let that later key silently win, discarding the mutex-wrapped
-//   action the spread contributed — with `mutexes` still bound exactly once
-//   and the spread text still present verbatim, so neither check would
-//   notice. NCOW-38 tracks adding a guard for this specific case.
 //
-// Until NCOW-38 (and equivalent guards for the other gaps above) land,
-// treat this pair as proving lock identity for what they can see, not full
+// A fourth gap — a plain object literal override, where a future edit adds
+// its own `onStart`/`onStop`/`onRestart` key to the createTray({...}) object
+// literal AFTER the `...createTrayActions({ mutexes, handlers })` spread, so
+// plain JS object semantics let that later key silently win and discard the
+// mutex-wrapped action the spread contributed, with `mutexes` still bound
+// exactly once and the spread text still present verbatim so neither check
+// above would notice — is now CLOSED. NCOW-38 adds two further tests below
+// (after the identifier-binding check that follows this comment): one that
+// extracts this same createTray({...}) block, locates the
+// createTrayActions(...) spread, and fails if an onStart/onStop/onRestart
+// key appears anywhere in the text after it; and a meta-test that
+// reproduces this exact shape — a key hand-added after the spread in a
+// synthetic createTray({...}) block — and confirms the guard actually
+// catches it, rather than merely existing unexercised.
+//
+// Equivalent guards for the three gaps still open above — `handlers`'
+// missing single-binding check, `mutexes.proxy` property-level mutation,
+// and parameter shadowing — remain future work. This pair, plus NCOW-38's
+// post-spread-override guard and tray-actions.test.js's behavioural proof,
+// cover everything currently provable about tray wiring, not full
 // tray-wiring safety.
 test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
@@ -913,4 +928,86 @@ test('index.js: the `mutexes` identifier is bound exactly once (the createEngine
     0,
     `expected no bare "mutexes = ..." reassignment anywhere in index.js, found: ${JSON.stringify(bareAssignments)}`
   );
+});
+
+// NCOW-38: closes the "plain object literal override" gap identified in the
+// big review comment above — a future edit that adds its own
+// onStart/onStop/onRestart key to the createTray({...}) object literal AFTER
+// the ...createTrayActions({ mutexes, handlers }) spread would silently win
+// by plain JS object-literal semantics, discarding the mutex-wrapped action
+// the spread contributed and reintroducing an unserialized tray action
+// racing the shared proxy mutex (NCOW-31 finding B1) — with `mutexes` still
+// bound exactly once and the spread text still present verbatim, so neither
+// the call-site regex nor the identifier-binding check above would notice.
+//
+// Extracted as a standalone helper (rather than inlined in the test below)
+// so the meta-test immediately following it can apply the EXACT same
+// detection logic to a hand-built reproduction of the bad shape, rather than
+// asserting on a second, potentially-drifted copy of the regex.
+function findKeyAfterTraySpread(trayBlock) {
+  const spreadMatch = trayBlock.match(/\.\.\.createTrayActions\(\{\s*mutexes,\s*handlers\s*\}\)/);
+  if (!spreadMatch) return undefined;
+  const afterSpread = trayBlock.slice(spreadMatch.index + spreadMatch[0].length);
+  // One property per line is this file's (and index.js's) consistent style,
+  // so anchoring the key to the start of a line — rather than matching it
+  // anywhere in the text — is enough to find a real object-literal key
+  // without also tripping on the word appearing inside a comment.
+  const match = afterSpread.match(/^\s*(onStart|onStop|onRestart)\s*:/m);
+  return match ? match[1] : undefined;
+}
+
+test('index.js: createTray({...}) defines no onStart/onStop/onRestart key AFTER the createTrayActions(...) spread (post-spread override guard)', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+  const trayCallAt = source.indexOf('createTray({');
+  assert.ok(trayCallAt > -1, 'expected to find the createTray({...}) call');
+  const trayCallEnd = source.indexOf('});', trayCallAt);
+  assert.ok(trayCallEnd > -1, 'expected the createTray({...}) call to close with });');
+  const trayBlock = source.slice(trayCallAt, trayCallEnd);
+
+  const overriddenKey = findKeyAfterTraySpread(trayBlock);
+  assert.equal(
+    overriddenKey,
+    undefined,
+    `found "${overriddenKey}" defined after the ...createTrayActions({ mutexes, handlers }) spread inside ` +
+      'createTray({...}) — plain JS object-literal semantics let this later key silently discard the ' +
+      'mutex-wrapped action the spread contributed, reintroducing an unserialized tray action racing the ' +
+      'shared proxy mutex (NCOW-31 finding B1). Move it before the spread, or fold the behaviour into ' +
+      "tray.js's createTrayActions() itself."
+  );
+});
+
+// NCOW-38 (AC#2): the guard above is only as good as its ability to actually
+// catch the shape it targets. This applies the exact same
+// findKeyAfterTraySpread() detection logic to synthetic createTray({...})
+// blocks that reproduce the "key added after the spread" shape precisely —
+// proving the guard would fail on a real regression, not just that it
+// currently passes on today's (already-correct) index.js for some unrelated
+// reason.
+test('index.js: the post-spread-override guard actually catches the regression shape it targets (meta-test)', () => {
+  const goodBlock = `createTray({
+      showDashboard: () => showMainWindow('dashboard'),
+      showDiagnostics: () => showMainWindow('diagnostics'),
+      quit: () => app.quit(),
+      ...createTrayActions({ mutexes, handlers }),
+    });`;
+  assert.equal(
+    findKeyAfterTraySpread(goodBlock),
+    undefined,
+    'sanity check: a spread with nothing after it in the same object literal must not be flagged'
+  );
+
+  for (const key of ['onStart', 'onStop', 'onRestart']) {
+    const badBlock = `createTray({
+      showDashboard: () => showMainWindow('dashboard'),
+      showDiagnostics: () => showMainWindow('diagnostics'),
+      quit: () => app.quit(),
+      ...createTrayActions({ mutexes, handlers }),
+      ${key}: () => handlers.proxy.stop(),
+    });`;
+    assert.equal(
+      findKeyAfterTraySpread(badBlock),
+      key,
+      `expected the guard to catch a literal "${key}" key hand-added after the createTrayActions(...) spread`
+    );
+  }
 });
