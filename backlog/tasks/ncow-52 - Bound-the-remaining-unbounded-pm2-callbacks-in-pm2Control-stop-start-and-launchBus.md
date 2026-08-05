@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 18:39'
-updated_date: '2026-08-05 21:40'
+updated_date: '2026-08-05 21:43'
 labels:
   - concurrency
 dependencies:
@@ -68,4 +68,6 @@ REVIEW PASS 1 (opus) — request_changes. All 10 ACs independently confirmed (me
 BLOCKING FINDING (the only one, non-AC): test/main/shutdown.test.js's new AC#8 test uses pm2CallTimeoutMs:10_000 for its wedged pm2.stop. Because the inner withTimeout's setTimeout is only cleared when it fires (not when the outer 50ms shutdown bound settles first), node's test runner waits out the full 10s before that file can finish -- reviewer measured 137ms on dev's 9 tests vs 10,143ms on this branch's 10 tests (74x), even though the AC#8 test's own recorded duration is 50.4ms. Full suite: 8042ms -> 10371ms. Reviewer verified a fix: pm2CallTimeoutMs:1_000 AND the assertion threshold lowered from elapsed<2000 to elapsed<300 together (moving only the timeout without moving the threshold would make the test vacuous against a regression) -- confirmed both changed together drops the file to 1145ms with real margin on both sides (~50ms pass-side observed, 3.3x fail-side margin).
 
 Non-blocking, recorded for the record (not required for this task's own fix pass): (a) pm2's own launchBus reads self.sub at callback time rather than a captured local, so a >15s wedge followed by a retry followed by a late first-attempt callback could close the wrong (live) bus -- narrow, upstream pm2 behavior, strictly better than the pre-fix indefinite lock hold, not worth fixing here; (b) DESIGN.md's pm2-timeout census (:397-409, :621-624) still only names PM2_LIST/DELETE/SAVE_TIMEOUT, now missing 3 more codes -- matches NCOW-48's own precedent of leaving this to the wave-level integration review rather than the fix branch.
+
+FIX PASS 1 — addressed the review's one blocking finding. test/main/shutdown.test.js's AC#8 test: pm2CallTimeoutMs 10_000 -> 1_000 and its own elapsed<2000 assertion -> elapsed<300, moved together per the reviewer's own verified fix (moving only one would make the test vacuous against a regressed outer bound). Evidence: file duration in isolation 10,143ms -> 1,146.5ms; full suite 10,371ms -> ~8,014-8,052ms (back near dev baseline 8,042ms); 435/435 passing, 0 failing, 0 cancelled, both full-suite runs. Sanity check: temporarily disabled shutdown.js's outer-bound race (bypassed the Promise.race), confirmed the AC#8 test correctly FAILS (1001ms vs required <300ms) rather than passing vacuously, then restored shutdown.js byte-identical (git diff empty) and re-confirmed green. Diff confined to the two-number change (plus a matching error-message string) in test/main/shutdown.test.js only -- nothing else touched. Commit d48f944, pushed to origin.
 <!-- SECTION:NOTES:END -->
