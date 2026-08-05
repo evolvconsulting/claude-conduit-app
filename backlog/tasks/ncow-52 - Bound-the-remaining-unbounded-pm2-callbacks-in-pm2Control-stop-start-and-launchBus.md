@@ -3,10 +3,10 @@ id: NCOW-52
 title: >-
   Bound the remaining unbounded pm2 callbacks in pm2Control: stop, start and
   launchBus
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 18:39'
-updated_date: '2026-08-05 21:46'
+updated_date: '2026-08-05 22:27'
 labels:
   - concurrency
 dependencies:
@@ -22,16 +22,16 @@ Found by the wave-9 integration review of NCOW-48, and recommended as a follow-u
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 pm2Control.stop() is bounded by a timeout following the NCOW-48 precedent (the existing withTimeout helper and the shared pm2CallTimeoutMs knob) rather than a newly invented mechanism
-- [ ] #2 A timeout on stop surfaces as a normal handler error reaching the renderer as an ok:false result with a distinct code, consistent with PM2_LIST_TIMEOUT / PM2_DELETE_TIMEOUT / PM2_SAVE_TIMEOUT
-- [ ] #3 A test demonstrates that a pm2.stop call which never invokes its callback no longer holds the proxy lock indefinitely: after the bound elapses, work queued on the proxy domain proceeds, and an uninstall issued afterwards is no longer blocked
-- [ ] #4 The test genuinely fails against unpatched source (non-vacuity reproduced and reported) and cannot itself hang or cancel other tests if the bound regresses — race each assertion against a real-clock safety timeout, as NCOW-48 does after its own review found 29 cancelled tests
-- [ ] #5 pm2.start is bounded on the same terms, or its exclusion is explicitly justified in writing against the actual call path rather than left silent
-- [ ] #6 pm2.launchBus is either bounded, or an explicit reasoned decision is recorded that a timeout is the wrong primitive for an event-bus handle, naming what it would break
-- [ ] #7 The success paths of stop/start are unchanged: a normal Stop, Start and Restart still complete with the same result shape and still hold the proxy lock for their real duration, preserving the multi-lock fairness NCOW-45 established
-- [ ] #8 The shutdown.js quit path behaviour is confirmed unchanged, since it already applies its own outer bound around the same call
-- [ ] #9 Comments and JSDoc name every call site that can now raise the new codes, following the correction NCOW-48 needed when its own bound turned out to also cover proxy:start/restart and the 5-second status poll
-- [ ] #10 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 pm2Control.stop() is bounded by a timeout following the NCOW-48 precedent (the existing withTimeout helper and the shared pm2CallTimeoutMs knob) rather than a newly invented mechanism
+- [x] #2 A timeout on stop surfaces as a normal handler error reaching the renderer as an ok:false result with a distinct code, consistent with PM2_LIST_TIMEOUT / PM2_DELETE_TIMEOUT / PM2_SAVE_TIMEOUT
+- [x] #3 A test demonstrates that a pm2.stop call which never invokes its callback no longer holds the proxy lock indefinitely: after the bound elapses, work queued on the proxy domain proceeds, and an uninstall issued afterwards is no longer blocked
+- [x] #4 The test genuinely fails against unpatched source (non-vacuity reproduced and reported) and cannot itself hang or cancel other tests if the bound regresses — race each assertion against a real-clock safety timeout, as NCOW-48 does after its own review found 29 cancelled tests
+- [x] #5 pm2.start is bounded on the same terms, or its exclusion is explicitly justified in writing against the actual call path rather than left silent
+- [x] #6 pm2.launchBus is either bounded, or an explicit reasoned decision is recorded that a timeout is the wrong primitive for an event-bus handle, naming what it would break
+- [x] #7 The success paths of stop/start are unchanged: a normal Stop, Start and Restart still complete with the same result shape and still hold the proxy lock for their real duration, preserving the multi-lock fairness NCOW-45 established
+- [x] #8 The shutdown.js quit path behaviour is confirmed unchanged, since it already applies its own outer bound around the same call
+- [x] #9 Comments and JSDoc name every call site that can now raise the new codes, following the correction NCOW-48 needed when its own bound turned out to also cover proxy:start/restart and the 5-second status poll
+- [x] #10 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -73,3 +73,9 @@ FIX PASS 1 — addressed the review's one blocking finding. test/main/shutdown.t
 
 REVIEW PASS 2 (opus, same reviewer resumed) — approve. Verified the delta (6f16692 -> d48f944) is confined to exactly the 2-number + message-string change in test/main/shutdown.test.js (git diff: 3 insertions/3 deletions, one file); SHA-256 confirmed every other changed file byte-identical to pass 1's already-approved content, so all of pass 1's census/AC evidence carries forward unchanged. Measured timings directly: shutdown.test.js alone 10,143ms -> ~1,145ms (3 runs); full suite 10,371ms -> ~8,020ms (3 runs, matching the 8,042ms dev baseline); 435/435 passing every run, 0 failing, 0 cancelled. Ran the reviewer's OWN sabotage of shutdown.js's outer bound (not the worker's) and confirmed the AC#8 test fails readably (1002ms vs required <300ms); additionally ran the counterfactual the worker did not report -- reverting only the assertion threshold back to <2000 while keeping the new 1s inner bound made the same broken module PASS, proving the vacuity trap was real and that moving both numbers together (not just one) was the correct fix. Restored shutdown.js and confirmed SHA-256-identical before/after, working tree clean, final npm test green. All 10 ACs confirmed on this pass: 1,2,3,4,5,6,7,8,9,10. Branch approved and ready to merge at d48f944. Two non-blocking notes carried to wave-10 integration review (not blocking this task): pm2 launchBus's own self.sub late-binding could close the wrong bus in a narrow retry-then-late-callback scenario (upstream, strictly better than pre-fix); DESIGN.md's pm2-timeout census (:397-409, :621-624) still only names 3 of the now-6 timeout codes, matching NCOW-48's own precedent of deferring this to integration review rather than the fix branch.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Bounded pm2Control's last 3 unbounded raw pm2 callbacks (stop, start, launchBus) with timeouts, following the NCOW-48 precedent (withTimeout + pm2CallTimeoutMs): PM2_STOP_TIMEOUT, PM2_START_TIMEOUT, and a manual-timeout PM2_LOG_TAIL_TIMEOUT (launchBus needed a manual timeout rather than plain withTimeout because a late-arriving callback yields a live bus handle that must be explicitly closed to avoid leaking an open pm2 pub-socket). All 10 ACs independently confirmed by an opus reviewer across 2 review passes (pass 1 found one blocking non-AC issue -- a stray 10s timer adding ~2.3s to every npm test run -- fixed by tightening the AC#8 test's own inner timeout and threshold together; pass 2 approved, including reproducing the vacuity trap the fix avoided). Own call-chain census (independently re-derived by the reviewer, not just the worker's claim) confirmed every raw pm2.* callback in pm2Control.js is now bounded. Non-vacuity reproduced: exactly 5 tests fail / 0 cancelled against unpatched source. npm test 425 -> 435 passing. Merged as PR #49 (d4a4115). Wave-10 integration review found 2 real follow-up-worthy defects (filed with user approval as NCOW-53 and NCOW-54) plus 2 narrow doc-staleness items, fixed directly as a cleanup PR (#50, 410e40b) which itself needed one review-found correction (an overcorrected false claim about proxy:stop's timeout-code reachability, fixed and re-approved).
+<!-- SECTION:FINAL_SUMMARY:END -->

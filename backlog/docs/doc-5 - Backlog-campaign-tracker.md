@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 19:51'
+updated_date: '2026-08-05 22:30'
 ---
 # Backlog campaign tracker
 
@@ -63,8 +63,24 @@ already gave.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 10 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the prior
-handover)**: ground-truth drift check found `dev` @ `f6140e3`, clean, 0 ahead/0 behind
+**As of wave 10 SETTLEMENT (2026-08-05)**: **19 resolved** (waves 1-10, all Done), **4 queued** —
+NCOW-49 (on NCOW-46, Done), NCOW-50 (on NCOW-47, Done), and two newly filed this wave, NCOW-53 and
+NCOW-54 (both on NCOW-52, Done, filed with explicit user approval from wave-10's integration
+review) — 0 genuinely blocked, 5 excluded pending human decomposition (see Not queued). Wave 10
+itself was solo as predicted (NCOW-52), needed one request_changes → fix → re-review cycle (a
+non-AC test-runtime issue, not a correctness defect), and its integration review found real
+material for the 10th consecutive wave — see the Resolved table's NCOW-52 row and the wave log
+below for the full account. **Countervailing consideration still carried forward, not dropped**:
+NCOW-50 fixes a real user-visible regression this campaign itself introduced (the measured ~20s
+freeze) and should be prioritized soon, not deferred indefinitely — it was NOT selected for wave
+10 (NCOW-52 was, being more isolated), so this is now two waves running without addressing it.
+Re-derive the wave-11 conflict graph fresh rather than assuming NCOW-49/50/53/54's relationships to
+each other — NCOW-53 and NCOW-54 are both new and their real conflict footprint (against each
+other, against NCOW-49/50, and against dev's current state post-wave-10) has not been computed
+yet.
+
+Prior note, as of wave 10 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the prior
+handover): ground-truth drift check found `dev` @ `f6140e3`, clean, 0 ahead/0 behind
 `origin/dev`, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
 matched the handover exactly, no drift. **18 resolved** (waves 1-9), **3 queued, all 3 confirmed
 ready by dependency** (NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47 Done; NCOW-52 on NCOW-48 Done),
@@ -318,8 +334,9 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
-| 2 | NCOW-50 | proxy-mutex | NCOW-47 (Done) | To Do | | Stop apiKey.validateAndSave holding the config lock across its NVIDIA network round trips — the emergent ~20s freeze of the proxy AND claudeCode domains that NCOW-47's alias composed with NCOW-45's hold-and-wait. Measured by the wave-8 integration reviewer and proven causal against a pre-NCOW-47 counterfactual. User-approved, ready now. Also carries the config.getManifest exemption inconsistency |
-| 3 | NCOW-52 | proxy-mutex | NCOW-48 (Done) | Dispatched | 10 | Bound the remaining unbounded pm2 callbacks in pm2Control — pm2.stop (:660), pm2.start (:634) and pm2.launchBus (:695), citations re-checked fresh at wave 10 dispatch (drifted +6-10 lines from the task's own text). Filed at wave-9 integration review with explicit user approval, after BOTH NCOW-48 review passes recommended it as a follow-up and neither filed it. Live hazard: proxy:stop holds mutexes.proxy (which uninstall aliases) with no bound at any layer, so a wedged Stop clicked in the UI still freezes Start/Stop/Restart AND Uninstall AND update:install until restart. shutdown.js bounds only its OWN call, which is why the app stays quittable but a UI Stop is unprotected |
+| 2 | NCOW-50 | proxy-mutex | NCOW-47 (Done) | To Do | | Stop apiKey.validateAndSave holding the config lock across its NVIDIA network round trips — the emergent ~20s freeze of the proxy AND claudeCode domains that NCOW-47's alias composed with NCOW-45's hold-and-wait. Measured by the wave-8 integration reviewer and proven causal against a pre-NCOW-47 counterfactual. User-approved, ready now. Also carries the config.getManifest exemption inconsistency. Live finding from wave-10 dispatch: its AC#6 (fix mutex.js:4-6's header to mention nim-key.enc) already appears satisfied by wave 8's cleanup PR #45 — re-verify rather than assume new work is needed |
+| 3 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | To Do | | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved |
+| 4 | NCOW-54 | proxy-mutex | NCOW-52 (Done) | To Do | | Fix pm2Control.startLogTail's timeout handler closing a later retry's live bus — NCOW-52's own leak-prevention bus.close() reads pm2's shared-mutable Client.sub at callback time, so a timed-out call's late callback can close a subsequent retry's currently-live bus, reachable via the shipped UI's navigate-away/back unmount cycle. Filed from wave-10 integration review, user-approved |
 
 ## Resolved
 
@@ -344,6 +361,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | 17 | NCOW-51 | Done, 2026-08-05, wave 9 | Corrected DESIGN.md 9.4 step 4 (real line 604, not the 597-598 cited) and README so they describe what a purge actually does and does not delete, added the missing `nim-key.enc` row to "Where things live", and recorded an explicit deferral of the "also forget my API key" opt-in. Documentation-only, proven by esprima token-stream identity (188 tokens before and after, streams byte-identical; corroborated by comment excision reducing both revisions to the same 769-character source). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** Pass 1 REJECTED on four blocking findings, the worst being that the branch documented a **"Clear Key" button that has never existed** — four occurrences, twice in README and twice in production source — the same confidently-wrong-mechanism class NCOW-47 was rejected twice for; the true position is more severe (nothing in the shipped app deletes nim-key.enc). Pass 1 also disproved the AC#4 deferral premise (it rested on an NCOW-48 collision in uninstall.js that does not exist). Pass 2 approved after verifying the replacement claim path by path and confirming the macOS path EMPIRICALLY on this machine (nim-key.enc at ~/Library/Application Support/Claude Conduit/, mode 0600, 83 bytes). npm test 416/416. Merged as PR #46 (`65635f5`); prose later reconciled with NCOW-48's bounded-failure mode in PR #48 (`c63eee1`). |
 | 18 | NCOW-48 | Done, 2026-08-05, wave 9 | Bounded the raw pm2 callbacks reachable from uninstall — pm2.delete/pm2.dump/pm2.list — via the `withTimeout` helper `ensureConnected` already used, 15s default matching shutdown.js, injectable via `deps.pm2CallTimeoutMs`. 416 → 425 tests, both test files pure appends (215/0, 310/0). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** **Pass 1 REJECTED AC#1 ON A FINDING THAT MADE THE FIRST ATTEMPT INERT**: `pm2.list` (via findApp → listApps) was still unbounded INSIDE `deleteAppIfPresent` itself and hit BEFORE the newly-bounded `pm2.delete`, so in the canonical wedge (daemon accepts the connection then stops answering RPC) neither new bound engaged — reproduced through the real chain, still frozen after 100× the bound. Pass 1 also corrected the delivered non-vacuity evidence (claimed "0 cancelled", actually 391 pass / 1 fail / **29 cancelled**). Pass 2 proved AC#1 two ways rather than by reading: a mechanical wedge sweep over every pm2 member reachable from `remove()`, and a **Proxy-based exhaustiveness census** (remove → connect/list/delete/dump; save → dump; getStatus → list; start/stop/launchBus provably off these paths, now NCOW-52). Non-vacuity run against BOTH the delta and the merge base, arithmetic closing from both ends (425−7=418, 416+9=425). AC#5 re-verified with real 40ms round trips: identical result shape and identical ~163ms hold, so NCOW-45's multi-lock fairness is intact. Incidentally fixed two pre-existing leaks: status-poller accumulated one never-settling promise per 5s tick forever, and app.js:44 hung the renderer's entire boot. Merged as PR #47 (`4668ddc`), plus PR #48 (`c63eee1`). |
+| 19 | NCOW-52 | Done, 2026-08-05, wave 10 | Bounded pm2Control's last 3 unbounded raw pm2 callbacks (stop, start, launchBus) via the NCOW-48 precedent: PM2_STOP_TIMEOUT, PM2_START_TIMEOUT, and a manual-timeout PM2_LOG_TAIL_TIMEOUT (launchBus needed a manual timeout, not plain withTimeout, since a late callback yields a live bus handle that must be explicitly closed to avoid leaking an open pm2 pub-socket). **2 review passes (opus), all 10 ACs confirmed both passes.** Pass 1's own independent call-chain census found nothing missed (contrast NCOW-48's first attempt, rejected for exactly this); its one blocking finding was non-AC — the new AC#8 shutdown-integration test's 10s inner timeout wasn't cleared until it fired, adding ~2.3s to every npm test run (74x regression on that one file). Fix pass tightened the test's own inner timeout and assertion threshold together (moving only one would have made the test pass vacuously against a regressed outer bound — pass 2 proved this by reproducing the vacuity trap itself, not just trusting the fix). npm test 425 → 435. Merged as PR #49 (`d4a4115`). Wave-10 integration review found 2 real defects NCOW-52 itself introduced — filed with user approval as **NCOW-53** (its own new timeout codes are silently discarded on the renderer's Stop/log-tail and fully absorbed by tray's Stop with zero trace) and **NCOW-54** (its own launchBus leak-prevention close() can close a later retry's live bus, reachable via the shipped UI's navigate-away/back cycle) — plus 2 narrow doc-staleness items (a stale "three codes" pm2-timeout census in DESIGN.md and pm2Control.js's own JSDoc, now six), fixed directly as cleanup PR #50 (`410e40b`). That cleanup itself needed one review-found correction — an overcorrected false claim that proxy:stop/tray "can only ever surface PM2_STOP_TIMEOUT" (false: the same handler's post-stop status broadcast also reaches listApps(), so PM2_LIST_TIMEOUT is reachable even when the stop itself succeeds) — fixed and re-approved. |
+
 ## Not queued — needs a human / blocked
 
 - NCOW-7: PARKED pending NCOW-15 (own implementation notes, 2026-07-31) — rebuilding the
@@ -359,6 +378,61 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   product decision first.
 
 ## Wave log
+
+- 2026-08-05 — **wave 10 (tasks: NCOW-52)**, a solo wave as predicted (all three remaining tasks
+  pairwise-conflicting via `src/main/ipc.js` and/or `test/main/ipc-mutex.test.js`), merged as PR
+  #49 (`d4a4115`), plus integration-review follow-up cleanup PR #50 (`410e40b`). npm test 425 →
+  435. Session note: the worker was interrupted mid-implementation by an account weekly API-limit
+  error right before its final call-chain census grep; resumed from its own transcript via
+  SendMessage, verified via git status/diff the worktree was exactly as left, and continued to
+  completion with no lost work.
+  **One request_changes → fix → re-review cycle, on a non-AC finding rather than a correctness
+  defect** — the first time in this campaign a review cycle was needed for something other than a
+  wrong/unproven claim. The task-level reviewer's own independent call-chain census (deliberately
+  not trusting the worker's) found all 6 raw pm2.* callbacks in pm2Control.js correctly accounted
+  for on the first pass — contrast NCOW-48, rejected twice in this exact hazard family for missing
+  one call in the chain. The one blocking finding: the new AC#8 shutdown-integration test's 10s
+  inner `pm2CallTimeoutMs` produced a stray, uncleared `setTimeout` that made node's test runner
+  wait out the full 10s before that file could exit — measured 137ms (dev) → 10,143ms (this
+  branch) on that one file alone, a 74x regression, even though the test's own recorded duration
+  was 50ms. The fix tightened the test's own inner timeout AND its assertion threshold together
+  (`10_000`→`1_000` ms, `elapsed<2000`→`elapsed<300`) — the reviewer explicitly warned that moving
+  only one would make the test pass vacuously against a regressed outer bound, then proved that
+  itself on re-review (reverting only the threshold to `<2000` while keeping the tightened 1s
+  bound made a genuinely-broken module pass clean) before approving the actual fix, which moved
+  both. Full suite duration returned to baseline (~8s).
+  **Wave-level integration review found real material for the 10th consecutive wave, and this
+  time found two defects the merge itself introduced** — a pattern with real precedent this
+  campaign (see wave 8's NCOW-50/NCOW-51). Filed with user approval: **NCOW-53** — NCOW-52's new
+  `PM2_STOP_TIMEOUT`/`PM2_START_TIMEOUT`/`PM2_LOG_TAIL_TIMEOUT` are all independently verified
+  correct at the IPC boundary by both task-level review passes, but neither review pass followed
+  the result past `ipc.js` to where a human would actually see it: `dashboard-view.js`'s `#stop-btn`
+  discards the result entirely (unlike its own neighbours `#start-btn`/`#restart-btn`), the
+  log-tail path has the same shape plus never resets its own "already started" flag on failure,
+  and the tray's Stop action has literally no error surface at all — `mutex.js`'s deliberate
+  `.catch(() => {})` absorbs the rejection with not even a console log. Net effect: a wedged Stop
+  is now a silently dead button forever, arguably worse than pre-NCOW-52 in one respect (that
+  froze the whole app, which was at least obvious). **NCOW-54** — NCOW-52's own launchBus
+  leak-prevention `bus.close()` reads pm2's own `Client.sub`, a shared mutable slot, at
+  callback-fire time rather than a captured value; if a timed-out call's callback fires late AFTER
+  a retry has already succeeded and reassigned that slot, the "cleanup" closes the retry's live,
+  in-use bus instead of the actually-stale one — reproduced empirically, and genuinely reachable
+  through the shipped UI's real navigate-away/back unmount cycle, not just a contrived test shape.
+  This is a defect NCOW-52 itself introduced (the pre-fix code had no close-on-timeout behavior at
+  all). Also approved: fixing two narrow doc-staleness items directly (no task) — `DESIGN.md`
+  §7.4's pm2-timeout census and `pm2Control.js`'s own top-of-file JSDoc still said "three codes",
+  now six. **That cleanup itself needed one review-found correction, the same failure class this
+  campaign hit once before (PR #48): writing a correction introduced a NEW false claim.** The
+  first cleanup draft said `proxy:stop`/the tray's Stop item "reach only `stop()` and so can only
+  ever surface `PM2_STOP_TIMEOUT`" — false, reproduced live: `engine-context.js`'s
+  `handlers.proxy.stop` also awaits `pm2Control.getStatus()` afterward, which reaches `listApps()`
+  and can surface `PM2_LIST_TIMEOUT` even when the stop itself fully succeeded. Also caught in the
+  same pass: an invented channel name (`proxy:startLogTail` vs. the real `proxy:start-log-tail`,
+  already spelled correctly elsewhere in the very same file). Fixed and re-approved on the second
+  pass, which independently re-reproduced the corrected claim live rather than just reading it.
+  Live finding recorded for wave 11, not yet acted on: NCOW-50's own AC#6 (fix `mutex.js`'s header
+  to mention `nim-key.enc`) already appears satisfied by wave 8's cleanup PR #45 — needs
+  re-verification at dispatch, not a blind skip.
 
 - 2026-08-05 — **wave 9 (tasks: NCOW-51, NCOW-48)**, the first 2-task wave since wave 6, merged as
   PR #46 (`65635f5`) and PR #47 (`4668ddc`), plus integration-review follow-up PR #48
