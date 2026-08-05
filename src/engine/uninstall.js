@@ -20,9 +20,12 @@ const { removeClaudeCodeSettings } = require('./claudeCodeConfig');
  * README.md's "Uninstalling" section for the per-platform path).
  *
  * NCOW-48: "on success" above is load-bearing, not decorative. The one
- * `await opts.pm2Control.remove()` below is now a bounded pm2 call that can
- * reject (PM2_LIST_TIMEOUT/PM2_DELETE_TIMEOUT/PM2_SAVE_TIMEOUT) if the pm2
- * daemon is wedged, and a rejection there throws out of this function before
+ * `await opts.pm2Control.remove()` below could already reject before this
+ * task (a pm2 connect timeout, or a genuine pm2 err callback) — what's new
+ * is only the *bound*: a wedged pm2.list/pm2.delete/pm2.dump call that used
+ * to hang forever now also rejects, with its own code
+ * (PM2_LIST_TIMEOUT/PM2_DELETE_TIMEOUT/PM2_SAVE_TIMEOUT). Either way, a
+ * rejection there throws out of this function before
  * the `opts.purge` branch below is ever reached — so a wedged Purge deletes
  * NEITHER `nim-key.enc` NOR `litellm.env`'s derived copy, leaving the whole
  * config directory exactly as it was (the settings-file removal above it

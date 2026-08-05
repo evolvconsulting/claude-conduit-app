@@ -396,11 +396,15 @@ The pm2 **daemon** is never killed. It runs against the shared default `PM2_HOME
 (`~/.pm2`), so killing it would stop unrelated apps the user supervises with pm2. Only the
 `litellm-nim` app is stopped, and the stop is bounded by a timeout so a wedged pm2 cannot
 make the app unquittable. (As of NCOW-48, that before-quit stop is not the app's only
-bounded pm2 call: `pm2Control.js`'s `listApps()`/`deleteAppIfPresent()`/`save()` — reachable
-from `uninstall.run()`, from `startOrRestart()` on proxy start/restart, and from the
-5-second status poll — are separately bounded by their own `pm2CallTimeoutMs`, default 15s,
-surfacing as `PM2_LIST_TIMEOUT`/`PM2_DELETE_TIMEOUT`/`PM2_SAVE_TIMEOUT` on a wedge rather than
-hanging forever. Unlike the before-quit stop, a timeout on those paths is an observable
+bounded pm2 call: `pm2Control.js`'s `listApps()`, `deleteAppIfPresent()`, and `save()` are
+separately bounded by their own `pm2CallTimeoutMs`, default 15s, surfacing
+`PM2_LIST_TIMEOUT`, `PM2_DELETE_TIMEOUT`, and `PM2_SAVE_TIMEOUT` respectively on a wedge
+rather than hanging forever — but not every call site can reach all three: `uninstall.run()`
+and `startOrRestart()` (proxy start/restart) reach `listApps()`, `deleteAppIfPresent()`, and
+`save()` alike (the last only once `startOrRestart()`'s health check has succeeded), so
+either can surface any of the three codes, while the 5-second status poll reaches only
+`listApps()` (via `getStatus()` -> `findApp()`) and so can only ever surface
+`PM2_LIST_TIMEOUT`. Unlike the before-quit stop, a timeout on those paths is an observable
 *failure* the caller must handle, not a guarantee that the underlying pm2 effect completed —
 see 9.4 and acceptance criterion 5 for what that means for `--purge` specifically.)
 

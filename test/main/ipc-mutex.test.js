@@ -1022,8 +1022,9 @@ test('ipc: NCOW-46 AC#4 — a DOMAIN_MUTEX_ALIASES target absent from an otherwi
 // apikey:clear IPC call could interleave with an in-flight config:generate.
 // (There is no shipped UI caller for apiKey.clear — the Setup wizard's real
 // buttons are "Validate & Save" and "Continue" — so the reachable half of
-// this is the `apikey:clear`/`apikey:validateAndSave` channels themselves,
-// not a click; see src/main/ipc.js's DOMAIN_MUTEX_ALIASES comment.)
+// that is the `apikey:clear` channel itself, not a click; `validateAndSave`
+// DOES have a real UI caller, the Setup wizard's "Validate & Save" button
+// (setup-view.js) — see src/main/ipc.js's DOMAIN_MUTEX_ALIASES comment.)
 
 test('ipc: NCOW-47 AC#1 — resolveDomainLocks() resolves apiKey onto the config lock (single alias, not a new mechanism)', () => {
   const mutexes = createDomainMutexes();
@@ -1362,7 +1363,7 @@ test('ipc: NCOW-48 AC#3 — a pm2.delete call that never calls back no longer fr
   // resolves onto `config` transitively, but the demonstration is materially
   // more honest exercising it directly, since it is the thing the wedge
   // kills that is most reachable from outside this file: the apikey:clear /
-  // apikey:validateAndSave IPC channels (there is no "Set Key" or "Clear
+  // apikey:validate-and-save IPC channels (there is no "Set Key" or "Clear
   // Key" button in the app, and apiKey.clear has no shipped UI caller at
   // all — see src/main/ipc.js's DOMAIN_MUTEX_ALIASES comment).
   const claudeCodeWork = mutexes.claudeCode.run(async () => order.push('claudeCode-bg'));

@@ -112,8 +112,10 @@ function createDomainMutex() {
  *     delivered mid-uninstall — while uninstall.js's one
  *     `await pm2Control.remove()` is still pending — lands BEFORE
  *     fs.rmSync(configDir) and is wiped out by that same delete. (NCOW-48
- *     nuance: that's the shape when `pm2Control.remove()` resolves. It can
- *     now also reject — a bounded pm2 timeout — in which case uninstall()
+ *     nuance: that's the shape when `pm2Control.remove()` resolves. It could
+ *     already reject before NCOW-48 (a pm2 connect timeout, or a genuine pm2
+ *     err callback) — NCOW-48 only adds a *bound* on top of that, so a wedge
+ *     now rejects too instead of hanging forever — and either way, uninstall()
  *     throws before ever reaching the `opts.purge` branch, so there is no
  *     `fs.rmSync` call at all in that run for this mkdirSync to race
  *     against. The "no resurrection" conclusion below holds even more

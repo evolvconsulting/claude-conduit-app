@@ -124,9 +124,11 @@ const UNSERIALIZED_METHODS = {
  * generate a NO_KEY failure mid-write against a key a save() had already
  * queued behind it — either way, nothing serialized the two. (There is
  * currently no shipped UI caller for the `apiKey.clear` channel at all — see
- * the `apiKey` entry in src/renderer's actual `window.nimProxy.apiKey.*`
- * call sites — so today this alias is defence-in-depth against a reachable
- * IPC race, not a click a user can actually trigger; `validateAndSave` DOES
+ * src/renderer/app.js and src/renderer/views/setup-view.js, the only two
+ * `window.nimProxy.apiKey.*` call sites in the app (`getMasked` and
+ * `validateAndSave` — never `clear`) — so today this alias is defence-in-
+ * depth against a reachable IPC race, not a click a user can actually
+ * trigger; `validateAndSave` DOES
  * have a real UI caller, the Setup wizard's "Validate & Save" button, so the
  * alias is load-bearing for that half regardless.) apiKey has no
  * mutating concern of its own beyond this one, so — like uninstall/update —
