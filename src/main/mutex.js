@@ -75,17 +75,17 @@ function createDomainMutex() {
  *     uninstall aliases onto all three, because it mutates claudeCode,
  *     config, AND proxy state in one call. See DOMAIN_MUTEX_ALIASES in
  *     ipc.js for exactly which lock(s) each aliases onto and why (NCOW-32/45
- *     — and, for apiKey specifically, NCOW-50's correction: `clear` still
- *     resolves its lock through that alias table for its whole (fast,
- *     no-network) body, but `validateAndSave` does not — it opts out of
- *     ipc.js's automatic per-method locking entirely (see ipc.js's
- *     UNSERIALIZED_METHODS) and instead acquires this exact `config` mutex
- *     itself, directly, inside engine-context.js, scoped to only its
- *     secretStore.save() call rather than the up-to-two sequential 10s
- *     network round trips ahead of it. Same underlying lock, same
- *     guarantee, deliberately narrower scope — not an exemption from
- *     serialization, a fix for where it was being applied.
- *     for uninstall/update, NCOW-47 for apiKey).
+ *     for uninstall/update, NCOW-47 for apiKey). For apiKey specifically,
+ *     NCOW-50's correction: `clear` still resolves its lock through that
+ *     alias table for its whole (fast, no-network) body, but
+ *     `validateAndSave` does not — it opts out of ipc.js's automatic
+ *     per-method locking entirely (see ipc.js's UNSERIALIZED_METHODS) and
+ *     instead acquires this exact `config` mutex itself, directly, inside
+ *     engine-context.js, scoped to only its secretStore.save() call rather
+ *     than the up-to-two sequential 10s network round trips ahead of it.
+ *     Same underlying lock, same guarantee, deliberately narrower scope —
+ *     not an exemption from serialization, a fix for where it was being
+ *     applied.
  *   - diagnostics, prereqs: checked and confirmed to need NO lock at all —
  *     not even an alias. diagnostics.run reads the same secretStore state
  *     apiKey/config now serialize, but is deliberately left unserialized
