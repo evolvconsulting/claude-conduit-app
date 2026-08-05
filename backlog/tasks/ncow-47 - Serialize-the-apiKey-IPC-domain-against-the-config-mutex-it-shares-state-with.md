@@ -4,7 +4,7 @@ title: Serialize the apiKey IPC domain against the config mutex it shares state 
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:27'
-updated_date: '2026-08-05 16:21'
+updated_date: '2026-08-05 16:37'
 labels: []
 dependencies:
   - NCOW-46
@@ -100,4 +100,20 @@ Other pass-2 findings (all comment-level): nit — mutex.js:84 says litellmCheck
 Regression checks all clean: module-load assertLockOrderIsConsistent still passes with the apiKey entry; full census app:NONE prereqs:NONE apiKey:config catalog:NONE config:config proxy:proxy claudeDesktop:claudeDesktop claudeCode:claudeCode diagnostics:NONE uninstall:claudeCode+config+proxy update:proxy; single-lock fast path intact (1 microtask hop, same as a direct mutexes.config call); bare-string vs array still identity-equal; assert throws on 'confg', ['confg'] and ['config','nope']; 8-deep mixed FIFO queue max 1 critical section; getMasked resolves while config lock held. AC#5 re-derived from source: src/engine/diagnostics.js has exactly one fs call in the entire file (a readFileSync), no writes. AC#6: the pass-1 test hunk is a pure append at line 1011 and the fix pass edits only inside it — no pre-existing test modified anywhere on the branch.
 
 Doc-count sweep (reviewer's own): CLAUDE.md:51 and README.md:330 are the ONLY live test-count references in the repo; both now 416, one line each, nothing else touched. Every other 410 is historical Backlog prose or build/icon.svg polygon coordinates. Citation sweep: grep -nE '\.js:[0-9]+' over the three source files returns nothing. Scope clean — exactly 6 files, no drive-bys.
+
+Fix pass 2 (wave 8) — addressed review-pass-2's blocking AC#4 finding plus its three comment nits, and took the optional control-test reporting tweak.
+
+Reproduced the measurement itself rather than pasting the reviewer's suggested wording (two passes had already rejected this comment for asserting an unverified mechanism). Own probe results, real temp filesystem, real ipc.js/mutex.js/uninstall.js:
+- AS SHIPPED, mid-uninstall (macrotask delivered while uninstall.js's `await pm2Control.remove()` is pending): order pm2:remove-start -> mkdir -> pm2:remove-done -> rm-done; logs resurrected FALSE.
+- WITH `app: 'config'` injected into DOMAIN_MUTEX_ALIASES, same timing: order pm2:remove-start -> rm-done -> mkdir; logs resurrected TRUE. Confirms the alias CREATES the bug.
+- Post-settle, as shipped, no alias: logs resurrected TRUE — the genuinely reachable defect.
+- Tightest race check the reviewer had not run: openLogsFolder scheduled via setImmediate/setTimeout(0) in the SAME tick as uninstall:run, with pm2Control.remove() given zero macrotask gap — mkdir still always landed strictly after a 'fully settled' marker, never between fs.rmSync and settlement. This closes the one gap in the microtask-only claim.
+
+mutex.js's app paragraph now states only that: mid-uninstall lands BEFORE the rmSync and is wiped by it; same-tick scheduling still cannot land between rmSync and settlement because everything from rmSync onward (removed.push, then async returns through runUninstall -> handler -> withLocks' sharedRun -> ipcMain.handle) is chained-promise microtask work with no macrotask boundary; the reachable defect is a post-success click recreating <configDir>/logs unconditionally, which is not a serialization gap and no lock fixes; and aliasing `app` onto `config` is specifically NOT the fix, measured. Framed as a description of the measured chain, not a general claim about future call shapes.
+
+Nits fixed, each verified against real code: mutex.js:69-70 — uninstall aliases onto THREE locks (['claudeCode','config','proxy']), not one of four. mutex.js:84 — litellmAbsPath is interpolated into the generated run.js via configGen's renderRunLauncherJs; renderEcosystemConfigCjs only writes script/interpreter/out_file/error_file, so litellm's path never appears in ecosystem.config.cjs; manifest.litellm_path was already correct. mutex.js:90-91 — catalog.fetch reads secretStore.load() AND getManifest() (for nim_base_url) before the remote call; reworded to 'reads, all the way down'.
+
+Optional test tweak TAKEN (ipc-mutex.test.js:1182): the control's failure mode is now an explicit assertion instead of node's event-loop-idle hang detection. Verified both ways in isolation with --test-name-pattern: against an injected memoizing-singleton createDomainMutexes it fails with failureType 'testCodeFailure' and 'apiKey:clear did not resolve within 500ms', '# fail 1', NOT cancelledByParent; against correct code it passes in ~1ms with the same order assertions. Timer is cleared the instant the real call settles, so zero cost on the passing path.
+
+Verification: npm test 416/416, no regression (full suite run twice). Token-stream proof (esprima, comment:false), HEAD vs working tree: src/main/mutex.js 143 -> 143 tokens, streams IDENTICAL by full string comparison — comment-only. test/main/ipc-mutex.test.js 6262 -> 6334 (+72), diverging in exactly ONE contiguous span (prefix 6209 tokens and suffix 50 tokens byte-identical): the bare invoke('apikey:clear') call (3 tokens) replaced by the same call wrapped in a timeout Promise (75 tokens). Nothing else in the file moved. git status clean; all probe scripts and fixtures stayed in the session scratchpad, never in the worktree.
 <!-- SECTION:NOTES:END -->
