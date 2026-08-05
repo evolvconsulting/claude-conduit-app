@@ -3,10 +3,10 @@ id: NCOW-51
 title: >-
   Document that the encrypted NVIDIA key survives a purge uninstall, and correct
   DESIGN.md 9.4's '(keys included)' claim
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 17:04'
-updated_date: '2026-08-05 17:53'
+updated_date: '2026-08-05 18:55'
 labels:
   - documentation
 dependencies: []
@@ -21,12 +21,12 @@ Found by the wave-8 integration review of NCOW-47. <userData>/nim-key.enc is the
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DESIGN.md section 9.4's '(keys included)' claim is corrected so it accurately describes what a purge does and does not delete — specifically that litellm.env's derived copy goes and <userData>/nim-key.enc remains
-- [ ] #2 README.md's 'Where things live' table lists the encrypted key file and states explicitly whether an uninstall removes it, matching the level of detail that table already gives ~/.pm2/daemon-interpreter/
-- [ ] #3 The claim is verified against real code before being written, not assumed: the single secretStore.clear() call site and uninstall.js's actual delete set are both checked and the finding recorded
-- [ ] #4 An explicit, recorded decision is made on whether to add an opt-in 'also forget my saved API key' step to the Uninstall view — either implemented as a separately confirmed opt-in following the Claude Desktop precedent, or deliberately deferred with the reasoning stated
-- [ ] #5 If any behaviour change is made, a test covers it; if the task lands as documentation only, that is stated as the decision rather than left implicit
-- [ ] #6 npm test passes
+- [x] #1 DESIGN.md section 9.4's '(keys included)' claim is corrected so it accurately describes what a purge does and does not delete — specifically that litellm.env's derived copy goes and <userData>/nim-key.enc remains
+- [x] #2 README.md's 'Where things live' table lists the encrypted key file and states explicitly whether an uninstall removes it, matching the level of detail that table already gives ~/.pm2/daemon-interpreter/
+- [x] #3 The claim is verified against real code before being written, not assumed: the single secretStore.clear() call site and uninstall.js's actual delete set are both checked and the finding recorded
+- [x] #4 An explicit, recorded decision is made on whether to add an opt-in 'also forget my saved API key' step to the Uninstall view — either implemented as a separately confirmed opt-in following the Claude Desktop precedent, or deliberately deferred with the reasoning stated
+- [x] #5 If any behaviour change is made, a test covers it; if the task lands as documentation only, that is stated as the decision rather than left implicit
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -149,3 +149,19 @@ base `84bb0d0:src/engine/uninstall.js` vs the worktree file at `516a9a6`: esprim
 - **F13**: Electron's Linux appData honors $XDG_CONFIG_HOME before ~/.config; both README and paths.js:146 write ~/.config flat. Internally consistent house style, noted rather than charged.
 - **Reviewer's optional suggestion, worth carrying**: two cheap guard tests would pin the claims this branch now asserts — that src/engine/uninstall.js contains no `secretStore` reference, and that `apiKey.clear` has no renderer caller. **Either would have caught the pass-1 defect.**
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Corrected DESIGN.md 9.4 and README so they accurately describe what a purge uninstall does and does not delete, and recorded an explicit deferral of the "also forget my API key" opt-in. Documentation-only: the change to src/engine/uninstall.js is proven comment-only by esprima token-stream identity (188 tokens before and after, streams byte-identical, corroborated by comment excision reducing both revisions to the same 769-character source).
+
+Verified rather than assumed, per AC#3: secretStore.clear() has exactly one caller anywhere in src/ (engine-context.js:295, the apiKey.clear IPC handler), and src/engine/uninstall.js never references secretStore at all — so DESIGN.md 9.4 step 4 (real location line 604, not the 597-598 the task cited) really was promising something the shipped app does not do.
+
+Two independent review passes plus a narrow confirmation (opus), all 6 ACs confirmed. Pass 1 returned request_changes on four blocking findings, the most serious being that the first attempt documented a "Clear Key" button that has never existed — four times, twice in README and twice in production source. That is the same confidently-wrong-mechanism class NCOW-47 was rejected twice for. The true position is more severe than what was claimed: nothing in the shipped app deletes nim-key.enc. Pass 1 also disproved the factual premise of the AC#4 deferral, which rested on a collision with NCOW-48 in uninstall.js that does not exist.
+
+Pass 2 approved after the replacement claim was verified path by path and the macOS path confirmed EMPIRICALLY on the developer machine: nim-key.enc found at ~/Library/Application Support/Claude Conduit/, mode 0600, 83 bytes — exactly what README now prints. Blast radius is bounded by construction, since naming a specific filename means a user in the wrong directory finds nothing to delete.
+
+AC#4 decision: the opt-in is DEFERRED, re-grounded on durable product merit — it mirrors the Claude Desktop opt-in precedent and CLAUDE.md standing rule that destructive extras are individually confirmed opt-ins, and today there is no in-app remedy at all, which strengthens the case rather than excusing it. Deferred because this task is documentation-scoped and the opt-in needs its own confirmation-dialog UX plus tests.
+
+npm test 416/416 throughout (this task adds no tests; its wave-mate owned the test-count doc lines). Merged as PR #46 (65635f5). The wave-9 integration review then found the prose needed reconciling with NCOW-48s new bounded-failure mode, fixed in PR #48 (c63eee1).
+<!-- SECTION:FINAL_SUMMARY:END -->

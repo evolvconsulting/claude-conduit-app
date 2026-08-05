@@ -3,10 +3,10 @@ id: NCOW-48
 title: >-
   Bound uninstall.run's pm2 calls so a wedged uninstall cannot freeze three
   mutex domains indefinitely
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 18:13'
+updated_date: '2026-08-05 18:56'
 labels: []
 dependencies:
   - NCOW-45
@@ -21,12 +21,12 @@ The wave-7 integration review of NCOW-46 found that NCOW-45 widened the blast ra
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 pm2Control's remove()/deleteAppIfPresent() and save() paths are bounded by a timeout, following the existing bounded-ensureConnected and shutdown.js precedents rather than inventing a new mechanism
-- [ ] #2 A timeout on those calls surfaces as a normal handler error (an {ok:false, code} result reaching the renderer) rather than an unhandled rejection or a silently-swallowed failure
-- [ ] #3 A test demonstrates that a pm2 call which never invokes its callback no longer holds the claudeCode, config and proxy locks indefinitely — after the bound elapses, work queued on all three domains proceeds
-- [ ] #4 The test genuinely fails against unpatched source (non-vacuity reproduced and reported), and cannot itself hang the suite if the bound regresses
-- [ ] #5 Uninstall's existing success path is unchanged: a normal uninstall still completes with the same result shape and still holds all three locks for its real duration
-- [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 pm2Control's remove()/deleteAppIfPresent() and save() paths are bounded by a timeout, following the existing bounded-ensureConnected and shutdown.js precedents rather than inventing a new mechanism
+- [x] #2 A timeout on those calls surfaces as a normal handler error (an {ok:false, code} result reaching the renderer) rather than an unhandled rejection or a silently-swallowed failure
+- [x] #3 A test demonstrates that a pm2 call which never invokes its callback no longer holds the claudeCode, config and proxy locks indefinitely — after the bound elapses, work queued on all three domains proceeds
+- [x] #4 The test genuinely fails against unpatched source (non-vacuity reproduced and reported), and cannot itself hang the suite if the bound regresses
+- [x] #5 Uninstall's existing success path is unchanged: a normal uninstall still completes with the same result shape and still holds all three locks for its real duration
+- [x] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -226,3 +226,21 @@ Commit `2c0ec4f` on top of `9215910`. One file, 3 insertions / 3 deletions, test
 2. **Non-vacuity re-proven by the reviewer's OWN injection**, not the worker's: making `hangingListPm2.list` also push `'delete:litellm-nim'` gives `not ok 6 … expected: true, actual: false`, 35 tests / 34 pass / 1 fail / 0 cancelled. Worktree restored clean.
 3. **approve stands. All six ACs remain confirmed.** npm test 425/425, 0 fail, 0 cancelled; both doc lines still read the true count. Nothing in the delta touches source, the AC#5 success-path tests, or their assertions. The pass-2 residual minors (recovery flap, engine-context.js:367 log-tail loss, uninstall partial-state docs) are unchanged and non-blocking.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Bounded the raw pm2 callbacks reachable from the uninstall path — pm2.delete (PM2_DELETE_TIMEOUT), pm2.dump (PM2_SAVE_TIMEOUT) and pm2.list (PM2_LIST_TIMEOUT) — using the withTimeout helper ensureConnected already used, default 15s matching shutdown.js precedent, injectable via deps.pm2CallTimeoutMs. No new mechanism invented, per AC#1. 416 -> 425 tests; both test files are pure appends (215/0 and 310/0 vs merge base), so no pre-existing test was modified.
+
+Two review passes plus a narrow confirmation (opus), all 6 ACs confirmed. PASS 1 REJECTED AC#1 ON A BLOCKING FINDING THAT MADE THE FIRST ATTEMPT INERT: pm2.list, reached via findApp -> listApps, was still unbounded INSIDE deleteAppIfPresent itself and hit BEFORE the newly-bounded pm2.delete. In the canonical wedge — daemon accepts the connection then stops answering RPC — pm2.list hangs first and neither new bound engages. Reproduced through the real ipc.js/withLocks + pm2Control + uninstall.js chain with only pm2.list wedged at a 30ms bound: still frozen after 3000ms, 100x the bound. As first delivered, this task title was false. Pass 1 also corrected the delivered non-vacuity evidence, which claimed 0 cancelled tests where the suite actually showed 391 pass / 1 fail / 29 cancelled.
+
+Pass 2 refused to accept AC#1 on a code read and proved it two ways: a mechanical wedge sweep (every pm2 member reachable from remove() wedged one at a time, each rejecting with the right code inside the bound and releasing all locks), and a Proxy-based exhaustiveness census showing remove() touches connect/list/delete/dump, save() touches dump, getStatus() touches list — all bounded, with pm2.start/stop/launchBus provably off these paths and correctly out of scope (now filed as NCOW-52). Non-vacuity run against both the delta and the merge base, with the arithmetic closing from both ends: 425-7=418, and 416+9=425. Cancelled is now 0 everywhere and each failure names what regressed.
+
+Behaviour preserved (AC#5), verified with a fake taking a real 40ms per pm2 round trip: base and head give an identical result shape and an identical ~163ms real lock hold, background work on all three domains still strictly after uninstall:exit — NCOW-45 multi-lock fairness intact. The abandoned pm2 callback after a bound fires causes no double-settle and no unhandled rejection; lock release is structural, since withLocks sharedRun IS the handler promise.
+
+Two figures worth carrying forward, both corrections to earlier estimates: the bounded worst-case three-lock hold is ~75s (connect 30s plus three 15s stages), not 15s and not the ~60s accepted at pass 1; and the reviewer ruled AGAINST a shorter bound for the 5-second status poll, since it would add a knob and a false-errored risk on a slow-but-alive daemon while only shortening a ~3-cycle recovery flap whose proper fix belongs in status-poller.js.
+
+Incidental pre-existing leak fixed: status-poller tick() fires every 5s regardless of whether the previous await settled, so a wedged pm2.list accumulated one never-settling promise per tick forever with the pill frozen; and app.js:44 awaits getStatus() before rendering, so a wedged list hung the renderer entire boot sequence. Both now recover after the bound.
+
+npm test 425/425 on merged dev (orchestrator own run). Merged as PR #47 (4668ddc), plus doc/comment reconciliation PR #48 (c63eee1) from the wave-9 integration review.
+<!-- SECTION:FINAL_SUMMARY:END -->
