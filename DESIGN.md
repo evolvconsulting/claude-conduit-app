@@ -400,7 +400,8 @@ make the app unquittable.
 **The before-quit stop is deliberately not serialized against the proxy mutex (NCOW-31,
 NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions share one
 per-domain lock (`mutexes.proxy`, set up in `src/main/engine-context.js`) so clicking them
-in quick succession queues instead of racing. `src/main/shutdown.js`'s before-quit stop
+in quick succession queues instead of racing — and, since NCOW-32, Uninstall and an update
+install share that same lock too. `src/main/shutdown.js`'s before-quit stop
 reaches `pm2Control` directly instead, on purpose: a background restart can hold that lock
 for 60s+, and queueing the quit-time stop behind it is precisely how a wedged pm2 would make
 the app unquittable — the one outcome the timeout above exists to prevent. So "quit during a

@@ -182,7 +182,10 @@ function createEngineContext(deps) {
   // straight into registerIpcHandlers() by main/index.js — so the background
   // restart below and a user-clicked Start/Stop/Restart contend for the *same*
   // proxy lock. Two separately-constructed sets would look identical and
-  // serialize nothing across the two paths.
+  // serialize nothing across the two paths. NCOW-32 later aliased the
+  // `uninstall` and `update` IPC domains onto this same proxy lock too (see
+  // DOMAIN_MUTEX_ALIASES in ipc.js), so an Uninstall click and an update
+  // install now contend for it as well.
   //
   // Deliberately NOT covered: main/shutdown.js's before-quit proxy stop. It
   // reaches pm2Control directly and stays that way on purpose — CLAUDE.md's
