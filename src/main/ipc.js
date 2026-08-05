@@ -66,9 +66,60 @@ const UNSERIALIZED_METHODS = {
   // race validateAndSave/clear in any way that corrupts state; the worst
   // case is a masked value that is already stale by the time it renders,
   // same as proxy's getStatus/getRecentLogs and update's check above.
-  // validateAndSave and clear are NOT listed here — they persist/delete the
-  // encrypted key and stay locked via DOMAIN_MUTEX_ALIASES below.
-  apiKey: ['getMasked'],
+  // clear is NOT listed here — it deletes the encrypted key and stays locked
+  // via DOMAIN_MUTEX_ALIASES below, for its whole (fast, synchronous) body.
+  //
+  // NCOW-50: validateAndSave IS listed here now too, despite persisting the
+  // key on success — for a different reason than the pure reads above.
+  // Wave-8's integration review of NCOW-47 measured that this method awaits
+  // nvidiaKey.validateApiKey() (up to two sequential 10s network round trips
+  // against NVIDIA, engine-context.js) BEFORE it ever touches secretStore —
+  // and NCOW-47 had this whole handler, including that network wait, locked
+  // behind this alias. Composed with NCOW-45's uninstall alias (which
+  // reserves claudeCode+config+proxy synchronously and holds all three until
+  // it settles — the right call for multi-lock fairness), a slow/offline
+  // NVIDIA endpoint turned one Validate-Key click into a ~20s hold on ALL
+  // THREE of those locks the moment a user issued an Uninstall afterward —
+  // freezing window AND tray Start/Stop/Restart, proxy:testConnection, every
+  // claudeCode:* method, and Uninstall's own confirm, with no feedback. See
+  // this task's own description for the full reproduction and measured
+  // timings.
+  //
+  // The fix is not "stop locking validateAndSave" — NCOW-47's guarantee (a
+  // write here must never interleave with config.generate's
+  // secretStore.load()) still has to hold. It is "stop locking it HERE":
+  // validateAndSave now acquires mutexes.config itself, directly, inside
+  // engine-context.js — but only around the actual secretStore.save() call,
+  // after validateApiKey() has already settled. That is a synchronous,
+  // microseconds-long critical section, matching the standard every other
+  // entry in this table already applies; the network wait ahead of it now
+  // holds no lock at all. See engine-context.js's apiKey.validateAndSave for
+  // the actual critical section, and configGen.regenerateStaleConfig's
+  // injected runProxyOperation (engine-context.js) for the established
+  // precedent of an engine-side critical section acquired against this same
+  // shared `mutexes` object rather than through this file's automatic
+  // per-method wrapping.
+  //
+  // This is why validateAndSave is opted out HERE rather than removed from
+  // DOMAIN_MUTEX_ALIASES's `apiKey: 'config'` entry below: that alias is
+  // still exactly right for `clear`, which has no network component and is
+  // correctly locked for its whole (trivial) body.
+  apiKey: ['getMasked', 'validateAndSave'],
+  // NCOW-50 AC#5: config.getManifest is an equally pure read of the same
+  // manifest.json config.generate writes — manifestStore.readManifest()
+  // (engine-context.js's getManifest()) is a bare fs.readFileSync +
+  // JSON.parse, no different in kind from apiKey.getMasked's
+  // secretStore.load()+mask above, or proxy's getStatus/getRecentLogs.
+  // NCOW-47 exempted apiKey.getMasked on exactly this standard but left
+  // config.getManifest locked — an inconsistency with no live impact before
+  // now (config's own critical sections were already short; see
+  // mutex.js's exactly-one-caller argument for why nothing ever raced it in
+  // practice) but one that would have quietly gotten worse the moment ANY
+  // sufficiently long config-lock holder existed — which validateAndSave's
+  // pre-fix network wait briefly was. Applying the same exemption standard
+  // here removes the inconsistency outright. `generate` remains the one
+  // config method with a genuine mutating concern, and stays locked.
+  config: ['getManifest'],
 };
 
 /**
@@ -135,6 +186,19 @@ const UNSERIALIZED_METHODS = {
  * it gets no dedicated entry in MUTEX_DOMAINS (mutex.js), only this alias.
  * apiKey.getMasked is a pure read and stays exempt via UNSERIALIZED_METHODS
  * above rather than through this table.
+ *
+ * NCOW-50: this alias is still exactly right for `clear` — a synchronous,
+ * no-network body that is correctly locked in full via this table — but
+ * `validateAndSave` no longer resolves its lock through here at all: it is
+ * now also listed in UNSERIALIZED_METHODS above, and instead acquires
+ * `mutexes.config` itself, directly, inside engine-context.js, wrapped
+ * around only the secretStore.save() call rather than the network
+ * validation ahead of it. See UNSERIALIZED_METHODS's own `apiKey` entry
+ * above for the full reasoning (the ~20s uninstall-freeze this was found
+ * to cause) and engine-context.js's apiKey.validateAndSave for the actual
+ * critical section. This alias's `apiKey: 'config'` entry below is kept
+ * (not narrowed to just `clear`) precisely because `clear` still needs it —
+ * removing the entry would silently unlock `clear` too.
  *
  * diagnostics.run is not the only other reader of that identical secretStore
  * key — nor is it aliased here, and neither are the other two. All three
