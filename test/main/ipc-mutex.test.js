@@ -42,6 +42,21 @@ const {
 const { createDomainMutex, createDomainMutexes, MUTEX_DOMAINS } = require('../../src/main/mutex');
 const { createPm2Control } = require('../../src/engine/pm2Control');
 const { uninstall: runUninstall } = require('../../src/engine/uninstall');
+// NCOW-50 AC#3/#4: engine-context.js has no `require('electron')` at module
+// scope (see its own NCOW-31 header comment) — only main/index.js's
+// createTray({...}) call site and this handler's lazy openLogsFolder ever
+// touch the real electron module — so it, and tray.js's createTrayActions
+// (also electron-free — see tray.js's own header), load safely under plain
+// `node --test` in the SAME require.cache the fake `electron` above seeds
+// for ipc.js. This lets the tests below drive the REAL apiKey.validateAndSave
+// critical section, the REAL uninstall:run multi-lock reservation, and the
+// REAL tray Start/Stop/Restart wiring end to end, rather than standing any of
+// them in with a hand-rolled fake.
+const { createEngineContext } = require('../../src/main/engine-context');
+const { createTrayActions } = require('../../src/main/tray');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 /** Invokes a registered channel the way ipcMain would (with an event arg). */
 function invoke(channel, ...args) {
@@ -61,6 +76,89 @@ function deferred() {
 /** Reset between tests — registerIpcHandlers is additive into the same map. */
 function reset() {
   registered.clear();
+}
+
+// --- NCOW-50 AC#1-#4 fixtures: a real createEngineContext(), driven the same
+// sanctioned way test/main/engine-context-apikey.test.js and
+// engine-context-config-regen.test.js already do (--dev + NIM_PROXY_TEST_HOME,
+// per CLAUDE.md) — never this machine's real ~/.config/claude-conduit or real
+// Electron userData. Duplicated locally rather than imported, matching this
+// repo's existing pattern of each test file owning its own copy of these
+// small fixtures (see the two files above, which already duplicate this
+// exact helper against each other).
+
+function withFakeHome(fn) {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ncow-50-ipc-mutex-test-'));
+  const argvHadDev = process.argv.includes('--dev');
+  const originalTestHome = process.env.NIM_PROXY_TEST_HOME;
+  if (!argvHadDev) process.argv.push('--dev');
+  process.env.NIM_PROXY_TEST_HOME = homeDir;
+  return Promise.resolve()
+    .then(() => fn(homeDir))
+    .finally(() => {
+      if (!argvHadDev) {
+        const idx = process.argv.indexOf('--dev');
+        if (idx !== -1) process.argv.splice(idx, 1);
+      }
+      if (originalTestHome === undefined) delete process.env.NIM_PROXY_TEST_HOME;
+      else process.env.NIM_PROXY_TEST_HOME = originalTestHome;
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    });
+}
+
+function fakeSafeStorage() {
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString: (s) => Buffer.from(`enc:${s}`, 'utf8'),
+    decryptString: (b) => {
+      const text = b.toString('utf8');
+      if (!text.startsWith('enc:')) throw new Error('bad blob');
+      return text.slice(4);
+    },
+  };
+}
+
+function withMockedFetch(handler, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = handler;
+  return fn().finally(() => {
+    globalThis.fetch = original;
+  });
+}
+
+/** A validateApiKey-satisfying response for whichever of the two NVIDIA
+ *  endpoints validateApiKey calls (models list, then chat/completions probe).
+ *  Mirrors engine-context-apikey.test.js's fetchThatValidatesOk. */
+function fetchThatValidatesOk(url) {
+  if (String(url).includes('/models')) {
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'meta/llama-3.1-8b-instruct' }] }), { status: 200 }));
+  }
+  return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: 'hi' } }] }), { status: 200 }));
+}
+
+/** A harmless pm2Control double — enough for uninstall.run() (remove()) and
+ *  for proxy.start/stop/restart's status broadcasts, without ever touching a
+ *  real pm2 daemon (this repo's tests never do — see
+ *  engine-context-config-regen.test.js's identical caution). */
+function fakeHarmlessPm2Control() {
+  return {
+    APP_NAME: 'litellm-nim',
+    getStatus: async () => ({ status: 'stopped' }),
+    startOrRestart: async () => ({ ok: true }),
+    stop: async () => {},
+    remove: async () => {},
+  };
+}
+
+function makeRealEngineContext(homeDir, overrides = {}) {
+  return createEngineContext({
+    safeStorage: fakeSafeStorage(),
+    userDataDir: path.join(homeDir, 'userData'),
+    appDataDir: path.join(homeDir, 'appData'),
+    broadcast: () => {},
+    pm2Control: fakeHarmlessPm2Control(),
+    ...overrides,
+  });
 }
 
 test('ipc: proxy start/stop/restart are serialized against each other', async () => {
@@ -316,7 +414,16 @@ test('ipc: a throw inside a locked handler does not wedge a queued background op
   assert.deepEqual(order, ['start', 'bg']);
 });
 
-test('ipc: the other mutating domains are still fully serialized (no method opts out)', async () => {
+// NCOW-50 AC#5 REWORKS this test (was: "the other mutating domains are still
+// fully serialized (no method opts out)"). Before this task, config.getManifest
+// stayed locked purely because `config` had no UNSERIALIZED_METHODS entry at
+// all — an inconsistency with apiKey.getMasked's identical purity argument
+// (both are a bare disk read + no side effects) that this task's own
+// description called out explicitly and decided: exempt it, matching the
+// established standard, rather than leave it as the one un-exempted pure read.
+// `generate` is config's one remaining method with a genuine mutating
+// concern, so it is what this test now names as "the" locked method.
+test('ipc: NCOW-50 AC#5 — config:generate stays fully locked; config:getManifest is now a pure-read exemption, matching apiKey.getMasked\'s standard', async () => {
   reset();
   const order = [];
   const gate = deferred();
@@ -330,8 +437,6 @@ test('ipc: the other mutating domains are still fully serialized (no method opts
           order.push('generate:exit');
           return { ok: true };
         },
-        // A pure read, but config has no opt-out list, so it stays locked —
-        // matching this file's behaviour before NCOW-31.
         getManifest: async () => {
           order.push('getManifest');
           return { ok: true };
@@ -342,14 +447,16 @@ test('ipc: the other mutating domains are still fully serialized (no method opts
   );
 
   const generateRun = invoke('config:generate');
-  const manifestRun = invoke('config:get-manifest');
-  for (let i = 0; i < 5; i++) await Promise.resolve();
-  assert.deepEqual(order, ['generate:enter']);
+  // Must resolve WHILE generate is still in flight — not merely "eventually" —
+  // to prove getManifest did not queue behind it.
+  const manifestResult = await invoke('config:get-manifest');
+  assert.deepEqual(manifestResult, { ok: true });
+  assert.ok(order.includes('getManifest'), 'getManifest resolved without waiting on the config lock');
+  assert.equal(order.includes('generate:exit'), false, 'the generate call must still be in flight — getManifest did not wait for it');
 
   gate.resolve();
   await generateRun;
-  await manifestRun;
-  assert.deepEqual(order, ['generate:enter', 'generate:exit', 'getManifest']);
+  assert.equal(order.at(-1), 'generate:exit');
 });
 
 test('ipc: read-only domains have no lock, so their handlers never queue behind anything', async () => {
@@ -1110,7 +1217,23 @@ test('ipc: NCOW-47 AC#1+#3 — an in-flight apiKey:clear blocks a subsequent con
   assert.deepEqual(order, ['clear:enter', 'clear:exit', 'generate:enter']);
 });
 
-test('ipc: NCOW-47 AC#1+#3 — a background config:generate holding the config lock also blocks apiKey:validateAndSave', async () => {
+// NCOW-50 SUPERSEDES the test that used to live right here ("a background
+// config:generate holding the config lock also blocks apiKey:validateAndSave").
+// That test asserted the exact behavior NCOW-50 found to be the bug: the IPC
+// layer holding mutexes.config for validateAndSave's *entire* body, including
+// nvidiaKey.validateApiKey()'s up-to-two sequential 10s network round trips —
+// which, composed with NCOW-45's uninstall alias (claudeCode+config+proxy,
+// reserved synchronously and held until it settles), turned a slow/offline
+// NVIDIA endpoint into a ~20s freeze of window AND tray Start/Stop/Restart,
+// proxy:testConnection, and every claudeCode:* method the moment an Uninstall
+// was issued afterward. Per this task's AC#7, that test is reworked below
+// instead of deleted: validateAndSave is now listed in ipc.js's
+// UNSERIALIZED_METHODS, so the IPC layer no longer wraps it in any lock at
+// all — the assertion below proves exactly that (the opposite of the old
+// test), and the real serialization guarantee this used to (over-)provide is
+// re-proven at the engine-context level further down (see the "NCOW-50 AC#2"
+// test), where the lock now actually lives.
+test('ipc: NCOW-50 — apiKey:validateAndSave no longer resolves any lock at the IPC layer, so a background config:generate does NOT block it here', async () => {
   reset();
   const mutexes = createDomainMutexes();
   const order = [];
@@ -1134,18 +1257,29 @@ test('ipc: NCOW-47 AC#1+#3 — a background config:generate holding the config l
     order.push('bg-generate:exit');
   });
 
-  const saveRun = invoke('apikey:validate-and-save', 'nvapi-abc123');
-  for (let i = 0; i < 10; i++) await Promise.resolve();
-  assert.deepEqual(
-    order,
-    ['bg-generate:enter'],
-    'apiKey:validateAndSave must be queued, not interleaved with the in-flight config:generate'
+  // Not merely "resolves eventually" — must resolve WHILE the background
+  // config-lock holder is still in flight, proving nothing here waited on it.
+  const saveResult = await invoke('apikey:validate-and-save', 'nvapi-abc123');
+  assert.deepEqual(saveResult, { ok: true, data: { maskedKey: 'nvapi-…c123', models: [] } });
+  assert.ok(order.includes('validateAndSave:enter'), 'validateAndSave ran');
+  assert.equal(
+    order.includes('bg-generate:exit'),
+    false,
+    'the background config:generate must still be in flight — validateAndSave did not wait for it'
   );
 
   gate.resolve();
   await background;
-  await saveRun;
-  assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'validateAndSave:enter']);
+});
+
+test('ipc: NCOW-50 — resolveDomainLocks() still resolves apiKey onto mutexes.config (the alias itself is unchanged; only validateAndSave stopped USING it at this layer)', () => {
+  const mutexes = createDomainMutexes();
+  const locks = resolveDomainLocks(mutexes, 'apiKey');
+  assert.deepEqual(
+    locks,
+    [mutexes.config],
+    'the alias must still resolve to config — apiKey:clear (checked elsewhere in this file) still relies on it'
+  );
 });
 
 test('ipc: NCOW-47 AC#2 — apiKey:getMasked deliberately opts out of the lock, so a long config:generate cannot delay it', async () => {
@@ -1721,4 +1855,199 @@ test('ipc: NCOW-52 AC#7 — proxy:stop\'s success path is unchanged: a normal St
 
   await withSafetyTimeout(proxyWork, 2000, 'queued proxy work did not proceed once the genuine stop released its lock');
   assert.deepEqual(order, ['proxy:stop:enter', 'proxy:stop:exit', 'proxy-bg']);
+});
+
+// --- NCOW-50: apiKey.validateAndSave (engine-context.js) awaits
+// nvidiaKey.validateApiKey() — up to two sequential 10s AbortController
+// windows against NVIDIA's real network — BEFORE it ever touches
+// secretStore. Wave-8's integration review of NCOW-47 measured that holding
+// the config lock across that whole method, composed with NCOW-45's
+// uninstall alias (claudeCode+config+proxy, reserved synchronously and held
+// until it settles), turned a slow/offline NVIDIA endpoint into a ~20s
+// freeze of window AND tray Start/Stop/Restart, proxy:testConnection, and
+// every claudeCode:* method the moment a user issued an Uninstall
+// afterward. The tests below drive the REAL engine-context.js handlers (not
+// hand-rolled stand-ins) to prove: (AC#1) the config lock is not held at all
+// while validation is in flight; (AC#2) the write step it DOES lock is still
+// genuinely serialized against a config:generate-shaped lock holder — the
+// NCOW-47 guarantee, preserved, not merely asserted; and (AC#3/#4) the
+// end-to-end freeze — including the tray path — is actually gone.
+
+test('engine-context: NCOW-50 AC#1 — the config lock is completely free while validateAndSave\'s network validation round trip is still pending', async () => {
+  reset();
+  await withFakeHome(async (homeDir) => {
+    const fetchGate = deferred();
+    const hangingFetch = () => fetchGate.promise;
+    await withMockedFetch(hangingFetch, async () => {
+      const { handlers, mutexes } = makeRealEngineContext(homeDir);
+      // Deliberately routed through the REAL ipc.js registration rather than
+      // calling handlers.apiKey.validateAndSave directly: pre-fix, ipc.js
+      // wraps the whole method in mutexes.config (via DOMAIN_MUTEX_ALIASES),
+      // so going through invoke() here is what makes this test genuinely
+      // fail against the unfixed source (a direct handler call wouldn't —
+      // engine-context.js itself had no locking of its own before this task,
+      // the lock was applied entirely by this wrapping). Post-fix,
+      // validateAndSave is listed in UNSERIALIZED_METHODS, so invoke() here
+      // is equivalent to calling the handler directly.
+      registerIpcHandlers(handlers, { mutexes });
+      const order = [];
+
+      const saveRun = invoke('apikey:validate-and-save', 'nvapi-abc123').then((r) => {
+        order.push('validateAndSave:resolved');
+        return r;
+      });
+
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      assert.deepEqual(order, [], 'validation must still be pending — the hanging fetch has not been released yet');
+
+      // While validation is still pending, a competing user of the exact
+      // same config lock must be able to run to completion immediately —
+      // proving the network wait does not hold it at all.
+      const other = [];
+      await withSafetyTimeout(
+        mutexes.config.run(async () => {
+          other.push('other:ran');
+        }),
+        1000,
+        "a competing config-lock user did not run while validateAndSave's validation was still pending — the network wait appears to still be holding the lock"
+      );
+      assert.deepEqual(other, ['other:ran']);
+      assert.deepEqual(order, [], 'validateAndSave itself must still be pending — releasing/using the lock elsewhere must not have unblocked it');
+
+      // Release the hang and let validateAndSave run to a normal completion,
+      // so nothing dangles past this test.
+      fetchGate.resolve(new Response(JSON.stringify({ data: [{ id: 'meta/llama-3.1-8b-instruct' }] }), { status: 200 }));
+      const result = await withSafetyTimeout(saveRun, 2000, "validateAndSave did not settle after its validation gate was released");
+      assert.equal(result.ok, true);
+    });
+  });
+});
+
+test("engine-context: NCOW-50 AC#1+#2 — validateAndSave holds the config lock only for its secretStore.save() write, and that write is still genuinely serialized against a config:generate-shaped lock holder (NCOW-47's guarantee, preserved)", async () => {
+  await withFakeHome(async (homeDir) => {
+    await withMockedFetch(fetchThatValidatesOk, async () => {
+      const { handlers, mutexes } = makeRealEngineContext(homeDir);
+      const order = [];
+      const gate = deferred();
+
+      // Stands in for an in-flight config:generate holding mutexes.config —
+      // exactly the convention this file uses throughout for that call (see
+      // the NCOW-45/NCOW-47 tests above): registerIpcHandlers() itself would
+      // lock a real config:generate handler no differently.
+      const background = mutexes.config.run(async () => {
+        order.push('bg-generate:enter');
+        await gate.promise;
+        order.push('bg-generate:exit');
+      });
+
+      const saveRun = handlers.apiKey.validateAndSave('nvapi-abc123').then((r) => {
+        order.push('validateAndSave:resolved');
+        return r;
+      });
+
+      // Let validateApiKey's (mocked, instantly-resolving) network round
+      // trip run all the way to completion — plenty of ticks, since
+      // fetchThatValidatesOk resolves synchronously with no real I/O.
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+
+      assert.deepEqual(
+        order,
+        ['bg-generate:enter'],
+        'validateAndSave must not have resolved yet — even though validation itself has long since finished, its write step must still be queued behind the background config-lock holder'
+      );
+
+      gate.resolve();
+      const result = await withSafetyTimeout(
+        saveRun,
+        2000,
+        "validateAndSave did not settle after the background config-lock holder released — its write step may not be locked against mutexes.config at all"
+      );
+      await background;
+
+      assert.equal(result.ok, true);
+      assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'validateAndSave:resolved']);
+    });
+  });
+});
+
+test('ipc+engine-context+tray: NCOW-50 AC#3+#4 — a validateAndSave whose validation step hangs no longer blocks a subsequent uninstall:run, the claudeCode domain it also reserves, or the tray\'s Start/Stop/Restart', async () => {
+  reset();
+  await withFakeHome(async (homeDir) => {
+    const fetchGate = deferred();
+    const hangingFetch = () => fetchGate.promise;
+    await withMockedFetch(hangingFetch, async () => {
+      const { handlers, mutexes } = makeRealEngineContext(homeDir);
+      registerIpcHandlers(handlers, { mutexes });
+      const trayActions = createTrayActions({ mutexes, handlers });
+
+      const order = [];
+
+      // The user clicks "Validate & Save" against a slow/offline NVIDIA
+      // endpoint — its validation network round trip hangs. Deliberately NOT
+      // awaited: this reproduces the reported scenario exactly (the user
+      // does not wait for it either — they navigate away).
+      const saveRun = invoke('apikey:validate-and-save', 'nvapi-abc123').then((r) => {
+        order.push('validateAndSave:resolved');
+        return r;
+      });
+
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      assert.deepEqual(order, [], 'validation must still be pending throughout this test, until it is deliberately released at the very end');
+
+      // The user then clicks Uninstall. Per NCOW-45, this reserves
+      // claudeCode+config+proxy SYNCHRONOUSLY and holds all three until it
+      // settles — pre-fix, `config` was still occupied by validateAndSave's
+      // hanging network wait for the whole hang, and NCOW-45's
+      // hold-all-locks-until-settled design meant claudeCode and proxy got
+      // pinned right along with it. This is the exact freeze this task
+      // fixes: this call must now settle promptly, without releasing the
+      // fetch hang first.
+      const uninstallResult = await withSafetyTimeout(
+        invoke('uninstall:run', { purge: false }),
+        2000,
+        'uninstall:run did not settle while validateAndSave was still hanging — the config lock still appears to be held by the network wait (the NCOW-50 bug, unfixed)'
+      );
+      assert.equal(uninstallResult.ok, true);
+
+      // claudeCode — one of the two domains uninstall's reservation would
+      // otherwise have pinned for the hang's entire duration — must be
+      // immediately usable too, not just uninstall itself.
+      const claudeCodeStatus = await withSafetyTimeout(
+        invoke('claude-code:get-status'),
+        2000,
+        'claude-code:get-status stayed blocked after uninstall:run settled — the claudeCode lock still appears to be pinned'
+      );
+      assert.equal(claudeCodeStatus.ok, true);
+
+      // AC#4: the tray's Start/Stop/Restart (tray.js's createTrayActions,
+      // the exact wiring main/index.js uses — see tray-actions.test.js for
+      // why this, not a source regex, is what actually proves the tray
+      // shares the real lock) contend for mutexes.proxy, the third domain
+      // uninstall reserves. They must be live too, not just the renderer's
+      // own proxy:* IPC channels.
+      const trayStart = await withSafetyTimeout(trayActions.onStart(), 2000, 'tray onStart stayed blocked');
+      const trayStop = await withSafetyTimeout(trayActions.onStop(), 2000, 'tray onStop stayed blocked');
+      const trayRestart = await withSafetyTimeout(trayActions.onRestart(), 2000, 'tray onRestart stayed blocked');
+      // No manifest exists in this fixture (setup was never run), so
+      // onStart/onRestart correctly resolve NOT_CONFIGURED rather than
+      // {ok:true} — the point of this assertion is only that all three
+      // resolved to a normal result at all, promptly, rather than hanging.
+      // onStop takes no manifest-configured precondition (engine-context.js
+      // always calls pm2Control.stop() unconditionally), so it alone is
+      // expected to be a clean {ok:true}.
+      assert.equal(typeof trayStart.ok, 'boolean', 'tray onStart resolved to a normal result shape');
+      assert.equal(trayStop.ok, true);
+      assert.equal(typeof trayRestart.ok, 'boolean', 'tray onRestart resolved to a normal result shape');
+
+      assert.equal(
+        order.includes('validateAndSave:resolved'),
+        false,
+        'validation must STILL be pending — none of the above should have required releasing the hang first'
+      );
+
+      // Clean up: release the hang so nothing dangles past this test.
+      fetchGate.resolve(new Response(JSON.stringify({ data: [{ id: 'meta/llama-3.1-8b-instruct' }] }), { status: 200 }));
+      await withSafetyTimeout(saveRun, 2000, "validateAndSave did not settle after its validation gate was finally released");
+    });
+  });
 });
