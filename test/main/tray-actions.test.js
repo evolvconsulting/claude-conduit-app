@@ -198,18 +198,31 @@ test('createTrayActions: negative control — a DIFFERENT (shadowed) mutex set f
 // identifier that is shadowed with an entirely different object — the same
 // class of bug the index.js identifier-binding checks in
 // engine-context-config-regen.test.js are built to catch. This test
-// reproduces a DIFFERENT mutation, one those checks cannot see at all:
-// `mutexes` itself is never reassigned or shadowed, but the `.proxy`
-// PROPERTY on the one shared `mutexes` object is swapped out for a fresh
-// lock between registerIpcHandlers() and createTrayActions() — exactly the
-// index.js call order (createEngineContext() destructure, then
+// reproduces a DIFFERENT mutation, one those checks (at the time this test
+// was first written) could not see at all: `mutexes` itself is never
+// reassigned or shadowed, but the `.proxy` PROPERTY on the one shared
+// `mutexes` object is swapped out for a fresh lock between
+// registerIpcHandlers() and createTrayActions() — exactly the index.js call
+// order (createEngineContext() destructure, then
 // registerIpcHandlers(handlers, { mutexes }), then later
 // createTray({ ...createTrayActions({ mutexes, handlers }) })). NCOW-35's
 // own review empirically verified this exact mutation as a REAL
 // serialization break (a tray Stop ran concurrently with an in-flight
-// IPC-triggered restart), and it passed the full suite regardless — a
-// source-text scan can't distinguish this from a legitimate
-// `mutexes.proxy.run(...)` read, so this stays a behavioural proof only.
+// IPC-triggered restart), and it passed the full suite regardless.
+//
+// NCOW-41 fix pass (reviewer finding): a first draft of this comment claimed
+// a source-text scan could never distinguish this mutation from a legitimate
+// `mutexes.proxy.run(...)` read, so this test was the only guard. That claim
+// was wrong — the read is a member access with no `=` in it, while the
+// mutation is `mutexes.proxy = ...` (a property access followed by a single
+// `=`), which a regex can and does tell apart. See
+// identifierPropertyIsAssigned() and the `mutexes`/`handlers` single-binding
+// tests in engine-context-config-regen.test.js for the real, text-only AC#2
+// guard. This behavioural test stays — it is still valid, and it is the only
+// one of the two that reproduces the mutation against the REAL
+// createTrayActions/registerIpcHandlers/mutex.js primitives and shows the
+// actual serialization break, which is why it's worth keeping as "why this
+// matters" documentation even though it is no longer the sole guard.
 test('createTrayActions: regression — mutating `mutexes.proxy` to a fresh lock AFTER registerIpcHandlers() has already captured the old one, but before createTrayActions() is called, breaks serialization even though `mutexes` itself is never reassigned or shadowed', async () => {
   reset();
   const mutexes = createDomainMutexes();

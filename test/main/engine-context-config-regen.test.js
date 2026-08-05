@@ -839,14 +839,26 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // instead of a `const` re-declaration or a bare reassignment, and a
 // text-only regex can see a parameter list exactly as well as it can see a
 // declaration. Both are folded into the identifier-binding tests below.
-// Property-level mutation of `mutexes.proxy` is different in kind: nothing
-// about the *identifier* `mutexes` changes, so no source-text scan over
-// index.js can distinguish a legitimate read (`mutexes.proxy.run(...)`) from
-// a mutation — that gap really is outside a text-only check's reach, and
-// stays closed only by the behavioural regression test in
-// test/main/tray-actions.test.js, which reproduces the mutation against the
-// real createTrayActions/registerIpcHandlers/mutex.js primitives and shows
-// the two callers stop sharing a lock.
+//
+// NCOW-41 fix pass (reviewer finding): property-level mutation of
+// `mutexes.proxy` (or `handlers.proxy`) was FIRST assumed to be different in
+// kind — the claim briefly written here was that nothing about the
+// *identifier* changes, so no source-text scan could distinguish a
+// legitimate read (`mutexes.proxy.run(...)`) from a mutation. That claim was
+// wrong and was disproven during review: the legitimate read is a
+// member-access-then-call with no `=` anywhere in it, while a mutation is
+// exactly `identifier.prop = ...` (or the computed-key form
+// `identifier['prop'] = ...`) followed by a single `=`, never `==`/`===`.
+// That is a source-text property a regex can and does settle —
+// identifierPropertyIsAssigned() below — with no false positive on the real
+// `mutexes.proxy.run(() => handlers.proxy.stop())` call site and a true
+// positive on the exact mutation NCOW-35's review verified as a real
+// serialization break. The behavioural regression test in
+// test/main/tray-actions.test.js stays as "why this matters" documentation —
+// it reproduces the mutation against the real
+// createTrayActions/registerIpcHandlers/mutex.js primitives and shows the
+// two callers stop sharing a lock — but the AC#2 guard itself is this
+// text-only check, not that behavioural test alone.
 //
 // A fourth gap — a plain object literal override, where a future edit adds
 // its own `onStart`/`onStop`/`onRestart` key to the createTray({...}) object
@@ -877,16 +889,20 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // genuinely closed.
 //
 // Equivalent guards for the three gaps described above — `handlers`'
-// missing single-binding check, `mutexes.proxy` property-level mutation,
-// and parameter shadowing — are added by NCOW-41 too: see the
-// identifier-binding tests immediately below for `handlers` and parameter
-// shadowing, and test/main/tray-actions.test.js for the `mutexes.proxy`
-// mutation's behavioural proof. Together, this file's static checks and
-// tray-actions.test.js's behavioural proofs now cover every tray-wiring
-// identity gap identified across NCOW-35/38/39/41's reviews of this one
-// call site — a description of how thoroughly THIS seam has been reviewed,
-// not a general claim that tray wiring (or this app) has been proven safe
-// end to end.
+// missing single-binding check, `mutexes`/`handlers` property-level
+// mutation, and parameter shadowing — are added by NCOW-41 too: see the
+// identifier-binding tests immediately below for all three. The
+// property-mutation guard turned out to be exactly as reachable by a
+// text-only check as the other two (identifierPropertyIsAssigned(), added in
+// this task's fix pass — see the comment above for what changed and why);
+// test/main/tray-actions.test.js's existing behavioural test is kept
+// alongside it as "why this matters" proof of the mutation's real-world
+// impact, not as the sole guard against it. Together, this file's static
+// checks and tray-actions.test.js's behavioural proof now cover every
+// tray-wiring identity gap identified across NCOW-35/38/39/41's reviews of
+// this one call site — a description of how thoroughly THIS seam has been
+// reviewed, not a general claim that tray wiring (or this app) has been
+// proven safe end to end.
 test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
   assert.match(
@@ -968,7 +984,38 @@ function identifierBoundAsFunctionParam(source, identifier) {
   return bareArrowParam.test(source);
 }
 
-test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, or parameter binding anywhere else in the file', () => {
+/**
+ * NCOW-41 fix pass (AC#2, reviewer finding): catches property-level mutation
+ * of `mutexes.proxy` (or the equivalent `handlers.*` property) — reassigning
+ * a PROPERTY of the shared object, rather than rebinding the identifier
+ * itself, which is what the declaration/reassignment/parameter checks above
+ * each target. `mutexes` (or `handlers`) stays declared exactly once and the
+ * `...createTrayActions({ mutexes, handlers })` spread text stays present
+ * verbatim, so none of those checks notice — but NCOW-35's own review
+ * empirically verified this is a REAL serialization break (a tray Stop ran
+ * concurrently with an in-flight IPC-triggered restart), and it passed the
+ * full suite regardless, until now.
+ *
+ * A first draft of the comment above this function's call sites claimed this
+ * gap was outside a text-only check's reach entirely — a legitimate read
+ * (`mutexes.proxy.run(...)`) and a mutation (`mutexes.proxy = ...`) supposedly
+ * looked too similar for a regex to tell apart. That claim was wrong: a read
+ * is a member access immediately followed by `(` or `.` — never `=` — while
+ * an assignment is the property access followed by exactly one `=` (not `==`
+ * or `===`). That is a source-text distinction, not a runtime one, so a
+ * regex settles it exactly as it settles the declaration/reassignment checks
+ * above. Verified against the real index.js (no match — nothing here
+ * mutates a property of either identifier), the exact mutation NCOW-35's
+ * review reproduced (`mutexes.proxy = require('./mutex').createDomainMutex()`,
+ * matched), and the real call site's own
+ * `mutexes.proxy.run(() => handlers.proxy.stop())` read (not matched).
+ */
+function identifierPropertyIsAssigned(source, identifier) {
+  const pattern = new RegExp(`\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`);
+  return pattern.test(source);
+}
+
+test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, parameter binding, or property mutation anywhere else in the file', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
 
   // Every place `mutexes` is *bound* to a value via a declaration keyword:
@@ -1008,16 +1055,33 @@ test('index.js: the `mutexes` identifier is bound exactly once (the createEngine
       'like "((mutexes) => createTray({...}))(privateSet)" would shadow the shared binding via a ' +
       'parameter instead of a declaration or reassignment, evading both checks above'
   );
+
+  // NCOW-41 fix pass (AC#2, reviewer finding): mutating a PROPERTY of the
+  // shared `mutexes` (e.g. `mutexes.proxy = require('./mutex').createDomainMutex()`
+  // between the createEngineContext() destructure and createTray({...}))
+  // shadows the shared lock just as effectively as the three checks above,
+  // without rebinding the identifier itself at all — see
+  // identifierPropertyIsAssigned()'s own comment for why this is reachable
+  // by a text-only check, contrary to what an earlier draft of the big
+  // review comment above claimed.
+  assert.equal(
+    identifierPropertyIsAssigned(source, 'mutexes'),
+    false,
+    'expected no "mutexes.<property> = ..." or "mutexes[\'<property>\'] = ..." assignment anywhere in ' +
+      'index.js — mutating a property of the shared mutexes object (e.g. reassigning mutexes.proxy to a ' +
+      'fresh lock) breaks serialization exactly as a shadowing rebind would, and NCOW-35\'s review verified ' +
+      'this is a real regression, not a theoretical one'
+  );
 });
 
-// NCOW-41 (AC#1): `handlers` gets the exact same three-way single-binding
-// check `mutexes` already had above — it was exactly as reachable by this
-// technique, it simply didn't have a test yet. Before this test existed,
+// NCOW-41 (AC#1): `handlers` gets the exact same four-way single-binding
+// check `mutexes` already had above — it was exactly as reachable by these
+// techniques, it simply didn't have a test yet. Before this test existed,
 // wrapping createTray({...}) in a nested block that declared its own
 // private `const handlers = { proxy: {...} }` passed the full suite,
 // silently giving the tray a private, unshared `handlers` (confirmed during
 // NCOW-39's review).
-test('index.js: the `handlers` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, or parameter binding anywhere else in the file', () => {
+test('index.js: the `handlers` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, parameter binding, or property mutation anywhere else in the file', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
 
   const declarationPattern = /\b(?:const|let|var)\s+(?:\{[^{}]*\bhandlers\b[^{}]*\}|handlers\b)\s*=/g;
@@ -1047,6 +1111,18 @@ test('index.js: the `handlers` identifier is bound exactly once (the createEngin
     'expected "handlers" never to appear as a function parameter name in index.js — a wrapping function ' +
       'like "((handlers) => createTray({...}))(privateSet)" would shadow the shared binding via a ' +
       'parameter instead of a declaration or reassignment, evading the two checks above'
+  );
+
+  // NCOW-41 fix pass (AC#2, reviewer finding): the `handlers` equivalent of
+  // the `mutexes.proxy` mutation check above — see that assertion's comment
+  // and identifierPropertyIsAssigned()'s own comment for why this is
+  // reachable by a text-only check.
+  assert.equal(
+    identifierPropertyIsAssigned(source, 'handlers'),
+    false,
+    'expected no "handlers.<property> = ..." or "handlers[\'<property>\'] = ..." assignment anywhere in ' +
+      'index.js — mutating a property of the shared handlers object shadows it exactly as a shadowing ' +
+      'rebind would, evading the checks above'
   );
 });
 
@@ -1086,6 +1162,58 @@ test('index.js: the parameter-binding check (used by the mutexes/handlers single
       identifierBoundAsFunctionParam(namedFunctionWrapper, identifier),
       true,
       `expected to catch "${identifier}" reintroduced as a named function's parameter`
+    );
+  }
+});
+
+// NCOW-41 fix pass (AC#2, reviewer finding): proves
+// identifierPropertyIsAssigned() (used by both single-binding tests above)
+// actually catches the property-mutation shape it targets, against
+// synthetic source, AND does not flag the real call site's own legitimate
+// read — mirroring the parameter-binding meta-test above and
+// findKeyAfterTraySpread()'s own meta-test further down in this file. This
+// is what makes the AC#2 assertions above a genuine regression test rather
+// than a check that merely happens to pass today: without this meta-test,
+// nothing in this suite would distinguish the "bad" (mutating) strings below
+// from the "good" (reading) one, so a future edit could silently weaken
+// identifierPropertyIsAssigned() back into a no-op and every single-binding
+// test above would keep passing regardless.
+test('index.js: the property-mutation check (used by the mutexes/handlers single-binding tests above) actually catches the shape it targets, without flagging the real call site\'s legitimate mutexes.proxy.run(...)/handlers.proxy.stop() read (meta-test)', () => {
+  const legitimateRead = 'mutexes.proxy.run(() => handlers.proxy.stop())';
+  for (const identifier of ['mutexes', 'handlers']) {
+    assert.equal(
+      identifierPropertyIsAssigned(legitimateRead, identifier),
+      false,
+      `sanity check: the real call site's legitimate "${identifier}.proxy...()" read must not be flagged as a mutation`
+    );
+
+    const equalityCheck = `if (${identifier}.proxy === someOtherMutex) {}`;
+    assert.equal(
+      identifierPropertyIsAssigned(equalityCheck, identifier),
+      false,
+      `sanity check: an equality comparison ("${identifier}.proxy === ...") must not be flagged as an assignment`
+    );
+
+    const spreadRead = `const x = { ...${identifier}.app, quit: 1 };`;
+    assert.equal(
+      identifierPropertyIsAssigned(spreadRead, identifier),
+      false,
+      `sanity check: spreading a property ("...${identifier}.app") must not be flagged as an assignment`
+    );
+
+    const dotMutation = `${identifier}.proxy = require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(dotMutation, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via dot-property mutation — this is the exact ` +
+        "shape NCOW-35's review reproduced as a real serialization break"
+    );
+
+    const computedMutation = `${identifier}['proxy'] = require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(computedMutation, identifier),
+      true,
+      `expected to catch "${identifier}['proxy']" reassigned via computed-property mutation`
     );
   }
 });
