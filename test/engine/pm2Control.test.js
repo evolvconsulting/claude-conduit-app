@@ -36,6 +36,23 @@ function fakePm2({ apps = [] } = {}) {
       calls.push(`stop:${name}`);
       cb(null);
     },
+    // NCOW-52: start/launchBus added for stop/startOrRestart/startLogTail
+    // regression coverage below — behaved identically to the rest of this
+    // fake (records the call, calls back successfully) until a test needs a
+    // wedged variant, at which point it builds a dedicated fixture instead
+    // (matching hangingListPm2/hangingDeletePm2/hangingDumpPm2's own pattern).
+    start: (cfgPath, cb) => {
+      calls.push(`start:${cfgPath}`);
+      cb(null);
+    },
+    launchBus: (cb) => {
+      calls.push('launchBus');
+      cb(null, {
+        on: () => calls.push('bus:on'),
+        off: () => calls.push('bus:off'),
+        close: () => calls.push('bus:close'),
+      });
+    },
   };
 }
 
@@ -279,6 +296,251 @@ test('remove: AC#5 — the success path is unaffected by the new bound: a normal
   assert.ok(pm2.calls.includes('list'));
   assert.ok(pm2.calls.includes('delete:litellm-nim'));
   assert.ok(pm2.calls.includes('dump'));
+});
+
+// --- NCOW-52 regressions ---------------------------------------------------
+//
+// Found by NCOW-48's own integration review as a follow-up (never filed at
+// the time, so it survived only in task notes): pm2.stop (stop()), pm2.start
+// (startOrRestart()), and pm2.launchBus (startLogTail()) were the last three
+// raw, unbounded pm2 callbacks in this file — the same hazard class NCOW-48
+// closed for pm2.list/pm2.delete/pm2.dump, one door down. Because proxy:stop,
+// proxy:start/proxy:restart, and proxy:start-log-tail all hold mutexes.proxy
+// for the call's duration (see ipc.js's UNSERIALIZED_METHODS/
+// DOMAIN_MUTEX_ALIASES), a daemon wedged at any of these three froze
+// Start/Stop/Restart, config generation, Claude Code configure/remove,
+// apiKey:validateAndSave/apiKey:clear, AND (via uninstall's alias onto proxy)
+// Uninstall — indefinitely, exactly like the NCOW-48 hazard.
+//
+// AC#4 (non-vacuity): every test below genuinely failed (hung past a 3000ms
+// real-clock check) against this task's own unpatched source — reproduced via
+// a throwaway script exercising stop()/startOrRestart()/startLogTail()
+// against a wedged raw pm2 fake with a 300ms pm2CallTimeoutMs, before this
+// task's withTimeout()/manual-timeout wrapping existed; see this task's
+// report for the observed HUNG results. AC#4 (cannot itself hang the suite):
+// every assertion below races the operation under test against
+// withSafetyTimeout() (defined above) for the same reason the NCOW-48 section
+// does — a regression that removes or breaks one of these bounds must fail
+// exactly that one test with a readable message, not cancel every later test
+// in this file the way NCOW-48's own first draft did (29 cancelled tests).
+
+function hangingStopPm2() {
+  const calls = [];
+  return {
+    calls,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    stop: (name) => {
+      calls.push(`stop:${name}`);
+      // Never calls back — simulates a wedged daemon.
+    },
+  };
+}
+
+function hangingStartPm2(apps = []) {
+  const calls = [];
+  return {
+    calls,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    list: (cb) => {
+      calls.push('list');
+      cb(null, apps);
+    },
+    delete: (name, cb) => {
+      calls.push(`delete:${name}`);
+      apps = apps.filter((a) => a.name !== name);
+      cb(null);
+    },
+    start: (cfgPath) => {
+      calls.push(`start:${cfgPath}`);
+      // Never calls back — simulates a wedged daemon.
+    },
+  };
+}
+
+function hangingLaunchBusPm2() {
+  const calls = [];
+  return {
+    calls,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    launchBus: () => {
+      calls.push('launchBus');
+      // Never calls back — simulates a wedged daemon.
+    },
+  };
+}
+
+test('stop: a pm2.stop call that never calls back rejects within the bound instead of hanging forever, and reports PM2_STOP_TIMEOUT', async () => {
+  const pm2 = hangingStopPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(ctl.stop(), (err) => {
+      assert.match(err.message, /pm2 stop timed out/i);
+      assert.equal(err.code, 'PM2_STOP_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'stop() did not reject within 2000ms — the pm2.stop bound appears to be missing or regressed'
+  );
+});
+
+test('stop: AC#7 — the success path is unaffected by the new bound: a normal (fast) stop still completes cleanly even against a tight timeout window', async () => {
+  const pm2 = fakePm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+  await withSafetyTimeout(assert.doesNotReject(ctl.stop()), 2000, 'stop() unexpectedly failed to settle');
+  assert.ok(pm2.calls.includes('stop:litellm-nim'));
+});
+
+test('startOrRestart: a pm2.start call that never calls back rejects within the bound instead of hanging forever, and reports PM2_START_TIMEOUT', async () => {
+  const pm2 = hangingStartPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(
+      ctl.startOrRestart({
+        ecosystemConfigPath: '/fake/ecosystem.config.cjs',
+        port: 65535,
+        outLog: '/nonexistent-out',
+        errLog: '/nonexistent-err',
+      }),
+      (err) => {
+        assert.match(err.message, /pm2 start timed out/i);
+        assert.equal(err.code, 'PM2_START_TIMEOUT');
+        return true;
+      }
+    ),
+    2000,
+    'startOrRestart() did not reject within 2000ms — the pm2.start bound appears to be missing or regressed'
+  );
+  // delete is reached (and succeeds) before the wedged start, exactly like
+  // the real call order.
+  assert.ok(pm2.calls.includes('list'));
+  assert.ok(pm2.calls.some((c) => c.startsWith('start:')));
+});
+
+test('startOrRestart: AC#7 — the success path is unaffected by the new bound: a normal (fast) delete+start still completes even against a tight timeout window', async () => {
+  const pm2 = fakePm2({ apps: [{ name: 'litellm-nim', pm2_env: { status: 'online' } }] });
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+  // healthTimeoutMs: 0 means the health-check loop below never actually
+  // runs (Date.now() has already passed the zero-width deadline by the time
+  // the loop condition is checked) — this isolates the assertion to pm2.
+  // start's own new bound, without needing a real HTTP health-check server.
+  // The HEALTH_CHECK_TIMEOUT result that follows is an unrelated, pre-existing
+  // code path, not a symptom of this task's change.
+  const result = await withSafetyTimeout(
+    ctl.startOrRestart({
+      ecosystemConfigPath: '/fake/ecosystem.config.cjs',
+      port: 65535,
+      outLog: '/nonexistent-out',
+      errLog: '/nonexistent-err',
+      healthTimeoutMs: 0,
+    }),
+    2000,
+    'startOrRestart() unexpectedly failed to settle'
+  );
+  assert.ok(pm2.calls.includes('list'));
+  assert.ok(pm2.calls.includes('delete:litellm-nim'));
+  assert.ok(pm2.calls.includes('start:/fake/ecosystem.config.cjs'));
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'HEALTH_CHECK_TIMEOUT');
+});
+
+test('startLogTail: a pm2.launchBus call that never calls back rejects within the bound instead of hanging forever, and reports PM2_LOG_TAIL_TIMEOUT', async () => {
+  const pm2 = hangingLaunchBusPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(ctl.startLogTail(() => {}), (err) => {
+      assert.match(err.message, /pm2 launchBus timed out/i);
+      assert.equal(err.code, 'PM2_LOG_TAIL_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'startLogTail() did not reject within 2000ms — the pm2.launchBus bound appears to be missing or regressed'
+  );
+});
+
+test('startLogTail: a pm2.launchBus callback that arrives AFTER the bound has already fired still gets its bus closed, so it does not leak an open connection', async () => {
+  // Unlike stop/start/list/delete/dump, launchBus's callback hands back a
+  // live bus handle rather than a bare completion signal — a plain race
+  // (the withTimeout() every other bounded call in this file uses) would
+  // silently strand that handle open forever once the bound already gave up.
+  // This exercises exactly that scenario: the daemon's callback is invoked
+  // manually, well after the bound has already rejected.
+  let launchBusCallback;
+  const pm2 = {
+    connect: (cb) => cb(null),
+    launchBus: (cb) => {
+      launchBusCallback = cb;
+      // Deliberately not invoked yet — see below.
+    },
+  };
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(ctl.startLogTail(() => {}), (err) => {
+      assert.equal(err.code, 'PM2_LOG_TAIL_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'startLogTail() did not reject within 2000ms'
+  );
+
+  assert.equal(typeof launchBusCallback, 'function', 'expected pm2.launchBus to have been called');
+  let closed = false;
+  const lateBus = {
+    on: () => {},
+    off: () => {},
+    close: () => {
+      closed = true;
+    },
+  };
+  launchBusCallback(null, lateBus);
+  assert.equal(closed, true, 'a late-arriving bus must be closed rather than leaked');
+});
+
+test('startLogTail: AC#7 — the success path is unaffected by the new bound: a normal (fast) launchBus still resolves with a working unsubscribe even against a tight timeout window', async () => {
+  const busHandlers = {};
+  let busCloseCalls = 0;
+  const bus = {
+    on: (event, handler) => {
+      busHandlers[event] = handler;
+    },
+    off: (event) => {
+      delete busHandlers[event];
+    },
+    close: () => {
+      busCloseCalls += 1;
+    },
+  };
+  const pm2 = {
+    connect: (cb) => cb(null),
+    launchBus: (cb) => cb(null, bus),
+  };
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  const lines = [];
+  const unsubscribe = await withSafetyTimeout(
+    ctl.startLogTail((entry) => lines.push(entry)),
+    2000,
+    'startLogTail() unexpectedly failed to settle'
+  );
+  assert.equal(typeof unsubscribe, 'function');
+
+  busHandlers['log:out']({ process: { name: 'litellm-nim' }, data: 'hello', type: 'out' });
+  assert.deepEqual(lines, [{ process: 'litellm-nim', data: 'hello', at: 'out' }]);
+
+  unsubscribe();
+  assert.equal(busCloseCalls, 1);
 });
 
 test('ensureConnected: only calls pm2.connect once across multiple operations', async () => {
