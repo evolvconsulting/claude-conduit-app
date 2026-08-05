@@ -68,19 +68,88 @@ test('remove: deletes the app if present and always saves, without throwing when
 
 // --- NCOW-48 regressions ---------------------------------------------------
 //
-// uninstall.run() -> pm2Control.remove() -> deleteAppIfPresent() -> pm2.delete
-// (pm2Control.js:509) and remove() -> save() -> pm2.dump (pm2Control.js:516)
-// were the last two raw pm2 callbacks reachable from Uninstall with no
+// uninstall.run() -> pm2Control.remove() -> deleteAppIfPresent() ->
+// findApp() -> listApps() -> pm2.list (pm2Control.js's listApps()),
+// deleteAppIfPresent()'s own pm2.delete, and remove() -> save() -> pm2.dump
+// were the last three raw pm2 callbacks reachable from Uninstall with no
 // timeout at all — ensureConnected() was already bounded (NCOW-22), but a
 // daemon that accepts the connection and then never calls back to
-// pm2.delete/pm2.dump sailed straight past that bound. Because ipc.js's
-// DOMAIN_MUTEX_ALIASES now holds the claudeCode, config, AND proxy locks for
-// uninstall:run's full duration (NCOW-45/NCOW-47), that one unbounded wait
-// froze all three indefinitely (plus apiKey:validateAndSave/apiKey:clear,
-// which alias onto config) — see ipc-mutex.test.js's NCOW-48 AC#3 test for
-// the end-to-end demonstration of that. These two mirror the existing
-// "connect attempt that never calls back" tests below, at the two call sites
-// this task adds a bound to.
+// pm2.list/pm2.delete/pm2.dump sailed straight past that bound. Because
+// ipc.js's DOMAIN_MUTEX_ALIASES now holds the claudeCode, config, AND proxy
+// locks for uninstall:run's full duration (NCOW-45/NCOW-47), that one
+// unbounded wait froze all three indefinitely (plus
+// apiKey:validateAndSave/apiKey:clear, which alias onto config) — see
+// ipc-mutex.test.js's NCOW-48 AC#3 tests for the end-to-end demonstration of
+// that.
+//
+// Fix-pass correction: an earlier pass of this task bounded only pm2.delete
+// and pm2.dump — one call too late, since deleteAppIfPresent() calls
+// findApp() -> listApps() -> pm2.list BEFORE it ever reaches pm2.delete. A
+// daemon wedged at pm2.list sailed straight past both existing bounds without
+// either ever engaging, so the freeze this task exists to eliminate was still
+// fully reproducible. The tests below add the missing pm2.list coverage.
+//
+// AC#4 (cannot itself hang the suite): every assertion in this section races
+// the operation under test against withSafetyTimeout() below — a real-clock
+// timer well above the 30ms bound configured for these tests but far below
+// anything that would stall CI. Without it, a regression that removes or
+// breaks one of these bounds makes the corresponding `await
+// assert.rejects(...)` never settle at all: node's test runner then reports
+// not just that one test but every later test in this file as
+// `cancelledByParent` ("Promise resolution is still pending but the event
+// loop has already resolved") once the file can make no further progress,
+// which was reproduced against this exact file with only pm2Control.js
+// reverted (see this task's report for the observed counts) and swallows the
+// one real regression signal along with everything after it. Racing each
+// assertion here means a regression instead fails exactly that one test with
+// a readable message and lets the rest of the file continue normally.
+
+/** Rejects with `message` after `ms` if `promise` hasn't settled by then — a
+ *  test-local safety net, distinct from the production withTimeout() this
+ *  task adds to pm2Control.js. Same shape as ipc-mutex.test.js's helper of
+ *  the same name: exists so a regression of the production bound turns into
+ *  a fast, readable test failure instead of hanging (and, per the
+ *  cancellation mechanics above, taking the rest of this file down with it).
+ */
+function withSafetyTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+function hangingListPm2() {
+  const calls = [];
+  return {
+    calls,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    list: () => {
+      calls.push('list');
+      // Never calls back — simulates a wedged daemon, one call earlier than
+      // hangingDeletePm2/hangingDumpPm2 below.
+    },
+    delete: (name, cb) => {
+      calls.push(`delete:${name}`);
+      cb(null);
+    },
+    dump: (cb) => {
+      calls.push('dump');
+      cb(null);
+    },
+  };
+}
 
 function hangingDeletePm2(apps) {
   const calls = [];
@@ -124,35 +193,90 @@ function hangingDumpPm2() {
   };
 }
 
+test('listApps: a pm2.list call that never calls back rejects within the bound instead of hanging forever, and reports PM2_LIST_TIMEOUT', async () => {
+  const pm2 = hangingListPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(ctl.listApps(), (err) => {
+      assert.match(err.message, /pm2 list timed out/i);
+      assert.equal(err.code, 'PM2_LIST_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'listApps() did not reject within 2000ms — the pm2.list bound appears to be missing or regressed'
+  );
+});
+
+test('getStatus: a pm2.list call that never calls back also rejects within the bound (getStatus -> findApp -> listApps is on the same unbounded path)', async () => {
+  const pm2 = hangingListPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(ctl.getStatus(), (err) => {
+      assert.equal(err.code, 'PM2_LIST_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'getStatus() did not reject within 2000ms — this is the path status-poller.js polls every 5s'
+  );
+});
+
+test('deleteAppIfPresent (via remove): a pm2.list call that never calls back rejects with PM2_LIST_TIMEOUT before pm2.delete is ever reached', async () => {
+  const pm2 = hangingListPm2();
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  await withSafetyTimeout(
+    assert.rejects(ctl.remove(), (err) => {
+      assert.equal(err.code, 'PM2_LIST_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'remove() did not reject within 2000ms — the pm2.list bound appears to be missing or regressed'
+  );
+  // list is called (and hangs) before delete is ever attempted.
+  assert.ok(pm2.calls.includes('list'));
+  assert.ok(!pm2.calls.includes('delete'), 'pm2.delete must never be reached while pm2.list is still wedged ahead of it');
+});
+
 test('deleteAppIfPresent (via remove): a pm2.delete call that never calls back rejects within the bound instead of hanging forever, and reports PM2_DELETE_TIMEOUT', async () => {
   const pm2 = hangingDeletePm2([{ name: 'litellm-nim', pm2_env: { status: 'online' } }]);
   const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
 
-  await assert.rejects(ctl.remove(), (err) => {
-    assert.match(err.message, /pm2 delete timed out/i);
-    assert.equal(err.code, 'PM2_DELETE_TIMEOUT');
-    return true;
-  });
+  await withSafetyTimeout(
+    assert.rejects(ctl.remove(), (err) => {
+      assert.match(err.message, /pm2 delete timed out/i);
+      assert.equal(err.code, 'PM2_DELETE_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'remove() did not reject within 2000ms — the pm2.delete bound appears to be missing or regressed'
+  );
 });
 
 test('save: a pm2.dump call that never calls back rejects within the bound instead of hanging forever, and reports PM2_SAVE_TIMEOUT', async () => {
   const pm2 = hangingDumpPm2();
   const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
 
-  await assert.rejects(ctl.save(), (err) => {
-    assert.match(err.message, /pm2 dump timed out/i);
-    assert.equal(err.code, 'PM2_SAVE_TIMEOUT');
-    return true;
-  });
+  await withSafetyTimeout(
+    assert.rejects(ctl.save(), (err) => {
+      assert.match(err.message, /pm2 dump timed out/i);
+      assert.equal(err.code, 'PM2_SAVE_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'save() did not reject within 2000ms — the pm2.dump bound appears to be missing or regressed'
+  );
 });
 
-test('remove: AC#5 — the success path is unaffected by the new bound: a normal (fast) delete+dump still completes cleanly even against a tight timeout window', async () => {
+test('remove: AC#5 — the success path is unaffected by the new bound: a normal (fast) list+delete+dump still completes cleanly even against a tight timeout window', async () => {
   const pm2 = fakePm2({ apps: [{ name: 'litellm-nim', pm2_env: { status: 'online' } }] });
   // A tight bound here proves this isn't passing merely because the default
   // 15s window is wide: even a near-instant timeout does not fire against
   // calls that genuinely complete.
   const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
-  await assert.doesNotReject(ctl.remove());
+  await withSafetyTimeout(assert.doesNotReject(ctl.remove()), 2000, 'remove() unexpectedly failed to settle');
+  assert.ok(pm2.calls.includes('list'));
   assert.ok(pm2.calls.includes('delete:litellm-nim'));
   assert.ok(pm2.calls.includes('dump'));
 });
