@@ -9,6 +9,22 @@ const { removeClaudeCodeSettings } = require('./claudeCodeConfig');
  * domain (claudeDesktopConfig.js) requiring its own explicit confirmation,
  * per this task's description.
  *
+ * NCOW-51: also deliberately does NOT call secretStore.clear() — the
+ * encrypted NVIDIA key at `<userData>/nim-key.enc` lives outside `configDir`
+ * entirely (see secretStore.js) and survives even `--purge`, which only
+ * deletes `litellm.env`'s derived copy. secretStore.clear()'s one existing
+ * caller is the Setup view's Clear Key button (engine-context.js's
+ * apiKey.clear). Recorded decision (not settled by this task as filed): an
+ * "also forget my saved API key" opt-in for this view — mirroring the
+ * Claude Desktop opt-in above — is deferred rather than added here, because
+ * a sibling in-flight task (NCOW-48) is concurrently changing this same
+ * function's and this domain's IPC error-handling shape (bounding
+ * pm2Control's calls and how a timeout surfaces through uninstall:run);
+ * landing a second structural change to the same handler in the same wave
+ * would needlessly raise integration risk. See README.md's "Uninstalling"
+ * section for the interim workaround (Clear Key, then uninstall) and
+ * DESIGN.md 9.4 for the corrected purge claim.
+ *
  * @param {object} opts
  * @param {string} opts.configDir
  * @param {object} opts.manifest — may be null if nothing was ever configured

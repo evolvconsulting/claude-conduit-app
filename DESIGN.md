@@ -601,8 +601,12 @@ report "not detectable" rather than guessing).
 2. `pm2 delete litellm-nim` (ignore "not found") + `pm2 save`.
 3. Print desktop-removal instructions (Developer form → set Inference provider back / disable 3P;
    fully restart the app).
-4. `--purge`: delete `~/.config/claude-conduit/` entirely (keys included). Without it, keep and
-   print the path.
+4. `--purge`: delete `~/.config/claude-conduit/` entirely — this removes `litellm.env`'s
+   *derived* copy of the key (and the generated master key alongside it), but **not** the
+   original: the encrypted NVIDIA key lives in `<userData>/nim-key.enc` (Electron's userData
+   directory, outside this config directory entirely — see `secretStore.js`), and nothing in
+   the uninstall path deletes it. Without `--purge`, keep the config directory and print the
+   path.
 5. Remind: Claude Code returns to the saved claude.ai login; run `/login` if prompted.
 
 ---
@@ -762,7 +766,8 @@ Acceptance criteria (all must hold):
 4. Re-running setup: master key unchanged; clients keep working without re-configuration; models
    can be swapped and only `config.yaml` + manifest change.
 5. `uninstall`: settings.json equals pre-install content except the removed keys; pm2 app gone;
-   `--purge` leaves no trace under `~/.config/claude-conduit/`.
+   `--purge` leaves no trace under `~/.config/claude-conduit/` (the encrypted NVIDIA key at
+   `<userData>/nim-key.enc` lives outside that directory and is untouched either way — see 9.4).
 6. `test` exits 4 (not 0) when: proxy stopped; wrong NIM key; primary model lacks tool calling.
    Each failure message names the layer and a fix.
 7. No secret ever appears in: pm2 files, process argv (`ps axww` during run), logs, or any file
@@ -781,7 +786,7 @@ Manual test matrix (engineer executes before sign-off):
 | T6 | Invalid JSON settings.json | CLI step aborted + flagged; proxy still installed |
 | T7 | Desktop end-to-end (manual) | Form filled per instructions → restart → picker shows claude-sonnet-4-5/claude-haiku-4-5 → Cowork completes a trivial task |
 | T8 | `claude` CLI end-to-end | `claude -p` returns text through the proxy (pm2 logs show the request) |
-| T9 | Uninstall → reinstall | Same master key only if config dir kept (no `--purge`); new key after `--purge` |
+| T9 | Uninstall → reinstall | Same master key only if config dir kept (no `--purge`); new master key after `--purge`. The saved NVIDIA API key (`<userData>/nim-key.enc`) is unaffected by `--purge` either way — it is not part of the config directory (see 9.4) |
 
 ---
 

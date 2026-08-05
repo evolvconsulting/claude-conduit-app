@@ -269,6 +269,7 @@ is exactly why it never runs that command itself (see CLAUDE.md).
 | `~/.claude/settings.json` | Claude Code CLI env keys (only the documented ones) |
 | Claude Desktop's `Claude-3p/configLibrary/` | A dedicated "Claude Conduit" entry, created only with your explicit consent, and only after a full backup |
 | `~/.pm2/daemon-interpreter/` (win32/linux only) | A private copy of this app's own runtime, created the first time this app bootstraps a pm2 daemon (NCOW-24). ~227 MiB (the executable plus `icudtl.dat`/`snapshot_blob.bin`/`v8_context_snapshot.bin`/`libffmpeg.so` on Linux), measured live. Survives quitting *and* uninstalling this app — nothing removes it, because the daemon that may still be using it outlives this app's own lifecycle (see `src/engine/uninstall.js`'s comment on why cleaning it up from there isn't safe). |
+| Electron's userData directory (`nim-key.enc`) | Your NVIDIA API key, encrypted at rest by the OS (`secretStore.js`; see "Upgrading from NIM Proxy Manager" below for how this file itself migrates). **Survives every uninstall, including `--purge`** — `src/engine/uninstall.js`'s delete set is the settings-file keys, the `litellm-nim` pm2 app, and (only on `--purge`) the `~/.config/claude-conduit/` directory; it never calls `secretStore.clear()`, whose only caller in the whole app is the Clear Key button (Setup view → `apiKey.clear`). Purging deletes `litellm.env`'s *derived* copy of the key, not this original. |
 
 The generated proxy master key lives in `litellm.env`, never in `manifest.json`.
 
@@ -383,6 +384,12 @@ writes.
 Use the app's **Uninstall** page. It stops and removes the pm2 app, removes the Claude Code
 CLI env keys it added, and lets you either keep or purge the config directory. Reverting
 Claude Desktop is a separate, individually confirmed opt-in — it's never a side effect.
+
+**Purging does not remove your saved NVIDIA API key.** It lives encrypted, outside the
+config directory entirely, in `nim-key.enc` under Electron's userData directory (see
+"Where things live" above) — `--purge` only deletes `litellm.env`'s derived copy. If you
+specifically want the saved key gone too, clear it from the Setup view's **Clear Key**
+button before uninstalling.
 
 ---
 
