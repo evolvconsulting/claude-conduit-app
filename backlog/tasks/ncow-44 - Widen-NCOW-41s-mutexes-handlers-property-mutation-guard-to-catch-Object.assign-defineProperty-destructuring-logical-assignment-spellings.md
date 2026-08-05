@@ -3,10 +3,10 @@ id: NCOW-44
 title: >-
   Widen NCOW-41's mutexes/handlers property-mutation guard to catch
   Object.assign/defineProperty/destructuring/logical-assignment spellings
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 03:59'
-updated_date: '2026-08-05 04:59'
+updated_date: '2026-08-05 11:52'
 labels: []
 dependencies:
   - NCOW-41
@@ -21,12 +21,12 @@ NCOW-41's identifierPropertyIsAssigned() (test/main/engine-context-config-regen.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The mutexes/handlers property-mutation guard catches Object.assign(mutexes, {...}) and Object.assign(handlers, {...}) forms mutating the .proxy property
-- [ ] #2 The guard catches Object.defineProperty(mutexes, 'proxy', {...}) and the equivalent handlers form
-- [ ] #3 The guard catches destructuring-assignment mutation of mutexes.proxy/handlers.proxy
-- [ ] #4 The guard catches logical-assignment (??=, ||=, &&=) mutation of mutexes.proxy/handlers.proxy
-- [ ] #5 The guard continues to NOT false-positive on the real call site's legitimate reads (mutexes.proxy.run(...), equality checks, property spreads) -- re-verify the existing non-vacuity meta-test still passes and extend it to cover the new spellings
-- [ ] #6 npm test passes
+- [x] #1 The mutexes/handlers property-mutation guard catches Object.assign(mutexes, {...}) and Object.assign(handlers, {...}) forms mutating the .proxy property
+- [x] #2 The guard catches Object.defineProperty(mutexes, 'proxy', {...}) and the equivalent handlers form
+- [x] #3 The guard catches destructuring-assignment mutation of mutexes.proxy/handlers.proxy
+- [x] #4 The guard catches logical-assignment (??=, ||=, &&=) mutation of mutexes.proxy/handlers.proxy
+- [x] #5 The guard continues to NOT false-positive on the real call site's legitimate reads (mutexes.proxy.run(...), equality checks, property spreads) -- re-verify the existing non-vacuity meta-test still passes and extend it to cover the new spellings
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -130,3 +130,9 @@ dev's wouldn't have. Reviewer confirmed index.js currently contains none of thes
 
 No injected-instruction pattern encountered on this worktree (slot 3).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Widened identifierPropertyIsAssigned() in test/main/engine-context-config-regen.test.js to catch 4 additional mutation spellings of mutexes.proxy/handlers.proxy beyond NCOW-41's canonical dot/bracket shape: Object.assign, Object.defineProperty, destructuring-assignment, and logical-assignment (??=/||=/&&=) -- test-file-only, zero production source changes, consistent with the precedent set by NCOW-35/38/39/41 in this same region. Verified by independent opus review: all 6 ACs confirmed via a per-branch regex ablation (each of the 4 new branches independently proven load-bearing) plus the reviewer's own non-vacuity reproduction against the real index.js source. npm test 382 -> 383 passing, then 388 after NCOW-32's sibling merge (guard confirmed to still pass against real index.js for a structural reason, not luck), then 388 unchanged after the wave-5 doc cleanup pass. Merged as PR #37 (e79d8fff). A handful of exotic, currently-unreachable false-positive/false-negative shapes were noted by both the task reviewer and the wave-5 integration reviewer and accepted as an acceptable text-only-detector tradeoff, not requiring further changes.
+<!-- SECTION:FINAL_SUMMARY:END -->

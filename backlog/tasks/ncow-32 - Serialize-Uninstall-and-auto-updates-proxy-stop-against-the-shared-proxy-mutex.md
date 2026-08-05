@@ -3,10 +3,10 @@ id: NCOW-32
 title: >-
   Serialize Uninstall and auto-update's proxy-stop against the shared proxy
   mutex
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 19:29'
-updated_date: '2026-08-05 04:57'
+updated_date: '2026-08-05 11:52'
 labels: []
 dependencies:
   - NCOW-31
@@ -21,10 +21,10 @@ NCOW-31 gave engine-context.js's background config-regeneration restart and ipc.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Uninstall's call into pm2Control.remove() is serialized against the same proxy mutex the background config-regeneration restart uses, so an Uninstall click can never run concurrently with an in-flight restart
-- [ ] #2 The auto-update install path's proxy-stop (installUpdateAndRestart -> stopProxyForShutdown) is likewise serialized against the same mutex, distinct from the deliberately-unserialized before-quit shutdown path (which stays as-is)
-- [ ] #3 A regression test demonstrates a background restart and an Uninstall (or auto-update install) attempt can no longer interleave
-- [ ] #4 npm test passes
+- [x] #1 Uninstall's call into pm2Control.remove() is serialized against the same proxy mutex the background config-regeneration restart uses, so an Uninstall click can never run concurrently with an in-flight restart
+- [x] #2 The auto-update install path's proxy-stop (installUpdateAndRestart -> stopProxyForShutdown) is likewise serialized against the same mutex, distinct from the deliberately-unserialized before-quit shutdown path (which stays as-is)
+- [x] #3 A regression test demonstrates a background restart and an Uninstall (or auto-update install) attempt can no longer interleave
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -129,3 +129,9 @@ file sets, dev only advanced via orchestrator bookkeeping commits since branch p
 
 No injected-instruction pattern encountered on this worktree (slot 1).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added a DOMAIN_MUTEX_ALIASES mechanism to src/main/ipc.js (uninstall/update -> proxy) so both IPC domains now share the same proxy mutex the background config-regeneration restart and user-initiated Start/Stop/Restart already use; update:check stays exempt (pure status read, never touches pm2Control). before-quit's own shutdown path is untouched (index.js has zero changes). Verified by independent opus review: all 4 ACs confirmed, including the reviewer's own adversarial reproduction (reverting only ipc.js reproduces the exact interleaving the fix prevents -- 4/5 new tests fail against unpatched ipc.js, all pass against the fix). npm test 382 -> 387 passing, then 388 after NCOW-44's sibling merge, then 388 unchanged after the wave-5 doc cleanup pass. Merged as PR #36 (365fc53). A real, distinct multi-domain mutex gap the review found (uninstall also touches the claudeCode/config domains, not just proxy) was filed as a fresh follow-up, NCOW-45, per user approval -- not folded in here since it's outside this task's own ACs.
+<!-- SECTION:FINAL_SUMMARY:END -->
