@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 17:05'
+updated_date: '2026-08-05 23:48'
 labels: []
 dependencies:
   - NCOW-46
@@ -28,6 +28,7 @@ NCOW-46's wave-7 integration review confirmed the merged fix is sound but found 
 - [ ] #5 DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER can no longer be mutated by a consumer after module load in a way that changes real lock resolution, with a test proving the mutation now fails or is inert
 - [ ] #6 An empty alias array and an alias key not present in CHANNELS are each either rejected by assertLockOrderIsConsistent() or explicitly documented as out of its contract, with the choice reasoned rather than left implicit
 - [ ] #7 All pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified and npm test passes
+- [ ] #8 No domain in UNSERIALIZED_METHODS may be one whose corresponding engine-side handler self-acquires the SAME mutex it's opting out of IPC-level locking for (the NCOW-50 apiKey.validateAndSave pattern) without a guard against re-introducing IPC-level locking on top of it -- since createDomainMutex's FIFO chain is non-reentrant (chain = run.catch(() => {}), mutex.js:53), stacking both locking layers on the same call self-deadlocks permanently rather than merely slowing down, wedging every domain that transitively waits on that lock (e.g. uninstall's claudeCode+config+proxy via the alias). Deliver via an explicit mechanism (a module-load assertion in the assertLockOrderIsConsistent mould, a reentrancy-detecting change to mutex.js, or an equivalently reasoned guard) plus a test that fails against source lacking the guard -- not a comment alone. A second existing instance of the same self-acquisition SHAPE (engine-context.js:234's runProxyOperation) is confirmed not currently reachable from a locked handler; document this scan so it isn't silently missed if that changes.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -43,4 +44,19 @@ Corrections from the wave-8 integration review (NCOW-47's merge, 81b5eb9) — re
 4. SUGGESTED ADDITION TO AC#6, which already owns 'which alias shapes should be rejected': an alias target whose mutex is ABSENT from the injected mutexes set. resolveDomainLocks silently drops it (`if (!lock || seen.has(lock)) continue`, ipc.js:266-272). Pre-existing from NCOW-45 but newly worse — pre-NCOW-47 the only victim was uninstall degrading 3->2 or 3->1 locks; now apiKey degrades to ZERO locks, a result indistinguishable from the four intentionally-unlocked domains (app/prereqs/catalog/diagnostics). Measured: resolveDomainLocks({proxy},'apiKey') = 0 locks, ({proxy},'uninstall') = 1 lock not 3, silent in every case with the suite green. So any caller or fixture passing a partial mutex set silently reverts NCOW-47 undetectably. This belongs here rather than in a new task because it is the same opts.mutexes injection point residual (1) already treats as live.
 5. Residuals (1) and (2) are UNAFFECTED by NCOW-47's merge. Residual (1) still only bites uninstall, since apiKey resolves to exactly one lock and takes withLocks' single-lock fast path.
 6. Also confirmed by the reviewer: the module-load assertion handles NCOW-47's bare-string shape correctly via `Array.isArray(v) ? v : [v]` (ipc.js:225), so the mixed string/array table is not itself a defect — only a reason a shallow freeze is insufficient.
+
+Wave-11 integration review (2026-08-05) added AC#8 above, with explicit user approval to fold this into NCOW-49 rather than file a separate task -- NCOW-49 already reworks the exact ipc.js/mutex.js surface (resolveDomainLocks, assertLockOrderIsConsistent, DOMAIN_MUTEX_ALIASES, LOCK_ACQUISITION_ORDER) where a guard for this class of regression would naturally live, and a separate task would have guaranteed a same-file conflict forcing a later solo wave.
+
+Origin of AC#8: NCOW-50's own task-level reviewer (wave 11) PROVED this failure mode directly -- with ipc.js's UNSERIALIZED_METHODS.apiKey reverted to omit validateAndSave (while engine-context.js's self-acquisition of mutexes.config is kept), apikey:validate-and-save never settles and mutexes.config becomes permanently unacquirable, wedging claudeCode+config+proxy forever via the uninstall alias -- strictly worse than the ~20s freeze NCOW-50 fixed. The wave-11 integration reviewer confirmed the general shape is broader than just validateAndSave: engine-context.js:234's runProxyOperation (mutexes.proxy.run) has an identical self-acquisition shape, currently NOT reachable from a locked handler (regenerateStaleConfig is invoked during composition at engine-context.js:226, before registerIpcHandlers wires up IPC-level locking) -- no live defect today, but two instances of the pattern now exist with no guard over either.
+
+CRITICAL -- ALL THREE src/main/ipc.js CITATIONS IN THE ORIGINAL DESCRIPTION AND THE WAVE-8 CORRECTION ARE STALE AGAIN, by a further +72 lines beyond wave 8's own correction (net drift since wave 8: ipc.js +72 total, test/main/ipc-mutex.test.js +109). The wave-8 correction's own claim that "the two test/main/ipc-mutex.test.js citations (876-880, 939-943) are STILL ACCURATE" was ALREADY FALSE by the time it was written (waves 9/10 had already moved the test file +468 lines via c63eee1) and was re-forwarded unverified through two more waves without anyone re-checking it -- do not repeat this pattern. Measured fresh against current dev @ 320a8ca, use these instead of anything in this task's own text or the wave-8 note:
+- seen.has(lock) guard (`if (!lock || seen.has(lock)) continue`): now at ipc.js:340 (resolveDomainLocks body :328-345)
+- NCOW-46 dedupe paragraph: now opens at ipc.js:317 (docstring :309-326)
+- LOCK_ACQUISITION_ORDER doc comment: now at ipc.js:233-258, "reorder for readability" phrase at :238; the const declaration itself at :259
+- Array.isArray(v) ? v : [v] in the module-load assertion: now at ipc.js:297 -- NOTE a second, distinct Array.isArray(alias) ? alias : [alias] now also exists at :331 inside resolveDomainLocks itself; don't conflate the two
+- DOMAIN_MUTEX_ALIASES declaration: ipc.js:227-231
+- assertLockOrderIsConsistent: function at ipc.js:286, module-load call at :307, exports block at :495+
+- test/main/ipc-mutex.test.js: the incidental inversion-catching deepEqual (previously 876-880) is now at :985-989 (decl :985, deepEqual :988); the AC#3 sorted-comparison test (previously 939-943) is now at :1045-1052 (decl :1045, doesNotThrow :1046, sorted deepEqual :1048-1052)
+
+Re-verify all of the above fresh yet again at wave 12's own dispatch rather than trusting even this note -- these files are hub files for this cluster and will very likely move again before wave 12 actually starts.
 <!-- SECTION:NOTES:END -->
