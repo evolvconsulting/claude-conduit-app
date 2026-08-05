@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 17:04'
-updated_date: '2026-08-05 17:48'
+updated_date: '2026-08-05 17:53'
 labels:
   - documentation
 dependencies: []
@@ -107,4 +107,45 @@ New commit `516a9a6` on top of `e871cf7` (not amended). Touched README.md and sr
 **Comment-only property preserved**: esprima token-stream comparison of `git show 84bb0d0:src/engine/uninstall.js` vs the post-fix file — 188 tokens each, JSON.stringify identical.
 
 **npm test**: 416/416 pass, 0 fail.
+
+## Wave 9 review pass 2 — APPROVE (same opus reviewer, resumed for the delta; recorded by the orchestrator)
+
+**Verdict: approve. All 6 acceptance criteria independently confirmed (#1-#6). No unconfirmed criteria.**
+
+### CORRECTION TO THIS TASK'S OWN EARLIER NOTES (reviewer finding F11, orchestrator action)
+
+The worker-evidence note recorded above, before review, repeats the false claim the review removed from the code. **Both of the following statements in this task's earlier Implementation Notes are FALSE and are corrected here:**
+- under AC#2, 'pointing at the existing Clear Key button as the workaround' — **there is no Clear Key button and there never has been**;
+- under AC#4, 'documentation plus the existing Clear Key button' closing the information gap — **no such button exists, so nothing closed the gap**.
+
+The true position, as now documented in README.md and src/engine/uninstall.js: `secretStore.clear()`'s only caller anywhere is the `apiKey.clear` IPC handler, no shipped UI invokes it, and therefore **nothing in the shipped app deletes nim-key.enc** — the only way to remove it is to delete the file by hand. Recorded explicitly so the next reader does not inherit the error this review removed from the code.
+
+### F1's replacement claim — verified path by path, including EMPIRICALLY on this machine
+
+The reviewer treated the new 'delete nim-key.enc by hand' instruction as a fresh claim of exactly the class it had just rejected. Resolution chain: `package.json` productName = 'Claude Conduit' (matching electron-builder.yml:9); **no `app.setName()` exists anywhere in src/main**, so `app.name` resolves to productName — electron.d.ts:1960-1967 (Electron 43.2.0, the version installed here) states productName 'will be preferred over `name` by Electron'; main/index.js:44 takes the real path straight from `app.getPath('userData')`; userDataMigration.js:6-9 independently records the same rule; paths.js:136-147 duplicates the appData convention.
+
+**macOS EMPIRICALLY CONFIRMED, not merely derived**: a read-only probe of this machine found `/Users/jdnewhouse/Library/Application Support/Claude Conduit/nim-key.enc`, mode 0600, 83 bytes, alongside the Chromium housekeeping CLAUDE.md describes — exactly the path README now prints, from a real run. Windows `%APPDATA%\Claude Conduit\` and Linux `~/.config/Claude Conduit/` are correct per the resolution chain; not live-verifiable from macOS, not blocking.
+
+**Blast radius is bounded by construction**: the instruction names a specific filename, so a user who lands in the wrong directory finds nothing to delete rather than deleting the wrong thing.
+
+**Linux conflation check (specifically requested)**: the two directories are genuinely distinct and the text does not confuse them — config dir is `~/.config/claude-conduit/` (paths.js:61, lowercase-hyphenated), Linux userData is `~/.config/Claude Conduit/`. The paragraph opens 'It lives encrypted, outside the config directory entirely', which states the distinction.
+
+### F2/F3/F7/F8/F9 all RESOLVED, each re-verified by negative grep
+`grep -n 'Clear Key' README.md DESIGN.md src/engine/uninstall.js` → zero hits. `grep -n -- '--purge' README.md` → zero hits (DESIGN.md correctly retains it as the CLI spec, and is byte-unchanged since pass 1, consistent with AC#1 already being confirmed). Every mechanism claim in the new uninstall.js block is substantiated, including 'the only way to remove it is to delete the file by hand' — validateAndSave overwrites but never removes; userDataMigration.js copies and explicitly never deletes; nothing else writes that path.
+
+### AC#4 judgment: SOUND now, on both counts previously rejected
+The reasoning is re-grounded on product merit that does not expire, and **correctly treats the absent remedy as strengthening the case for the opt-in rather than excusing its absence — the exact inversion of pass 1's false premise.** The deferral rationale is now scope plus real implementation cost (confirmation-dialog UX + test coverage), both true indefinitely. Every trace of the NCOW-48/wave-timing argument is gone from the diff and the final file. No follow-up task ID was invented, which the reviewer judged the right call — a fabricated ID would be a fresh unverifiable claim.
+
+### Comment-only property re-proven by the reviewer's own run
+base `84bb0d0:src/engine/uninstall.js` vs the worktree file at `516a9a6`: esprima.tokenize({comment:false}) → 188 vs 188 tokens, streams identical by full JSON string comparison; corroborated by excising comments at their esprima range offsets and whitespace-normalizing, both reducing to the same 769-character string. **The +20/-0 is comment-only across the WHOLE branch, not merely the fix delta.** Full-AST comparison remains unavailable (vendored esprima cannot parse `opts.manifest?.cli_configured`, failing identically on both files; acorn absent from node_modules).
+
+**npm test**: reviewer's own run at 516a9a6 — 416/416 pass, 0 fail, 0 cancelled.
+
+**Merge safety re-verified non-destructively at the new tip**: `git merge-tree --write-tree --messages 516a9a6 ea38690` exits 0, tree 6a30206, only 'Auto-merging README.md' — no conflict, either order. The pass-1 semantic staleness is also gone now that the false NCOW-48 collision claim has been removed from the comment.
+
+### Residual minors accepted, NOT blocking (carried to the wave integration review)
+- **F10**: on Linux the userData and config dirs are siblings differing only by case/separator and now appear ~120 lines apart in the same README; one clarifying clause would remove the last ambiguity. Self-correcting today because the instruction names the file.
+- **F12**: 'it will simply prompt you to re-enter the key next time it's needed' is slightly generous. The load-bearing half is exactly true (secretStore.js:56, ENOENT → null, so a missing file is indistinguishable from never-set), but with a manifest present the nav guard (app.js:32-36) does not force Setup — the user instead meets 'Set an NVIDIA API key first.' from catalog.fetch/config.generate (engine-context.js:303/321) and navigates there themselves. Actionable, just not literally a prompt.
+- **F13**: Electron's Linux appData honors $XDG_CONFIG_HOME before ~/.config; both README and paths.js:146 write ~/.config flat. Internally consistent house style, noted rather than charged.
+- **Reviewer's optional suggestion, worth carrying**: two cheap guard tests would pin the claims this branch now asserts — that src/engine/uninstall.js contains no `secretStore` reference, and that `apiKey.clear` has no renderer caller. **Either would have caught the pass-1 defect.**
 <!-- SECTION:NOTES:END -->
