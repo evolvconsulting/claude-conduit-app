@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 13:11'
-updated_date: '2026-08-05 14:39'
+updated_date: '2026-08-05 14:48'
 labels: []
 dependencies:
   - NCOW-45
@@ -59,4 +59,20 @@ The wave-6 integration review of NCOW-45 found two related hardening gaps in src
 - **Judgment call flagged by the worker for review:** AC#3's 'module load or dedicated test' was resolved as module-load (see plan item 3) — an interpretive choice the task explicitly left open, not something objectively verified either way.
 
 Files touched: src/main/ipc.js, test/main/ipc-mutex.test.js (nothing outside the predicted footprint). Commits a067090 (fix), bba5f41 (tests), pushed to origin.
+
+**Independent review verdict (wave 7, opus, same worktree): APPROVE — all 6 ACs independently confirmed [1,2,3,4,5,6].**
+
+Reviewer re-ran everything itself rather than trusting the implementer: npm test 400/400 on an isolated dev copy vs 410/410 on the branch; ipc-mutex.test.js 22/22 on dev vs 32/32 on branch; and it independently reproduced the non-vacuity result exactly (32 tests / 26 pass / 6 fail in 42ms, no hang — the 6 being the AC#1 dedupe test, the AC#2 end-to-end test, and all four AC#4 loud-failure tests).
+
+**It went beyond the delivered evidence where the delivered evidence was weak.** It judged the shipped source-text regex insufficient on its own to prove AC#4's 'fails loudly' in situ, so it did 5 real `require()` loads of mutated module copies: unmutated control loads clean; one domain dropped, two dropped (the exact silent-instability case), a new MUTEX_DOMAINS entry added in mutex.js without updating the order (the realistic future-drift path), and an alias target absent from the order list ALL throw at require() with the expected messages. AC#4 is therefore established more strongly than claimed.
+
+13 further behavioral probes of shapes the fix does not obviously cover: same domain name twice in one alias array is COVERED (identity dedupe collapses it); reverse-ordered alias arrays still resolve to [claudeCode, config, proxy], and with a shared duplicate spanning first and last the survivor keeps the EARLIEST slot — so dedupe-after-sort provably never degrades acquisition order (AC#5's real dependency). NCOW-45's queue-race guarantee re-verified intact (multi-lock uninstall invoked first still beats a later single-lock proxy competitor). withLocks()' 0-lock and 1-lock fast paths untouched. Fixed path enters the handler after 3 microtask ticks against a 50-tick budget (16x headroom).
+
+**Module-load-vs-dedicated-test (AC#3's authorized open choice): reviewer DECIDED rather than escalated, concurring with module load.** It established the low-blast-radius claim instead of assuming it: all three inputs are developer-authored module constants (two literals in ipc.js, one in mutex.js, which imports nothing); `opts.mutexes` never reaches the assertion, which runs at module scope before registerIpcHandlers() can be called; no user data, config file, or env var reaches it. So for any given build it always throws or never throws — it cannot fire situationally on one user's machine. And because test/main/ipc-mutex.test.js and test/main/tray-actions.test.js both require ipc.js, the assertion runs on every npm test, meaning a build that would hard-fail an end-user launch cannot get through CI. That converts 'latent ordering bug becomes a hard boot failure' into 'latent ordering bug becomes an unshippable build' — strictly the better trade. Residual dependency: npm test must keep being run pre-release and at least one suite must keep requiring ipc.js (both true, and CLAUDE.md mandates the former).
+
+Non-blocking findings recorded for disposition, none gating the merge:
+1. Stale documented test counts — CLAUDE.md:51 and README.md:330 both still say 400 (now 410); a repeat of the exact omission PR #41 had to be opened for after wave 6.
+2. DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER are exported UNFROZEN and resolveDomainLocks() reads the module-scope bindings, so a consumer mutating the exported object changes real lock resolution AFTER the module-load assertion has run (reviewer exploited this deliberately in its own probing, so the hazard is real). No test pollution today — the new tests build local copies and node --test isolates per file. Object.freeze on both would close it.
+3. Out-of-scope same-family hazards found by probing, both PRE-EXISTING and unchanged by this diff: an alias naming a domain absent from the injected mutexes silently NARROWS locking rather than failing loudly (uninstall got 1 lock instead of 3), and an empty alias array leaves the handler entirely UNSERIALIZED with no warning. The module-load assertion structurally cannot see opts.mutexes or catch an empty array.
+4. Informational: export-surface expansion judged justified, not over-exposure — all 5 new exports are referenced by the new tests and NOTHING in src/ consumes any of them, so it adds zero production coupling. Scope clean: src/main/ipc.js (+95/-11) and test/main/ipc-mutex.test.js (+172/-1), no drive-bys, no dependency changes.
 <!-- SECTION:NOTES:END -->
