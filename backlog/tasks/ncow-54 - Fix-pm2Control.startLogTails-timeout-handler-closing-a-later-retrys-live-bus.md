@@ -4,7 +4,7 @@ title: Fix pm2Control.startLogTail's timeout handler closing a later retry's liv
 status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-05 23:04'
+updated_date: '2026-08-05 23:13'
 labels: []
 dependencies:
   - NCOW-52
@@ -45,4 +45,16 @@ Implemented on fix/NCOW-54-startlogtail-retry-bus-close, commit 0356d49, pushed 
 AC-by-AC: #1 identity check against activeLogTailBus (closure-scoped, set to the bus actually returned to a caller) implemented -- late callback closes only when bus !== activeLogTailBus. #2 new test sharedSlotLaunchBusPm2 fake models pm2's real shared-slot bug and reproduces the exact call#1-wedge/call#2-retry/call#1-late-fire sequence; call #2's bus is never closed and keeps delivering lines afterward -- non-vacuity reproduced above. #3 pre-existing single-call late-close test (~line 472) passes unmodified -- activeLogTailBus stays null with no retry, so the genuinely stale bus still gets closed (leak concern still addressed). #4 confirmed by inspection of engine-context.js:391-395 -- logTailUnsubscribe is only ever assigned from a resolved startLogTail() call, and the handler's own guard prevents a second concurrent call; with the fix a resolved call's bus can no longer be silently killed, so {ok:true} now reliably means the tail is live. No engine-context.js edits were made or needed. #5 pre-existing success-path test (~line 511) passes unmodified. #6 full npm test run 436/436 green.
 
 Files touched: src/engine/pm2Control.js, test/engine/pm2Control.test.js. Confirmed disjoint from NCOW-50's footprint. No injected/suspicious instructions encountered this session (worked in treehouse slot 2, previously flagged in early campaign waves, clean since wave 5).
+
+Reviewer verdict: APPROVE (opus, first pass). All 6 ACs independently confirmed with the reviewer's own evidence, not the implementer's claims.
+
+Independently reproduced non-vacuity (not via the implementer's git-stash method, which shared a stash ref with the concurrent NCOW-50 worktree -- flagged as a process hazard for future waves, not a defect): extracted the pm2Control.js diff as a patch, git apply -R'd it while keeping the new test intact, confirmed 42 pass / 1 fail with the exact expected failure message, restored and confirmed byte-identical via cmp. Test counts independently run: 435/435 at merge-base ea13bea, 436/436 with the fix, re-run 5x on the single file with zero flakiness.
+
+Verified the real pm2 premise directly against node_modules/pm2/lib/Client.js:434-442 and API.js:259-260 -- the shared-mutable-slot bug is real, not assumed. Probed 9 edge cases beyond the delivered test with an independently-written shared-slot fake: overlapping 3-call sequences, unsubscribe-before-late-callback ordering, older-bus-unsubscribe not clobbering a newer bus's slot protection, and non-shared-slot pm2 semantics -- the identity-check fix holds correctly under all of them, including confirming AC#3 (genuine leak-close) does not go inert under overlap. Audited assignment ordering in the source directly: activeLogTailBus is set synchronously only on the success path, never on rejection, no interleaving window.
+
+AC#4 verified by reading engine-context.js:391-395 and ipc.js:420-426 directly (not accepting the implementer's claim) -- confirmed logTailUnsubscribe only assigns on success, startLogTail holds mutexes.proxy (not in UNSERIALIZED_METHODS), so overlap is strictly sequential timeout-then-retry. No engine-context.js change needed; claim holds.
+
+Non-blocking findings recorded, none require action: (1) a late bus can still be double-closed in some overlapping-timeout sequences, but this is unchanged from NCOW-52 (the fix only reduces close() calls, never regresses) and every relevant close is try/catch-guarded; (2) pm2's own leak of the first stale socket is structurally unfixable from the app side (pm2 overwrites its own shared slot before the app ever sees the second reference) -- unchanged from NCOW-52, not a new defect; (3) logTailUnsubscribe can still go stale for reasons entirely outside this fix (daemon death, socket error) -- pre-existing, broader than this task's own AC#4 wording, worth a separate note if the campaign wants genuine liveness rather than freedom from this specific defect; (4) commit trailer conventions consistent with project practice.
+
+Scope confirmed: diff touches only src/engine/pm2Control.js (+37/-5) and test/engine/pm2Control.test.js (+144, zero deletions -- pure append, no pre-existing test modified). Confirmed zero overlap with NCOW-50's concurrent worktree (engine-context.js/ipc.js/mutex.js/ipc-mutex.test.js untouched).
 <!-- SECTION:NOTES:END -->
