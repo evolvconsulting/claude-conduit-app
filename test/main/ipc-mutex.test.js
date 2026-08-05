@@ -1179,7 +1179,7 @@ test('ipc: NCOW-47 AC#2 — apiKey:getMasked deliberately opts out of the lock, 
   assert.equal(order.at(-1), 'generate:exit');
 });
 
-test('ipc: NCOW-47 — apiKey:clear and config:generate stay serialized against EACH OTHER even with a DIFFERENT mutex set (proves the previous tests measure the shared config lock, not luck)', async () => {
+test('ipc: NCOW-47 — apiKey:clear does NOT serialize against a config lock from an UNRELATED mutex set (control: proves the earlier tests measure the shared config lock, not luck)', async () => {
   reset();
   const order = [];
   const gate = deferred();
@@ -1205,7 +1205,20 @@ test('ipc: NCOW-47 — apiKey:clear and config:generate stay serialized against 
   });
 
   await invoke('apikey:clear');
-  assert.deepEqual(order, ['bg-generate:enter', 'clear:enter'], 'interleaved, as expected against an unrelated lock');
+  // Not a tick-exact deepEqual: which of clear:enter/bg-generate:enter lands
+  // first is a microtask-hop-count race on two mutually independent lock
+  // chains, not a property this test cares about — pinning it made a
+  // previous version of this assertion fail against the OTHER valid
+  // interleaving (['clear:enter', 'bg-generate:enter']) for a tick-ordering
+  // reason unrelated to serialization. What actually matters: apiKey:clear
+  // resolved while the unrelated background job was still in flight (it
+  // entered but has not exited — gate hasn't been resolved yet), i.e. clear
+  // did not queue behind `other`'s config lock.
+  assert.ok(order.includes('clear:enter'), 'apiKey:clear ran');
+  assert.ok(
+    order.includes('bg-generate:enter') && !order.includes('bg-generate:exit'),
+    'interleaved, as expected against an unrelated lock: clear did not wait for the unrelated background job to finish'
+  );
 
   gate.resolve();
   await background;
