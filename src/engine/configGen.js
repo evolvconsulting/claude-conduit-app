@@ -673,6 +673,13 @@ function safeStringify(value) {
  * pm2Control's own RETURNED failure object (not a thrown value, but exactly
  * as exposed to a hostile/malformed shape).
  *
+ * describeThrownValue() below (NCOW-40) is itself now built on this helper
+ * rather than duplicating its own inline try/catch guards, and it is exported
+ * for exactly the same reason describeThrownValue() and safeStringify() are:
+ * src/main/autoUpdate.js's darwin-path result.error branch reads both
+ * `.code` and `.message` off a RETURNED (not thrown) failure object with the
+ * same shape as pm2Control's — the identical case this helper exists for.
+ *
  * @param {*} obj
  * @param {string} key
  * @returns {*}
@@ -725,17 +732,25 @@ function safeReadProperty(obj, key) {
  * than an invariant that has to be re-verified by inspection every time this
  * function changes.
  *
+ * NCOW-40: the two inline `try { ... } catch { ... = undefined; }` guards
+ * this function used to carry for its own `.message` and `.constructor.name`
+ * reads were exact duplicates of safeReadProperty() (NCOW-37) — extracted
+ * for regenerateStaleConfig()'s 'restart-failed' branch but never routed
+ * back through here. Both reads now call that helper instead, with no
+ * behavior change: safeReadProperty(thrown, 'constructor') then
+ * safeReadProperty(ctor, 'name') composes to the same result as the original
+ * single `thrown?.constructor?.name` try/catch — a throw at either step (a
+ * hostile `.constructor` getter, or a hostile `.name` getter on whatever
+ * `.constructor` returns) still yields `undefined` for `ctorName`, because
+ * safeReadProperty's own optional-chaining read and catch absorb it at
+ * whichever step it happens.
+ *
  * @param {*} thrown
  * @returns {string}
  */
 function describeThrownValue(thrown) {
   try {
-    let message;
-    try {
-      message = thrown?.message;
-    } catch {
-      message = undefined;
-    }
+    const message = safeReadProperty(thrown, 'message');
     if (message != null) return safeStringify(message);
 
     try {
@@ -744,12 +759,7 @@ function describeThrownValue(thrown) {
       try {
         return inspect(thrown);
       } catch {
-        let ctorName;
-        try {
-          ctorName = thrown?.constructor?.name;
-        } catch {
-          ctorName = undefined;
-        }
+        const ctorName = safeReadProperty(safeReadProperty(thrown, 'constructor'), 'name');
         const ctorNameText = ctorName ? safeStringify(ctorName) : '';
         return `[unstringifiable thrown value: typeof ${typeof thrown}${ctorNameText ? `, constructor ${ctorNameText}` : ''}]`;
       }
@@ -770,5 +780,6 @@ module.exports = {
   needsRegeneration,
   regenerateStaleConfig,
   safeStringify,
+  safeReadProperty,
   describeThrownValue,
 };
