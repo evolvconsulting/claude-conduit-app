@@ -134,3 +134,117 @@ test('checkLatestRelease: requests the GitHub Releases API for the given repo', 
   await checkLatestRelease({ currentVersion: '0.1.0', repo: 'evolvconsulting/claude-conduit', fetchImpl });
   assert.equal(calls[0].url, 'https://api.github.com/repos/evolvconsulting/claude-conduit/releases/latest');
 });
+
+// NCOW-42: checkLatestRelease()'s own doc comment promises "Always
+// resolves" — but its outer catch block read `err.name`/`err.message`
+// directly off the caught value with no guard, and the inner JSON-parse
+// catch interpolated `err.message` raw into a template literal. Each shape
+// below genuinely made checkLatestRelease() REJECT under the old unguarded
+// code (verified by reverting the fix and re-running this file before
+// adding the hardening — see the task's own "3 of 5 adversarial shapes
+// reproduced this" finding): a plain thrown `null`/`undefined` makes bare
+// `.name`/`.message` property access throw a TypeError outright; a throwing
+// `.name` getter throws on the read itself; and `Object.create(null)` has no
+// `Object.prototype` to inherit `toString` from, so even a *successful*
+// property read of a hostile `.message` can end up going through an
+// implicit ToString that throws. These mirror NCOW-36/37/40's adversarial
+// style against configGen.js and autoUpdate.js.
+
+test('checkLatestRelease: a fetch that throws a plain null degrades gracefully instead of rejecting', async () => {
+  // Not fakeFetch(): its `if (throwErr)` check is falsy for null/undefined
+  // and would silently fall through to the success path instead of actually
+  // rejecting, so this needs its own inline fetchImpl.
+  const fetchImpl = async () => {
+    throw null; // eslint-disable-line no-throw-literal
+  };
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'NETWORK_ERROR');
+  assert.equal(typeof result.error.message, 'string');
+});
+
+test('checkLatestRelease: a fetch that throws undefined degrades gracefully instead of rejecting', async () => {
+  const fetchImpl = async () => {
+    throw undefined; // eslint-disable-line no-throw-literal
+  };
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'NETWORK_ERROR');
+  assert.equal(typeof result.error.message, 'string');
+});
+
+test('checkLatestRelease: a fetch that throws a value with a throwing .name getter degrades gracefully instead of rejecting', async () => {
+  const hostile = {
+    get name() {
+      throw new Error('name getter exploded');
+    },
+    message: 'network unreachable',
+  };
+  const { fetchImpl } = fakeFetch({ throwErr: hostile });
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  // The .name read is guarded so it can't throw, but it also can't tell this
+  // apart from a genuine AbortError — NETWORK_ERROR is the safe fallback.
+  assert.equal(result.error.code, 'NETWORK_ERROR');
+  assert.match(result.error.message, /network unreachable/);
+});
+
+test('checkLatestRelease: a fetch that throws Object.create(null) degrades gracefully instead of rejecting', async () => {
+  const { fetchImpl } = fakeFetch({ throwErr: Object.create(null) });
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'NETWORK_ERROR');
+  assert.equal(typeof result.error.message, 'string');
+});
+
+test('checkLatestRelease: a fetch that throws a value with a Symbol .message degrades gracefully instead of rejecting', async () => {
+  const { fetchImpl } = fakeFetch({ throwErr: { message: Symbol('boom') } });
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'NETWORK_ERROR');
+  assert.match(result.error.message, /Symbol\(boom\)/);
+});
+
+test('checkLatestRelease: a genuine AbortError (timeout) is still classified as TIMEOUT after the hardening', async () => {
+  const { fetchImpl } = fakeFetch({ hang: true });
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl, timeoutMs: 50 });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'TIMEOUT');
+});
+
+test('checkLatestRelease: a hostile response.json() rejection degrades gracefully instead of rejecting', async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw null; // eslint-disable-line no-throw-literal
+    },
+  });
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'MALFORMED_RESPONSE');
+  assert.equal(typeof result.error.message, 'string');
+});
+
+test('checkLatestRelease: response.json() rejecting with a throwing .message getter degrades gracefully instead of rejecting', async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw { get message() { throw new Error('message getter exploded'); } }; // eslint-disable-line no-throw-literal
+    },
+  });
+  const result = await checkLatestRelease({ currentVersion: '0.1.0', repo: 'x/y', fetchImpl });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'MALFORMED_RESPONSE');
+  assert.equal(typeof result.error.message, 'string');
+  assert.doesNotMatch(result.error.message, /message getter exploded/);
+});
