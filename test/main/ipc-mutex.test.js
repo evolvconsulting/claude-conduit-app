@@ -1571,3 +1571,154 @@ test('ipc: NCOW-48 AC#1/#3 (fix-pass) — a pm2.list call that never calls back 
   assert.ok(order.includes('proxy-bg'), 'proxy work proceeded');
   assert.ok(order.includes('apiKey:clear'), 'the apiKey channel proceeded');
 });
+
+// --- NCOW-52: pm2Control.stop()'s pm2.stop callback was the last raw,
+// unbounded pm2 callback reachable from a user-initiated proxy:stop — found
+// by NCOW-48's own integration review as a follow-up (never filed at the
+// time). proxy:stop holds mutexes.proxy for the whole call (it is NOT listed
+// in ipc.js's UNSERIALIZED_METHODS), and uninstall aliases onto that same
+// proxy lock (plus claudeCode and config) via DOMAIN_MUTEX_ALIASES — so a
+// pm2.stop that never calls back froze not just further proxy:* work but a
+// subsequent Uninstall click too, exactly the shape AC#3 names explicitly:
+// "an uninstall issued afterwards is no longer blocked". This is provable at
+// the pm2Control unit level for the underlying operation no longer hanging
+// (see pm2Control.test.js's own NCOW-52 regressions), but the mutex-carryover
+// onto a LATER, separately-invoked uninstall:run is only genuinely
+// demonstrated by driving both real IPC channels against the same mutex set,
+// which is why this one test lives here rather than at the unit level alone.
+//
+// AC#4 (non-vacuity): reproduced against this task's own unpatched source via
+// a throwaway script exercising pm2Control.stop() directly against a wedged
+// raw pm2 fake (see this task's report for the observed HUNG result before
+// stop() had any bound at all) — the same underlying hang this test exercises
+// through the full IPC+uninstall chain. AC#4 (cannot itself hang the suite):
+// every promise this test awaits races withSafetyTimeout() (defined above),
+// for the same reason the NCOW-48 section does.
+
+test('ipc: NCOW-52 AC#3 — a pm2.stop call that never calls back no longer freezes the proxy lock indefinitely, and an uninstall issued afterwards is no longer blocked', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+
+  // A fake pm2 daemon whose stop() call never calls back — everything else
+  // (connect/list/delete/dump) behaves normally, isolating the wedge to
+  // exactly the citation this task fixes (pm2Control.js's stop()).
+  const wedgedPm2 = {
+    connect: (cb) => cb(null),
+    list: (cb) => cb(null, [{ name: 'litellm-nim', pm2_env: { status: 'online' } }]),
+    delete: (name, cb) => cb(null),
+    dump: (cb) => cb(null),
+    stop: () => {
+      // Never calls back — the same reviewer-style repro NCOW-48 used, at
+      // this task's own real call site.
+    },
+  };
+  const pm2Control = createPm2Control(wedgedPm2, { pm2CallTimeoutMs: 30 });
+
+  registerIpcHandlers(
+    {
+      proxy: {
+        stop: async () => {
+          order.push('proxy:stop:enter');
+          await pm2Control.stop();
+          order.push('proxy:stop:exit');
+          return { ok: true };
+        },
+      },
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          const data = await runUninstall({
+            configDir: '/nonexistent-ncow-52-fixture',
+            manifest: null,
+            pm2Control,
+            purge: false,
+          });
+          order.push('uninstall:exit');
+          return { ok: true, data };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const stopRun = invoke('proxy:stop');
+
+  // Purely microtask ticks — no real time passes, so the 30ms bound cannot
+  // have fired yet regardless of how many awaits pm2Control's own call chain
+  // needs to reach the wedged pm2.stop call.
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['proxy:stop:enter'], 'the wedge must still be holding the proxy lock while pm2.stop has not yet timed out');
+
+  // Queue work on the proxy domain directly, plus a full uninstall issued
+  // AFTER the wedged stop — uninstall needs the proxy lock (among its other
+  // two), so it must queue behind the same wedge, not interleave with it.
+  const proxyWork = mutexes.proxy.run(async () => order.push('proxy-bg'));
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['proxy:stop:enter'],
+    'queued proxy work and a subsequent uninstall must both still be blocked while the wedge holds the proxy lock'
+  );
+
+  // ipc.js's handler wrapper catches the timeout's rejection and turns it
+  // into a normal {ok:false, error:{code}} result — never an unhandled
+  // rejection, never a silently-swallowed failure (AC#2).
+  const stopResult = await withSafetyTimeout(
+    stopRun,
+    2000,
+    'proxy:stop did not settle within 2000ms — the pm2.stop bound appears to be missing or regressed'
+  );
+  assert.equal(stopResult.ok, false, 'a genuinely wedged pm2.stop must surface as a handler error, not a false success');
+  assert.equal(stopResult.error.code, 'PM2_STOP_TIMEOUT');
+
+  // Once the bound elapses and releases the proxy lock, the queued
+  // background work proceeds, AND the uninstall issued afterwards proceeds
+  // too — it is no longer blocked (AC#3's exact wording).
+  await withSafetyTimeout(
+    Promise.all([proxyWork, uninstallRun]),
+    2000,
+    'queued proxy work and the subsequent uninstall did not proceed after the bound elapsed'
+  );
+
+  assert.ok(order.includes('proxy-bg'), 'proxy work queued after the wedge proceeded once the bound elapsed');
+  assert.ok(order.includes('uninstall:enter'), 'the uninstall issued after the wedge was no longer blocked');
+  assert.ok(order.includes('uninstall:exit'), 'the uninstall issued after the wedge completed normally');
+});
+
+test('ipc: NCOW-52 AC#7 — proxy:stop\'s success path is unchanged: a normal Stop still completes with the same result shape and still holds the proxy lock for its real duration', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+
+  const healthyPm2 = {
+    connect: (cb) => cb(null),
+    stop: (name, cb) => cb(null),
+  };
+  const pm2Control = createPm2Control(healthyPm2, { pm2CallTimeoutMs: 30 });
+
+  registerIpcHandlers(
+    {
+      proxy: {
+        stop: async () => {
+          order.push('proxy:stop:enter');
+          await pm2Control.stop();
+          order.push('proxy:stop:exit');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const stopRun = invoke('proxy:stop');
+  const proxyWork = mutexes.proxy.run(async () => order.push('proxy-bg'));
+
+  const result = await withSafetyTimeout(stopRun, 2000, 'a healthy proxy:stop unexpectedly failed to settle');
+  assert.deepEqual(result, { ok: true });
+
+  await withSafetyTimeout(proxyWork, 2000, 'queued proxy work did not proceed once the genuine stop released its lock');
+  assert.deepEqual(order, ['proxy:stop:enter', 'proxy:stop:exit', 'proxy-bg']);
+});
