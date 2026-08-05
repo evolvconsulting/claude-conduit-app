@@ -50,3 +50,34 @@ NCOW-40's own reviewer found 2 residual unguarded-interpolation sites out of tha
 7. Run npm test, confirm before/after counts, commit in small logical commits with
    Refs NCOW-42. trailers, push.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-42-error-chain-hardening, pushed to origin. Hardened all 3 sites
+using the existing safeReadProperty/describeThrownValue helpers (src/engine/configGen.js):
+(1) updateCheck.js's JSON-parse and outer network-error catch blocks now read err.name/
+err.message safely; (2) autoUpdate.js's darwin-path branch gets a real try/catch around
+checkLatestRelease() plus a null/non-object result guard; (3) index.js's startup .catch()
+backstop (~line 209) no longer interpolates err.message directly.
+
+Evidence: baseline npm test 358 passing -> final 377 passing, 0 failing (19 new tests: 8 in
+test/engine/updateCheck.test.js, 8 in test/main/autoUpdate.test.js, 3 new in
+test/main/index.test.js). Adversarial tests were written FIRST against the unfixed source and
+objectively confirmed the defects: test/engine/updateCheck.test.js showed 7 failures pre-fix,
+including 2 genuine promise rejections traced to updateCheck.js:117's bare err.name read on a
+throwing-getter value; test/main/autoUpdate.test.js showed 7 failures pre-fix, including 2
+genuine unhandled rejections with stack traces through updateCheck.js:117 -> autoUpdate.js:137
+-> checkForUpdates() -- exactly the chain NCOW-42 describes. index.js's site (untestable via
+require() at module scope) was verified via git stash on just that file: 2 of 3 new
+source-assertion tests failed against the pre-fix line, passed once restored. Adversarial
+cases covered: null/undefined throws, throwing .name/.message getters, Object.create(null),
+Symbol-valued message, hostile response.json() rejections, checkLatestRelease() resolving
+null/undefined/non-object, plus 3 full-chain tests driving the real updateCheck.js module
+through autoUpdate.js's darwin path with a hostile fetchImpl. Full suite re-run clean after
+committing: 377/377, no unhandled rejections in output.
+
+Files touched: src/engine/updateCheck.js, src/main/autoUpdate.js, src/main/index.js,
+test/engine/updateCheck.test.js, test/main/autoUpdate.test.js, test/main/index.test.js (new).
+Three commits on the branch, each with a Refs NCOW-42. trailer.
+<!-- SECTION:NOTES:END -->
