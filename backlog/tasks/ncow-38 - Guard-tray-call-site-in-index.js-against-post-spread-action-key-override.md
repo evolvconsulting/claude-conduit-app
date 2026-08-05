@@ -1,10 +1,10 @@
 ---
 id: NCOW-38
 title: Guard tray call site in index.js against post-spread action key override
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 22:21'
-updated_date: '2026-08-05 01:44'
+updated_date: '2026-08-05 01:46'
 labels: []
 dependencies:
   - NCOW-35

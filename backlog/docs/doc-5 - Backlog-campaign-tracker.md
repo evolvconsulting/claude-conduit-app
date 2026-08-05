@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-04 22:49'
+updated_date: '2026-08-05 01:46'
 ---
 # Backlog campaign tracker
 
@@ -62,11 +62,11 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 2 settlement (2026-08-04): 6 resolved (NCOW-34/33/36/35 from wave 1 + NCOW-39/37
-from wave 2, all Done), 2 ready but mutually conflicting (NCOW-38, NCOW-32 — each will form
-a solo wave 3/4), 0 blocked, 5 excluded pending human decomposition (see Not queued). Wave
-2's integration review surfaced 2 real follow-up candidates not yet approved/created as
-tasks — see Wave log below; awaiting user decision before any wave 3 dispatch.
+As of wave 3 dispatch (2026-08-04): 6 resolved (wave 1 + wave 2, all Done), 3 ready
+(NCOW-38, NCOW-32, NCOW-40), 1 blocked (NCOW-41 — depends on NCOW-38, not yet Done; see
+Critical context for why this dependency was added), 0 other blocked, 5 excluded pending
+human decomposition (see Not queued). Wave 2's integration review findings were approved by
+the user and filed as NCOW-40/41, with NCOW-38 amended (AC#4) — see Wave log.
 
 Wave 1 conflict graph (file-citation read against real code, not just cluster labels), kept
 for history: NCOW-34 = README.md/DESIGN.md only. NCOW-33 = engine-context.js comment only.
@@ -100,12 +100,28 @@ NCOW-37, already in wave). **Wave 2 = {NCOW-39, NCOW-37}.** NCOW-38 and NCOW-32 
 for subsequent waves — they also conflict with each other via src/main/index.js, so expect two
 more solo waves (3 and 4), a correct sequential degradation, not a bug.
 
+**Wave 3 conflict graph (file-citation read, fresh at this restore, over the ready set
+{NCOW-38, NCOW-32, NCOW-40} — NCOW-41 excluded, blocked on NCOW-38's dependency)**: NCOW-40
+candidates = src/main/autoUpdate.js, src/engine/configGen.js (describeThrownValue refactor),
+test/main/autoUpdate.test.js, test/engine/configGen.test.js. NCOW-38/NCOW-32 candidates
+unchanged from the wave-2 conflict graph above. Edges: NCOW-38↔NCOW-32 (src/main/index.js,
+as before), NCOW-32↔NCOW-40 (share src/main/autoUpdate.js — NCOW-32 wires the mutex into
+installUpdateAndRestart's stopProxyForShutdown call, NCOW-40 hardens performCheck()'s catch
+and the darwin-path branch elsewhere in the same file). No edge NCOW-38↔NCOW-40 (disjoint
+file sets). Greedy over confirmed order [NCOW-40, NCOW-38, NCOW-32] (isolated hardening
+first, tray-guard next, mutex-serialization last, per the already-confirmed principle):
+NCOW-40 added; NCOW-38 added (no conflict with NCOW-40); NCOW-32 skipped (conflicts with both
+NCOW-40 and NCOW-38, already in wave). **Wave 3 = {NCOW-40, NCOW-38}.** NCOW-32 deferred to a
+solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependency clears.
+
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-38 | tray-guard | NCOW-35 (Done) | To Do | | Guard index.js's createTray call site against a post-spread action-key override — conflicts with NCOW-32 via shared src/main/index.js |
-| 2 | NCOW-32 | proxy-mutex | NCOW-31 (Done) | To Do | | Serialize Uninstall + auto-update proxy-stop against the shared proxy mutex — conflicts with NCOW-38 via shared src/main/index.js |
+| 1 | NCOW-40 | error-hardening | NCOW-37 (Done) | Dispatched | 3 | Harden autoUpdate.js's last 2 unguarded sites + 2 configGen.js cleanups |
+| 2 | NCOW-38 | tray-guard | NCOW-35 (Done) | Dispatched | 3 | Guard index.js's createTray call site against a post-spread action-key override; AC#4 also updates the shared comment block |
+| 3 | NCOW-32 | proxy-mutex | NCOW-31 (Done) | To Do | | Serialize Uninstall + auto-update proxy-stop against the shared proxy mutex — conflicts with NCOW-40 (autoUpdate.js) and NCOW-38 (index.js), deferred to wave 4 |
+| 4 | NCOW-41 | tray-guard | NCOW-35 (Done), NCOW-38 (To Do) | Blocked | | Covers the other 3 tray-wiring gaps NCOW-38 doesn't; blocked until NCOW-38 lands (both edit the same comment block) |
 
 ## Resolved
 
@@ -216,11 +232,30 @@ more solo waves (3 and 4), a correct sequential degradation, not a bug.
   Per campaign convention, Task A and Task B are proposed to the user (AskUserQuestion) before
   any task is created or NCOW-38 is amended -- not created unilaterally. Final suite: 348/348
   passing on merged dev (wave-integration reviewer's own run).
+- 2026-08-04 — between waves 2 and 3: proposed Task A and Task B (from the wave-2 integration
+  review) plus amending NCOW-38 to the user via AskUserQuestion; all 3 approved. Created
+  NCOW-40 (Task A: harden autoUpdate.js's 2 remaining unguarded sites, plus fold in the
+  describeThrownValue()/safeReadProperty() duplication cleanup and the unused safeStringify()
+  export) and NCOW-41 (Task B: cover the other 3 tray-wiring gaps NCOW-38 doesn't). Added
+  NCOW-38 AC#4 so its edit of the shared comment block also folds in NCOW-39 review pass 2's
+  2 accepted residuals, rather than that deferral being silently lost. Also set NCOW-41's
+  dependencies to NCOW-35,NCOW-38 (not just NCOW-35) -- both tasks edit the same
+  comment/single-binding-check block in test/main/engine-context-config-regen.test.js, and
+  NCOW-38's new AC#4 requires it land first; this is a genuine landing-order requirement, not
+  just a same-wave scheduling conflict, so it was formalized as a real dependency rather than
+  left as a conflict-graph note only. Committed + pushed (43b5103, 5d2982d).
+- 2026-08-04 — wave 3 dispatched (tasks: NCOW-40, NCOW-38): ready set recomputed fresh
+  ({NCOW-38, NCOW-32, NCOW-40} ready; NCOW-41 blocked on NCOW-38). Fresh file-citation
+  conflict read (see Frontier above) found NCOW-32 conflicts with both NCOW-40
+  (src/main/autoUpdate.js) and NCOW-38 (src/main/index.js) but NCOW-40/NCOW-38 are
+  conflict-free with each other. Wave 3 = {NCOW-40, NCOW-38}; NCOW-32 deferred to a solo
+  wave 4.
 
 ## Follow-ups to propose
 
 (Resolved 2026-08-04 between waves 1 and 2 — see Wave log entry above. All 3 approved and
-filed as NCOW-37/38/39.)
+filed as NCOW-37/38/39. Resolved again between waves 2 and 3 — Task A/B approved and filed as
+NCOW-40/41, NCOW-38 amended — see Wave log entry above.)
 
 ## Critical context / traps
 

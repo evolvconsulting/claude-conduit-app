@@ -1,9 +1,10 @@
 ---
 id: NCOW-40
 title: Harden autoUpdate.js's remaining unguarded error-interpolation sites
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
+updated_date: '2026-08-05 01:46'
 labels: []
 dependencies:
   - NCOW-37
