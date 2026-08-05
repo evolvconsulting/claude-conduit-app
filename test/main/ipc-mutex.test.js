@@ -1256,17 +1256,28 @@ test('ipc: NCOW-47 — apiKey:clear does NOT serialize against a config lock fro
   await background;
 });
 
-// --- NCOW-48: uninstall.run()'s pm2 calls were the last two raw, unbounded
-// pm2 callbacks reachable from Uninstall (deleteAppIfPresent()'s pm2.delete,
-// save()'s pm2.dump — pm2Control.js:509/:516; see pm2Control.test.js's own
-// NCOW-48 regressions for isolated unit coverage of each). Because uninstall
-// now holds the claudeCode, config, AND proxy locks for its full duration
-// (NCOW-45), and apiKey aliases onto config (NCOW-47), a pm2 call that never
-// invokes its callback froze all three domain locks — and, transitively, an
-// apiKey channel — indefinitely before this task. This test reproduces the
-// wave-7 reviewer's exact repro (a handler whose pm2 call never calls back)
-// through the REAL src/engine/pm2Control.js and src/engine/uninstall.js, not
-// just ipc.js's own mutex bookkeeping.
+// --- NCOW-48: uninstall.run()'s pm2 calls were the last raw, unbounded pm2
+// callbacks reachable from Uninstall (listApps()'s pm2.list,
+// deleteAppIfPresent()'s pm2.delete, save()'s pm2.dump; see
+// pm2Control.test.js's own NCOW-48 regressions for isolated unit coverage of
+// each). Because uninstall now holds the claudeCode, config, AND proxy locks
+// for its full duration (NCOW-45), and apiKey aliases onto config (NCOW-47),
+// a pm2 call that never invokes its callback froze all three domain locks —
+// and, transitively, an apiKey channel — indefinitely before this task. This
+// test reproduces the wave-7 reviewer's exact repro (a handler whose pm2 call
+// never calls back) through the REAL src/engine/pm2Control.js and
+// src/engine/uninstall.js, not just ipc.js's own mutex bookkeeping.
+//
+// Fix-pass correction: the version of this test the wave-8/9 review saw
+// wedged pm2.delete — but remove() -> deleteAppIfPresent() reaches
+// findApp() -> listApps() -> pm2.list BEFORE it ever reaches pm2.delete, so a
+// daemon wedged at pm2.list sailed straight past the pm2.delete/pm2.dump
+// bounds without either ever engaging (reproduced live: "FROZEN: STILL FROZEN
+// after 3000ms" against the pre-fix-pass source with only pm2.list wedged —
+// see this task's report). The test immediately below this comment block
+// keeps wedging pm2.delete (still a genuine, still-necessary regression
+// guard); the new test further down wedges pm2.list instead, to cover the
+// call site the earlier pass missed.
 //
 // AC#4 (non-vacuity): this test genuinely fails against unpatched source —
 // see this task's report for the observed pre-fix failure. AC#4 (cannot
@@ -1447,4 +1458,108 @@ test('ipc: NCOW-48 AC#5 — uninstall\'s existing success path is unchanged: a n
     'queued work did not proceed once the genuine uninstall released its locks'
   );
   assert.deepEqual(order, ['uninstall:enter', 'uninstall:exit', 'claudeCode-bg', 'config-bg', 'proxy-bg']);
+});
+
+// Fix-pass addition: the AC#3 test above wedges pm2.delete. The wave-8
+// reviewer traced the real chain one call earlier — remove() ->
+// deleteAppIfPresent() -> ensureConnected() -> findApp() -> listApps() ->
+// pm2.list — and reproduced that a daemon wedged at pm2.list sailed straight
+// past the pm2.delete/pm2.dump bounds without either ever engaging, because
+// pm2.list is reached first. This is the same demonstration as the AC#3 test
+// above, at that earlier call site, proving the fix-pass bound on
+// listApps() closes the gap the original pass left open.
+
+test('ipc: NCOW-48 AC#1/#3 (fix-pass) — a pm2.list call that never calls back no longer freezes the claudeCode, config, and proxy locks (nor an apiKey channel) indefinitely', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+
+  // A fake pm2 daemon whose list() call never calls back — this is one call
+  // earlier than the AC#3 test's wedged delete(), reproducing the exact gap
+  // the fix-pass finding identified: deleteAppIfPresent() (and remove(),
+  // which calls it) reaches findApp() -> listApps() -> pm2.list before it
+  // ever reaches pm2.delete.
+  const wedgedPm2 = {
+    connect: (cb) => cb(null),
+    list: () => {
+      // Never calls back — the reviewer's exact repro, one call earlier than
+      // the AC#3 test above.
+    },
+    delete: (name, cb) => cb(null),
+    dump: (cb) => cb(null),
+  };
+  const pm2Control = createPm2Control(wedgedPm2, { pm2CallTimeoutMs: 30 });
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          const data = await runUninstall({
+            configDir: '/nonexistent-ncow-48-fixture',
+            manifest: null,
+            pm2Control,
+            purge: false,
+          });
+          order.push('uninstall:exit');
+          return { ok: true, data };
+        },
+      },
+      apiKey: {
+        clear: async () => {
+          order.push('apiKey:clear');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+
+  // Queue work on all three domains this task's own citation says freeze,
+  // plus an apiKey channel — same shape as the AC#3 test above.
+  const claudeCodeWork = mutexes.claudeCode.run(async () => order.push('claudeCode-bg'));
+  const configWork = mutexes.config.run(async () => order.push('config-bg'));
+  const proxyWork = mutexes.proxy.run(async () => order.push('proxy-bg'));
+  const apiKeyRun = invoke('apikey:clear');
+
+  // Purely microtask ticks — no real time passes, so the 30ms bound cannot
+  // have fired yet regardless of how many awaits pm2Control's own call chain
+  // needs to reach the wedged pm2.list call.
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['uninstall:enter'],
+    'the wedge must still be holding all three locks (and blocking apiKey:clear) while pm2.list has not yet timed out'
+  );
+
+  const uninstallResult = await withSafetyTimeout(
+    uninstallRun,
+    2000,
+    'uninstall:run did not settle within 2000ms — the pm2.list bound appears to be missing or regressed'
+  );
+  assert.equal(
+    uninstallResult.ok,
+    false,
+    'a genuinely wedged pm2.list must surface as a handler error, not a false success'
+  );
+  assert.equal(
+    uninstallResult.error.code,
+    'PM2_LIST_TIMEOUT',
+    'pm2.list is reached before pm2.delete, so the surfaced code must be PM2_LIST_TIMEOUT, not PM2_DELETE_TIMEOUT'
+  );
+
+  // Once the bound elapses and releases all three locks, every domain's
+  // queued work — and the apiKey channel — proceeds.
+  await withSafetyTimeout(
+    Promise.all([claudeCodeWork, configWork, proxyWork, apiKeyRun]),
+    2000,
+    'queued work on claudeCode/config/proxy/apiKey did not proceed after the bound elapsed'
+  );
+
+  assert.ok(order.includes('claudeCode-bg'), 'claudeCode work proceeded');
+  assert.ok(order.includes('config-bg'), 'config work proceeded');
+  assert.ok(order.includes('proxy-bg'), 'proxy work proceeded');
+  assert.ok(order.includes('apiKey:clear'), 'the apiKey channel proceeded');
 });
