@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 17:04'
-updated_date: '2026-08-05 17:42'
+updated_date: '2026-08-05 17:48'
 labels:
   - documentation
 dependencies: []
@@ -87,4 +87,24 @@ Branch `fix/NCOW-51-document-key-survives-purge` @ `e871cf7`, based on dev @ `84
 **Merge safety verified non-destructively rather than argued**: `git merge-tree --write-tree --messages e871cf7 ea38690` exits 0, tree 425b414, reports only 'Auto-merging README.md' — no conflict, either merge order safe. Overlap risk LOW, lower than the dispatch brief assumed.
 
 **F5 MAJOR, pre-existing, explicitly NOT this branch's fault — flagged for separate filing.** `apikey:clear` is a live IPC channel (ipc-channels.js:44) with a handler, a mutex alias (ipc.js:158) and three tests (ipc-mutex.test.js:1055/1095/1227), but no UI caller at all. Two consequences: (a) the app has no user-accessible way to delete a stored credential, making AC#4's opt-in a real product gap rather than a nice-to-have; (b) NCOW-47's stated reproducing case — 'clicking Clear Key while a config:generate is in flight', still asserted at src/main/ipc.js:121 — is not reachable in the shipped UI, so that comment overstates it (the lock remains defensible as defence-in-depth).
+
+## Wave 9 fix pass 1 (post-review-pass-1) — recorded by the orchestrator; re-review pending
+
+New commit `516a9a6` on top of `e871cf7` (not amended). Touched README.md and src/engine/uninstall.js only — DESIGN.md left as pass 1 landed it, since AC#1 was already confirmed.
+
+**F1 fixed.** README's Uninstalling section no longer names a Clear Key button. Replaced with the honest remedy: no in-app way exists; delete `nim-key.enc` by hand, with real per-platform userData paths (`~/Library/Application Support/Claude Conduit/` macOS, `~/.config/Claude Conduit/` Linux, `%APPDATA%\Claude Conduit\` Windows). Paths derived from `src/engine/paths.js:136-147` (resolveElectronAppDataDir: win32→APPDATA, darwin→Library/Application Support, else→.config) plus productName 'Claude Conduit' (package.json:3, electron-builder.yml:9), corroborated by userDataMigration.js:6-8's '<appData>/<productName>' comment.
+
+**F2 fixed.** The table row's mechanism clause now reads that secretStore.clear()'s only caller anywhere is the `apiKey.clear` IPC handler, that no shipped UI invokes it, and therefore that nothing in the app deletes nim-key.enc — the stronger, true statement.
+
+**F3 fixed.** Both false sentences in src/engine/uninstall.js rewritten to the same true mechanism, pointing at README's Uninstalling section for the per-platform path.
+
+**F4 fixed / AC#4 re-grounded on durable product reasoning.** The opt-in is now recorded as warranted on its merits — it mirrors the Claude Desktop opt-in precedent and CLAUDE.md's standing 'destructive extras are individually confirmed opt-ins, never side effects' rule, and today there is no in-app remedy at all — and deferred because THIS task is scoped to documentation while the opt-in needs its own confirmation-dialog UX plus test coverage. All NCOW-48/wave-timing language removed from source. The worker verified the false premise before deleting it: `git diff --stat 84bb0d0 ea38690` lists only CLAUDE.md, README.md, src/engine/pm2Control.js and the two test files — uninstall.js is absent. No follow-up task ID was invented.
+
+**F6 fixed** (same edit removed all wave-state content; `grep -n NCOW-48 README.md src/engine/uninstall.js` → empty). **F7 fixed** (GUI-facing text now says 'Purge', matching uninstall-view.js:24's radio label; DESIGN.md's `--purge` correctly left alone as the CLI spec). **F8 fixed** (row now gives both `~/.config/claude-conduit/` and `%APPDATA%\claude-conduit\`, matching README:268's first row). **F9 fixed by scoping, not by changing build config** (now 'Survives this app's own Uninstall flow, including Purge'; `deleteAppDataOnUninstall` confirmed unset).
+
+**Negative checks the worker ran post-edit**: `grep -n 'Clear Key' README.md src/engine/uninstall.js`, `grep -n -- '--purge' README.md`, `grep -n 'NCOW-48' README.md src/engine/uninstall.js` — all empty. Also confirmed secretStore.js's `load()` catches ENOENT and returns null, so a hand-deleted key file degrades cleanly rather than crashing.
+
+**Comment-only property preserved**: esprima token-stream comparison of `git show 84bb0d0:src/engine/uninstall.js` vs the post-fix file — 188 tokens each, JSON.stringify identical.
+
+**npm test**: 416/416 pass, 0 fail.
 <!-- SECTION:NOTES:END -->
