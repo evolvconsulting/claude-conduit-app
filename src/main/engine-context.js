@@ -260,6 +260,36 @@ function createEngineContext(deps) {
     },
 
     apiKey: {
+      // NCOW-50: nvidiaKey.validateApiKey() below is up to two sequential
+      // 10s AbortController windows against NVIDIA's real network (see
+      // nvidiaKey.js's fetchModels/probeCompletion) — and it must complete
+      // BEFORE anything here touches the config lock. Before this fix,
+      // ipc.js's automatic per-method wrapping held mutexes.config for this
+      // entire method, network wait included: composed with NCOW-45's
+      // uninstall alias (which reserves claudeCode+config+proxy
+      // synchronously and holds all three until it settles), a slow or
+      // offline NVIDIA endpoint turned one Validate-Key click into a ~20s
+      // hold on ALL THREE of those locks the moment a user issued an
+      // Uninstall afterward — freezing the window, the tray's Start/Stop/
+      // Restart, proxy:testConnection, and every claudeCode:* method, with
+      // no feedback. See this task's own description for the full
+      // reproduction and measured timings.
+      //
+      // The fix: this method is now listed in ipc.js's UNSERIALIZED_METHODS
+      // (apiKey.validateAndSave), so ipc.js no longer wraps it at all. The
+      // lock is acquired HERE instead, directly against the exact same
+      // `mutexes` object this file hands to registerIpcHandlers — mirroring
+      // configGen.regenerateStaleConfig's injected runProxyOperation above,
+      // the established precedent for an engine-side critical section — and
+      // scoped to only the secretStore.save() call below: a synchronous,
+      // local write with nothing network-bound in it. That preserves
+      // NCOW-47's guarantee in full (this write still cannot interleave
+      // with config.generate's secretStore.load(), which runs inside the
+      // very same mutexes.config) while collapsing the hold from up to ~20s
+      // to microseconds. `clear` needs no equivalent change — it has no
+      // network component, so ipc.js's whole-handler lock (via
+      // DOMAIN_MUTEX_ALIASES's apiKey->config alias) already scopes
+      // correctly for it.
       validateAndSave: async (key) => {
         const result = await nvidiaKey.validateApiKey({ apiKey: key });
         if (!result.ok) return result;
@@ -269,7 +299,7 @@ function createEngineContext(deps) {
         // keyring). That failure must be surfaced to the caller instead of
         // discarded, or the renderer reports success while the key was
         // never actually persisted.
-        const saveResult = secretStore.save(key);
+        const saveResult = await mutexes.config.run(() => secretStore.save(key));
         if (!saveResult.ok) {
           // Reworded (rather than passed through verbatim) so the setup
           // wizard's error span — which renders whatever message lands here
