@@ -40,6 +40,8 @@ const {
   LOCK_ACQUISITION_ORDER,
 } = require('../../src/main/ipc');
 const { createDomainMutex, createDomainMutexes, MUTEX_DOMAINS } = require('../../src/main/mutex');
+const { createPm2Control } = require('../../src/engine/pm2Control');
+const { uninstall: runUninstall } = require('../../src/engine/uninstall');
 
 /** Invokes a registered channel the way ipcMain would (with an event arg). */
 function invoke(channel, ...args) {
@@ -1252,4 +1254,197 @@ test('ipc: NCOW-47 — apiKey:clear does NOT serialize against a config lock fro
 
   gate.resolve();
   await background;
+});
+
+// --- NCOW-48: uninstall.run()'s pm2 calls were the last two raw, unbounded
+// pm2 callbacks reachable from Uninstall (deleteAppIfPresent()'s pm2.delete,
+// save()'s pm2.dump — pm2Control.js:509/:516; see pm2Control.test.js's own
+// NCOW-48 regressions for isolated unit coverage of each). Because uninstall
+// now holds the claudeCode, config, AND proxy locks for its full duration
+// (NCOW-45), and apiKey aliases onto config (NCOW-47), a pm2 call that never
+// invokes its callback froze all three domain locks — and, transitively, an
+// apiKey channel — indefinitely before this task. This test reproduces the
+// wave-7 reviewer's exact repro (a handler whose pm2 call never calls back)
+// through the REAL src/engine/pm2Control.js and src/engine/uninstall.js, not
+// just ipc.js's own mutex bookkeeping.
+//
+// AC#4 (non-vacuity): this test genuinely fails against unpatched source —
+// see this task's report for the observed pre-fix failure. AC#4 (cannot
+// itself hang the suite): every promise this test awaits is raced against a
+// generous real-clock safety timeout via withSafetyTimeout() below — well
+// above the 30ms bound configured for this test, but far below anything that
+// would stall CI — so a regression (the bound missing or broken) fails this
+// assertion normally instead of hanging `npm test` forever.
+
+/** Rejects with `message` after `ms` if `promise` hasn't settled by then — a
+ *  test-local safety net, distinct from the production withTimeout() this
+ *  task adds to pm2Control.js. Exists so a regression of THAT bound turns
+ *  into a fast, readable test failure instead of hanging this suite (AC#4).
+ */
+function withSafetyTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+test('ipc: NCOW-48 AC#3 — a pm2.delete call that never calls back no longer freezes the claudeCode, config, and proxy locks (nor an apiKey channel) indefinitely', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+
+  // A fake pm2 daemon whose delete() call never calls back — everything else
+  // behaves normally, isolating the wedge to exactly the citation this task
+  // fixes (pm2Control.js:509, inside deleteAppIfPresent()).
+  const wedgedPm2 = {
+    connect: (cb) => cb(null),
+    list: (cb) => cb(null, [{ name: 'litellm-nim', pm2_env: { status: 'online' } }]),
+    delete: () => {
+      // Never calls back — the reviewer's exact wave-7 repro, at the real call site.
+    },
+    dump: (cb) => cb(null),
+  };
+  const pm2Control = createPm2Control(wedgedPm2, { pm2CallTimeoutMs: 30 });
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          const data = await runUninstall({
+            configDir: '/nonexistent-ncow-48-fixture',
+            manifest: null,
+            pm2Control,
+            purge: false,
+          });
+          order.push('uninstall:exit');
+          return { ok: true, data };
+        },
+      },
+      apiKey: {
+        clear: async () => {
+          order.push('apiKey:clear');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+
+  // Queue work on all three domains this task's own citation says freeze,
+  // plus an apiKey channel — Implementation Notes correction #2: apiKey
+  // resolves onto `config` transitively, but the demonstration is materially
+  // more honest exercising it directly, since it is the most user-visible
+  // thing the wedge kills (Set Key/Clear Key).
+  const claudeCodeWork = mutexes.claudeCode.run(async () => order.push('claudeCode-bg'));
+  const configWork = mutexes.config.run(async () => order.push('config-bg'));
+  const proxyWork = mutexes.proxy.run(async () => order.push('proxy-bg'));
+  const apiKeyRun = invoke('apikey:clear');
+
+  // Purely microtask ticks — no real time passes, so the 30ms bound cannot
+  // have fired yet regardless of how many awaits pm2Control's own call chain
+  // needs to reach the wedged pm2.delete call.
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['uninstall:enter'],
+    'the wedge must still be holding all three locks (and blocking apiKey:clear) while pm2.delete has not yet timed out'
+  );
+
+  // ipc.js's handler wrapper catches the timeout's rejection and turns it
+  // into a normal {ok:false, error:{code}} result — never an unhandled
+  // rejection, never a silently-swallowed failure (AC#2).
+  const uninstallResult = await withSafetyTimeout(
+    uninstallRun,
+    2000,
+    'uninstall:run did not settle within 2000ms — the pm2.delete bound appears to be missing or regressed'
+  );
+  assert.equal(
+    uninstallResult.ok,
+    false,
+    'a genuinely wedged pm2.delete must surface as a handler error, not a false success'
+  );
+  assert.equal(uninstallResult.error.code, 'PM2_DELETE_TIMEOUT');
+
+  // Once the bound elapses and releases all three locks, every domain's
+  // queued work — and the apiKey channel — proceeds.
+  await withSafetyTimeout(
+    Promise.all([claudeCodeWork, configWork, proxyWork, apiKeyRun]),
+    2000,
+    'queued work on claudeCode/config/proxy/apiKey did not proceed after the bound elapsed'
+  );
+
+  assert.ok(order.includes('claudeCode-bg'), 'claudeCode work proceeded');
+  assert.ok(order.includes('config-bg'), 'config work proceeded');
+  assert.ok(order.includes('proxy-bg'), 'proxy work proceeded');
+  assert.ok(order.includes('apiKey:clear'), 'the apiKey channel proceeded');
+});
+
+test('ipc: NCOW-48 AC#5 — uninstall\'s existing success path is unchanged: a normal uninstall still completes with the same result shape and still holds all three locks for its real duration', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+
+  // A well-behaved fake pm2 — delete/dump both call back normally — proving
+  // the new bound (a tight 30ms window here) never fires against a genuine,
+  // fast success.
+  const healthyPm2 = {
+    connect: (cb) => cb(null),
+    list: (cb) => cb(null, [{ name: 'litellm-nim', pm2_env: { status: 'online' } }]),
+    delete: (name, cb) => cb(null),
+    dump: (cb) => cb(null),
+  };
+  const pm2Control = createPm2Control(healthyPm2, { pm2CallTimeoutMs: 30 });
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          const data = await runUninstall({
+            configDir: '/nonexistent-ncow-48-fixture',
+            manifest: null,
+            pm2Control,
+            purge: false,
+          });
+          order.push('uninstall:exit');
+          return { ok: true, data };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+
+  // Background work on all three domains must still queue behind a genuine,
+  // real (not wedged) uninstall — the new bound must not shorten uninstall's
+  // real lock-holding duration.
+  const claudeCodeWork = mutexes.claudeCode.run(async () => order.push('claudeCode-bg'));
+  const configWork = mutexes.config.run(async () => order.push('config-bg'));
+  const proxyWork = mutexes.proxy.run(async () => order.push('proxy-bg'));
+
+  const result = await withSafetyTimeout(uninstallRun, 2000, 'a healthy uninstall:run unexpectedly failed to settle');
+  // configDir does not exist on disk, so uninstall.js's own
+  // `fs.existsSync(opts.configDir)` check leaves `kept` empty — this only
+  // asserts the result SHAPE (AC#5), not this fixture's disk state.
+  assert.deepEqual(result, { ok: true, data: { removed: ['pm2-app'], kept: [] } });
+
+  await withSafetyTimeout(
+    Promise.all([claudeCodeWork, configWork, proxyWork]),
+    2000,
+    'queued work did not proceed once the genuine uninstall released its locks'
+  );
+  assert.deepEqual(order, ['uninstall:enter', 'uninstall:exit', 'claudeCode-bg', 'config-bg', 'proxy-bg']);
 });
