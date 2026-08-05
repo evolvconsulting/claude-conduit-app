@@ -3,9 +3,10 @@ id: NCOW-32
 title: >-
   Serialize Uninstall and auto-update's proxy-stop against the shared proxy
   mutex
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-04 19:29'
+updated_date: '2026-08-05 04:43'
 labels: []
 dependencies:
   - NCOW-31
