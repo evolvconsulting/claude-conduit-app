@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 18:07'
+updated_date: '2026-08-05 18:12'
 labels: []
 dependencies:
   - NCOW-45
@@ -205,4 +205,18 @@ connect (≤30s) + list (≤15s) + delete (≤15s) + dump (≤15s), each stage s
 - **minor (carried from pass 1, unchanged)**: uninstall.js strips the Claude Code CLI env keys BEFORE pm2Control.remove(), so any of the three timeouts returns an error after those settings are already reverted, and with purge:true the config dir is kept despite the user asking to purge. Retry is safe (re-verified: no unhandled rejections, subsequent uninstalls succeed), though a successful retry's summary omits 'claude-code-cli-config'.
 - **nit (positive, worth recording)**: src/renderer/app.js:44 awaits proxy.getStatus() before rendering the pill or subscribing to status changes, so **pre-fix a wedged pm2.list hung the renderer's entire boot sequence forever**; it now recovers after the bound. Cosmetic consequence: that boot path does `if (statusResult.ok)`, so the pill reads 'Not configured' rather than 'Error' until the poller's next broadcast corrects it.
 - **nit**: 'pure appends' is loose but harmless — zero deletions vs the merge base in both test files, though pm2Control.test.js's insertion point is line 69 (mid-file) rather than EOF. No pre-existing test line is touched; the delta's deletions are the fix pass rewriting its OWN pass-1 lines.
+
+## Wave 9 hygiene fix (post-approval, reviewer-prescribed) — recorded by the orchestrator
+
+Commit `2c0ec4f` on top of `9215910`. One file, 3 insertions / 3 deletions, test-only.
+
+**Root cause closed, not just the symptom.** The worker found the two hanging fixtures disagreed on how they recorded a delete call: `hangingListPm2` recorded `delete:${name}` (matching `fakePm2`) while `hangingDeletePm2` alone recorded the bare `'delete'`. Rather than only rewriting the call-site assertion, it **made all three fixtures agree** on `delete:${name}`, so the next person copying a fixture cannot reinherit the bug — then applied the reviewer's suggested assertion form (`!pm2.calls.some((c) => c.startsWith('delete'))`), which now works against any fixture.
+
+**Vacuity reproduced before fixing**: `pm2.calls = ["connect","list"]` from hangingListPm2 (the fixture the affected test actually uses). Injecting a simulated `'delete:litellm-nim'` entry and re-running with the OLD assertion still passed (`ok 6`) — confirming the guard could never fail.
+
+**Non-vacuity of the FIXED assertion proven the same way**: with the injected entry, the new form fails as intended — `not ok 6`, 'pm2.delete must never be reached while pm2.list is still wedged ahead of it', `expected: true, actual: false`. Injection and the swapped-in old assertion were both removed afterwards.
+
+**Purity re-verified by the orchestrator against the merge base**: `git diff 84bb0d0...HEAD --numstat` gives `215/0` for test/engine/pm2Control.test.js and `310/0` for test/main/ipc-mutex.test.js — **zero deletions relative to merge base in either file**, so this commit's 3 deletions are all against lines this branch itself introduced. AC#5/AC#6's 'no pre-existing test modified' still holds.
+
+**npm test**: 425/425 pass, unchanged — no test added or removed, so CLAUDE.md:51 and README.md:330 remain correct at 425 and were deliberately not touched.
 <!-- SECTION:NOTES:END -->
