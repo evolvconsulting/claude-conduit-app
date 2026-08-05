@@ -3,9 +3,10 @@ id: NCOW-43
 title: >-
   Harden the config-regen backstop's remaining unguarded err.message reads in
   index.js
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 03:59'
+updated_date: '2026-08-05 12:11'
 labels: []
 dependencies:
   - NCOW-42
