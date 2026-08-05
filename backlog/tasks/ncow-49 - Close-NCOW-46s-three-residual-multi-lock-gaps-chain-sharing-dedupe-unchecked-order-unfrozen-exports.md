@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-05 15:28'
+updated_date: '2026-08-05 17:05'
 labels: []
 dependencies:
   - NCOW-46
@@ -28,3 +29,18 @@ NCOW-46's wave-7 integration review confirmed the merged fix is sound but found 
 - [ ] #6 An empty alias array and an alias key not present in CHANNELS are each either rejected by assertLockOrderIsConsistent() or explicitly documented as out of its contract, with the choice reasoned rather than left implicit
 - [ ] #7 All pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Corrections from the wave-8 integration review (NCOW-47's merge, 81b5eb9) — recorded by the campaign orchestrator, not yet reflected in the description above:
+
+1. ALL THREE src/main/ipc.js CITATIONS IN THE DESCRIPTION ARE STALE by exactly +49 lines: '215-222' -> 264-271 (seen.has(lock) now at :268); '196-206' -> 245-256 (the NCOW-46 dedupe paragraph now opens at :245); '117-121' -> 161-186, with the quoted 'reorder for readability' phrase now at :165-166. The two test/main/ipc-mutex.test.js citations (876-880, 939-943) are STILL ACCURATE — NCOW-47's test change was a pure append at :1011+, so nothing in the test file moved. Stated explicitly so a fix pass does not shift them unnecessarily.
+2. Residual (3) — unfrozen exports — is BROADER than AC#5 describes, in two measured ways:
+   (a) A shallow Object.freeze is provably insufficient. The reviewer constructed a shallow-frozen equivalent table and still reversed its nested uninstall array from outside the module. A DEEP freeze is required.
+   (b) The exploit surface is no longer just uninstall's array. Deleting DOMAIN_MUTEX_ALIASES.apiKey from outside the module fully reverts NCOW-47's fix at runtime, after the module-load assertion has already passed — and setting it to 'proxy' would silently mis-serialize apiKey against the WRONG lock while still satisfying the assertion if it re-ran, since 'proxy' is a legal member. AC#5 should therefore name the bare-string alias VALUES, not just the array.
+3. Counter-nuance, so the fix does not over-scope: in-place REORDERING of uninstall's array is already inert, because resolveDomainLocks sorts by LOCK_ACQUISITION_ORDER. The reviewer reversed that array in place and resolveDomainLocks still returned ['claudeCode','config','proxy']. The freeze's real value is against membership changes, bare-string alias values, and LOCK_ACQUISITION_ORDER itself (which the sort trusts blindly).
+4. SUGGESTED ADDITION TO AC#6, which already owns 'which alias shapes should be rejected': an alias target whose mutex is ABSENT from the injected mutexes set. resolveDomainLocks silently drops it (`if (!lock || seen.has(lock)) continue`, ipc.js:266-272). Pre-existing from NCOW-45 but newly worse — pre-NCOW-47 the only victim was uninstall degrading 3->2 or 3->1 locks; now apiKey degrades to ZERO locks, a result indistinguishable from the four intentionally-unlocked domains (app/prereqs/catalog/diagnostics). Measured: resolveDomainLocks({proxy},'apiKey') = 0 locks, ({proxy},'uninstall') = 1 lock not 3, silent in every case with the suite green. So any caller or fixture passing a partial mutex set silently reverts NCOW-47 undetectably. This belongs here rather than in a new task because it is the same opts.mutexes injection point residual (1) already treats as live.
+5. Residuals (1) and (2) are UNAFFECTED by NCOW-47's merge. Residual (1) still only bites uninstall, since apiKey resolves to exactly one lock and takes withLocks' single-lock fast path.
+6. Also confirmed by the reviewer: the module-load assertion handles NCOW-47's bare-string shape correctly via `Array.isArray(v) ? v : [v]` (ipc.js:225), so the mixed string/array table is not itself a defect — only a reason a shallow freeze is insufficient.
+<!-- SECTION:NOTES:END -->
