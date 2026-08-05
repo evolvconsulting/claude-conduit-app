@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 17:04'
-updated_date: '2026-08-05 17:33'
+updated_date: '2026-08-05 17:42'
 labels:
   - documentation
 dependencies: []
@@ -63,4 +63,28 @@ Branch `fix/NCOW-51-document-key-survives-purge` @ `e871cf7`, based on dev @ `84
 **files_touched**: DESIGN.md, README.md, src/engine/uninstall.js (comment only).
 
 **Worker's own open question**: if NCOW-48 lands its bounded-timeout work, the deferred opt-in becomes safe to pick up as a fresh follow-up against a stable handler.
+
+## Wave 9 review pass 1 — REQUEST_CHANGES (independent opus review; recorded by the orchestrator)
+
+**Confirmed AC: #1, #5, #6. Not confirmed: #2, #3, #4.**
+
+**F1 BLOCKING — the new README text tells the user to press a button that does not exist.** README.md:391 said 'clear it from the Setup view's **Clear Key** button before uninstalling.' There is no Clear Key button anywhere in the app and there never has been. Reviewer's evidence: the complete set of `window.nimProxy.apiKey.*` calls in `src/renderer/` is `validateAndSave` (setup-view.js:157) and `getMasked` (app.js:41) — `apiKey.clear` has ZERO renderer callers; `renderApiKeyStep` (setup-view.js:115-148) renders exactly two buttons, 'Validate & Save' and 'Continue'; no dynamic dispatch exists (`grep -rn 'nimProxy\['` → no hits); `git log -S 'Clear Key' --all -- src/renderer/` → no commits, ever.
+
+**F2 BLOCKING — README.md:272's mechanism clause is false.** It asserted secretStore.clear()'s 'only caller in the whole app is the Clear Key button (Setup view → apiKey.clear)'. The only caller is the `apiKey.clear` IPC *handler*, which no UI invokes. The true fact is materially MORE severe than the row claims: nothing in the shipped app deletes nim-key.enc.
+
+**F3 BLOCKING — the same false mechanism was repeated in production source.** src/engine/uninstall.js:15-17 ('secretStore.clear()'s one existing caller is the Setup view's Clear Key button') and :24-25 ('the interim workaround (Clear Key, then uninstall)'). This is precisely the failure class NCOW-47's AC#4 was rejected twice for — a comment naming a mechanism is a testable claim, and this one was wrong in the confident direction.
+
+**F4 BLOCKING — AC#4's recorded reasoning is unsound on two independent counts.** (a) It is a wave-timing argument, as the orchestrator suspected: the load-bearing sentence is that NCOW-48 is restructuring the same handler 'in the same wave'. **That premise is also factually false — NCOW-48's branch (ea38690) does not touch src/engine/uninstall.js at all** (it touches pm2Control.js, its two test files, CLAUDE.md and README.md). The claimed collision does not exist. The commit body meanwhile concedes the opt-in 'would follow' CLAUDE.md's precedent and 'is a legitimate follow-up' — an argument FOR it, with only expired timing offered against. (b) The product justification rests on 'the existing Clear Key button' closing the information gap; there is no such button, and with no workaround the app has NO user-accessible way to remove a stored credential, which strengthens the case for the opt-in rather than excusing its absence. The reviewer would not block on the *decision* to defer — it blocks on the *record*.
+
+**F6 MAJOR — comment scope.** Placement in uninstall.js is fine and has direct precedent (the NCOW-24 block at :47-63 records exactly this kind of deferral beside the code), but :19-24's content is wave state, which is both already false and meaningless next quarter. The NCOW-24 block by contrast records a durable technical reason.
+
+**F7/F8/F9 MINOR.** (F7) README's new text uses the CLI spelling `--purge` in a GUI README with no flags; the UI radio (uninstall-view.js:24) and README's own Uninstalling section say 'Purge' — DESIGN.md's `--purge` is correct because that is the CLI spec, README's is not. (F8) the new row cites only `~/.config/claude-conduit/` where the table's own first row gives both that and `%APPDATA%\claude-conduit\`. (F9) 'Survives **every** uninstall' rests on electron-builder's `deleteAppDataOnUninstall` defaulting to false, which is not set anywhere (electron-builder.yml is silent) — true today, silently falsifiable later.
+
+**AC#5's documentation-only claim CONFIRMED by proof, not inspection.** esprima token-stream comparison (`tokenize(src,{comment:false})`): dev 188 tokens, HEAD 188 tokens, JSON.stringify of both streams identical by full string comparison. Independently corroborated by excising comments at their esprima range offsets and whitespace-normalizing — both reduce to the identical 769-character string. Full AST comparison was attempted and is unavailable: the vendored esprima (ES2017-era) cannot parse `opts.manifest?.cli_configured` (throws equally on both files) and acorn is absent from node_modules. **Worth carrying forward as a limit on this campaign's established technique.**
+
+**npm test**: reviewer's own run 416/416 pass, 0 fail, 0 cancelled.
+
+**Merge safety verified non-destructively rather than argued**: `git merge-tree --write-tree --messages e871cf7 ea38690` exits 0, tree 425b414, reports only 'Auto-merging README.md' — no conflict, either merge order safe. Overlap risk LOW, lower than the dispatch brief assumed.
+
+**F5 MAJOR, pre-existing, explicitly NOT this branch's fault — flagged for separate filing.** `apikey:clear` is a live IPC channel (ipc-channels.js:44) with a handler, a mutex alias (ipc.js:158) and three tests (ipc-mutex.test.js:1055/1095/1227), but no UI caller at all. Two consequences: (a) the app has no user-accessible way to delete a stored credential, making AC#4's opt-in a real product gap rather than a nice-to-have; (b) NCOW-47's stated reproducing case — 'clicking Clear Key while a config:generate is in flight', still asserted at src/main/ipc.js:121 — is not reachable in the shipped UI, so that comment overstates it (the lock remains defensible as defence-in-depth).
 <!-- SECTION:NOTES:END -->
