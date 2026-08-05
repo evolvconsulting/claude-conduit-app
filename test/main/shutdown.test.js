@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { createProxyShutdown } = require('../../src/main/shutdown');
+const { createPm2Control } = require('../../src/engine/pm2Control');
 
 function fakePm2({ status = 'running', stop, getStatus } = {}) {
   const calls = { getStatus: 0, stop: 0, disconnect: 0 };
@@ -88,6 +89,47 @@ test('shutdown: disconnects from pm2 whatever happened', async () => {
   });
   await createProxyShutdown({ pm2Control: broken.pm2Control, log: silent })();
   assert.equal(broken.calls.disconnect, 1);
+});
+
+// NCOW-52 AC#8: pm2Control.stop() gained its own internal bound (a raw
+// pm2.stop callback is now wrapped in withTimeout/pm2CallTimeoutMs, same as
+// NCOW-48 did for pm2.list/pm2.delete/pm2.dump). This module's own outer
+// bound around that same call already existed and is the reason a wedged
+// pm2 could never make the app unquittable — the tests above only ever
+// exercised that outer bound against a fully-controlled fake pm2Control, so
+// they could not by themselves prove the new INNER bound doesn't change
+// anything observable here. This test drives the real createPm2Control
+// (with a wedged raw pm2.stop, and an inner pm2CallTimeoutMs deliberately
+// wider than the outer bound below) through the real createProxyShutdown, to
+// confirm the quit path's result shape and timing are still governed by its
+// own outer bound, exactly as before this task.
+test("shutdown: NCOW-52 AC#8 — pm2Control.stop()'s new internal bound changes nothing observable on the quit path: a wedged pm2.stop still resolves within this module's own outer bound", async () => {
+  const wedgedPm2 = {
+    connect: (cb) => cb(null),
+    list: (cb) => cb(null, [{ name: 'litellm-nim', pm2_env: { status: 'online' } }]),
+    stop: () => {
+      // Never calls back — the same wedge every other test file in this
+      // task uses at the real pm2Control.stop() call site.
+    },
+    disconnect: () => {},
+  };
+  // Deliberately much wider than this module's own 50ms outer bound below,
+  // so the outer bound is what actually settles the race — matching the real
+  // default configuration, where both bounds default to 15s and
+  // ensureConnected() resolving before stop()'s own inner timer even starts
+  // means the inner timer can never fire strictly first when both start
+  // counting from the same instant.
+  const pm2Control = createPm2Control(wedgedPm2, { pm2CallTimeoutMs: 10_000 });
+
+  const started = Date.now();
+  const result = await createProxyShutdown({ pm2Control, timeoutMs: 50, log: silent })();
+  const elapsed = Date.now() - started;
+
+  assert.deepEqual(result, { stopped: false, reason: 'failed' });
+  assert.ok(
+    elapsed < 2000,
+    `expected this module's own 50ms outer bound to win the race against pm2Control's 10000ms inner one; took ${elapsed}ms`
+  );
 });
 
 test('shutdown: never kills the shared pm2 daemon', () => {
