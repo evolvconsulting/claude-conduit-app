@@ -11,13 +11,27 @@ const { removeClaudeCodeSettings } = require('./claudeCodeConfig');
  *
  * NCOW-51: also deliberately does NOT call secretStore.clear() — the
  * encrypted NVIDIA key at `<userData>/nim-key.enc` lives outside `configDir`
- * entirely (see secretStore.js) and survives even Purge, which only deletes
- * `litellm.env`'s derived copy. secretStore.clear()'s only caller anywhere
- * in the app is the `apiKey.clear` IPC handler (engine-context.js) — no
- * shipped UI invokes it, so nothing in the app today actually deletes
- * `nim-key.enc`. The only way to remove it is to delete the file by hand
- * from Electron's userData directory (see README.md's "Uninstalling"
- * section for the per-platform path).
+ * entirely (see secretStore.js) and survives even Purge — which, on success,
+ * only deletes `litellm.env`'s derived copy. secretStore.clear()'s only
+ * caller anywhere in the app is the `apiKey.clear` IPC handler
+ * (engine-context.js) — no shipped UI invokes it, so nothing in the app
+ * today actually deletes `nim-key.enc`. The only way to remove it is to
+ * delete the file by hand from Electron's userData directory (see
+ * README.md's "Uninstalling" section for the per-platform path).
+ *
+ * NCOW-48: "on success" above is load-bearing, not decorative. The one
+ * `await opts.pm2Control.remove()` below could already reject before this
+ * task (a pm2 connect timeout, or a genuine pm2 err callback) — what's new
+ * is only the *bound*: a wedged pm2.list/pm2.delete/pm2.dump call that used
+ * to hang forever now also rejects, with its own code
+ * (PM2_LIST_TIMEOUT/PM2_DELETE_TIMEOUT/PM2_SAVE_TIMEOUT). Either way, a
+ * rejection there throws out of this function before
+ * the `opts.purge` branch below is ever reached — so a wedged Purge deletes
+ * NEITHER `nim-key.enc` NOR `litellm.env`'s derived copy, leaving the whole
+ * config directory exactly as it was (the settings-file removal above it
+ * still happens, since it runs before this call). See DESIGN.md 9.4 and
+ * §7.4, and README.md's "Uninstalling" section, for the user-facing version
+ * of this.
  *
  * Recorded decision (not settled by this task as filed): an "also forget my
  * saved API key" opt-in for this view is warranted on durable product

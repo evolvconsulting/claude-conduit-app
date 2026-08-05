@@ -395,7 +395,18 @@ Code CLI have no proxy to route to until it is started again.
 The pm2 **daemon** is never killed. It runs against the shared default `PM2_HOME`
 (`~/.pm2`), so killing it would stop unrelated apps the user supervises with pm2. Only the
 `litellm-nim` app is stopped, and the stop is bounded by a timeout so a wedged pm2 cannot
-make the app unquittable.
+make the app unquittable. (As of NCOW-48, that before-quit stop is not the app's only
+bounded pm2 call: `pm2Control.js`'s `listApps()`, `deleteAppIfPresent()`, and `save()` are
+separately bounded by their own `pm2CallTimeoutMs`, default 15s, surfacing
+`PM2_LIST_TIMEOUT`, `PM2_DELETE_TIMEOUT`, and `PM2_SAVE_TIMEOUT` respectively on a wedge
+rather than hanging forever — but not every call site can reach all three: `uninstall.run()`
+and `startOrRestart()` (proxy start/restart) reach `listApps()`, `deleteAppIfPresent()`, and
+`save()` alike (the last only once `startOrRestart()`'s health check has succeeded), so
+either can surface any of the three codes, while the 5-second status poll reaches only
+`listApps()` (via `getStatus()` -> `findApp()`) and so can only ever surface
+`PM2_LIST_TIMEOUT`. Unlike the before-quit stop, a timeout on those paths is an observable
+*failure* the caller must handle, not a guarantee that the underlying pm2 effect completed —
+see 9.4 and acceptance criterion 5 for what that means for `--purge` specifically.)
 
 **The before-quit stop is deliberately not serialized against the proxy mutex (NCOW-31,
 NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions share one
@@ -606,7 +617,14 @@ report "not detectable" rather than guessing).
    original: the encrypted NVIDIA key lives in `<userData>/nim-key.enc` (Electron's userData
    directory, outside this config directory entirely — see `secretStore.js`), and nothing in
    the uninstall path deletes it. Without `--purge`, keep the config directory and print the
-   path.
+   path. **This is the successful-uninstall outcome, not the "purge selected" outcome
+   (NCOW-48):** step 2's pm2 calls are now bounded (`pm2CallTimeoutMs`, default 15s —
+   `PM2_LIST_TIMEOUT`/`PM2_DELETE_TIMEOUT`/`PM2_SAVE_TIMEOUT`), and a wedged pm2 daemon makes
+   `uninstall.run()` reject with one of those codes *before step 4 ever runs* — so on that
+   path `--purge` deletes nothing at all, and the whole config directory, including
+   `litellm.env`'s plaintext derived key, is left exactly as it was. Step 1 (the Claude Code
+   settings edit) already happened by then and is unaffected. Retrying once pm2 is healthy
+   again is safe. See §7.4 and acceptance criterion 5 below.
 5. Remind: Claude Code returns to the saved claude.ai login; run `/login` if prompted.
 
 ---
@@ -765,9 +783,15 @@ Acceptance criteria (all must hold):
 3. `pm2 kill && pm2 resurrect` (daemon restart) → proxy returns without re-running setup.
 4. Re-running setup: master key unchanged; clients keep working without re-configuration; models
    can be swapped and only `config.yaml` + manifest change.
-5. `uninstall`: settings.json equals pre-install content except the removed keys; pm2 app gone;
-   `--purge` leaves no trace under `~/.config/claude-conduit/` (the encrypted NVIDIA key at
-   `<userData>/nim-key.enc` lives outside that directory and is untouched either way — see 9.4).
+5. `uninstall` **on success**: settings.json equals pre-install content except the removed keys;
+   pm2 app gone; `--purge` leaves no trace under `~/.config/claude-conduit/` (the encrypted
+   NVIDIA key at `<userData>/nim-key.enc` lives outside that directory and is untouched either
+   way — see 9.4). This is a success-path guarantee only (NCOW-48): if a pm2 call in step 2
+   times out, `uninstall.run` fails observably instead of completing — clause 1 above still
+   holds (the settings.json edit happens first, before any pm2 call), but clause 2 does not
+   (the pm2 app is not guaranteed gone) and clause 3 fails completely (`--purge` leaves the
+   *entire* config directory in place, `litellm.env` included, not just the NVIDIA key). See
+   9.4 and §7.4.
 6. `test` exits 4 (not 0) when: proxy stopped; wrong NIM key; primary model lacks tool calling.
    Each failure message names the layer and a fix.
 7. No secret ever appears in: pm2 files, process argv (`ps axww` during run), logs, or any file
