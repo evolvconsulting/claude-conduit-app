@@ -1,10 +1,10 @@
 ---
 id: NCOW-54
 title: Fix pm2Control.startLogTail's timeout handler closing a later retry's live bus
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-05 22:04'
+updated_date: '2026-08-05 22:54'
 labels: []
 dependencies:
   - NCOW-52
