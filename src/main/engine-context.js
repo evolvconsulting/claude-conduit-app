@@ -185,7 +185,10 @@ function createEngineContext(deps) {
   // serialize nothing across the two paths. NCOW-32 later aliased the
   // `uninstall` and `update` IPC domains onto this same proxy lock too (see
   // DOMAIN_MUTEX_ALIASES in ipc.js), so an Uninstall click and an update
-  // install now contend for it as well.
+  // install now contend for it as well. As of NCOW-45, Uninstall's alias
+  // was widened further: it now also contends for the `config` and
+  // `claudeCode` locks, not just `proxy` — see DOMAIN_MUTEX_ALIASES's
+  // `uninstall: ['claudeCode', 'config', 'proxy']`.
   //
   // Deliberately NOT covered: main/shutdown.js's before-quit proxy stop. It
   // reaches pm2Control directly and stays that way on purpose — CLAUDE.md's
@@ -501,9 +504,10 @@ function createEngineContext(deps) {
         // NCOW-17 AC#3: a fresh AbortController per run — diagnostics:run
         // isn't mutex-guarded (see ipc.js: proxy/config/claudeDesktop/
         // claudeCode each have their own domain mutex, and NCOW-32 aliases
-        // uninstall/update onto proxy's, but diagnostics has no lock and no
-        // alias at all), so overlapping runs aren't actually prevented at
-        // this layer; the renderer's own button
+        // update onto proxy's (as of NCOW-45, uninstall aliases onto
+        // claudeCode+config+proxy instead of proxy alone), but diagnostics
+        // has no lock and no alias at all), so overlapping runs aren't
+        // actually prevented at this layer; the renderer's own button
         // disable-while-running is what stops that in practice. Clearing
         // the controller in `finally` (rather than leaving a stale one
         // around) means a cancel() call after the run has already finished
