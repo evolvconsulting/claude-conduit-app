@@ -543,6 +543,150 @@ test('startLogTail: AC#7 — the success path is unaffected by the new bound: a 
   assert.equal(busCloseCalls, 1);
 });
 
+// --- NCOW-54 regression --------------------------------------------------
+//
+// NCOW-52's close-on-timeout fix assumed a launchBus callback firing after
+// its own call's bound had already fired was proof the bus it received was
+// stale. It isn't: pm2's real Client.prototype.launchBus (node_modules/pm2/
+// lib/Client.js:434-442) stores the socket on a shared mutable slot
+// (`this.sub`) and reads that slot back at *callback-fire* time, not from a
+// value captured when launchBus() was called. A retry issued after call #1
+// times out reassigns that shared slot to its own, currently-live bus — so
+// when call #1's callback finally fires late, pm2 hands it back call #2's
+// live bus, not call #1's own (now-orphaned) one. NCOW-52's code then closed
+// whatever it was handed unconditionally, killing the retry's healthy tail.
+//
+// This fake reproduces that shared-slot behavior faithfully instead of
+// giving each call its own independent bus object (which is what every
+// other launchBus fake in this file does, and which is exactly why this bug
+// survived NCOW-52's own test suite): launchBus() synchronously overwrites
+// a slot shared across every call the fake ever makes, and firing a
+// previously-queued callback reads whatever is CURRENTLY in that slot —
+// mirroring `cb(null, self.sub, self.sub_sock)` in the real library.
+// `holdIndices` names which zero-based launchBus() calls should behave like
+// a wedged daemon (callback deliberately withheld until the test fires it
+// manually, later, itself). Every other call auto-fires its callback
+// synchronously — mimicking a normal, healthy, fast connect — the same way
+// every other success-path fake in this file does.
+function sharedSlotLaunchBusPm2({ holdIndices = [] } = {}) {
+  const calls = [];
+  const state = { sub: null };
+  const pending = [];
+  function makeBus(label) {
+    const handlers = {};
+    return {
+      label,
+      on: (event, handler) => {
+        handlers[event] = handler;
+        calls.push(`${label}:on:${event}`);
+      },
+      off: (event) => {
+        delete handlers[event];
+        calls.push(`${label}:off:${event}`);
+      },
+      close: () => calls.push(`${label}:close`),
+      emit: (event, packet) => handlers[event]?.(packet),
+    };
+  }
+  return {
+    calls,
+    state,
+    pending,
+    connect: (cb) => {
+      calls.push('connect');
+      cb(null);
+    },
+    launchBus: (cb) => {
+      const index = pending.length;
+      const bus = makeBus(`bus${index + 1}`);
+      // Mirrors `this.sub = axon.socket(...)` — pm2 overwrites the shared
+      // slot synchronously on every launchBus() call, well before the
+      // eventual 'connect' event decides when (or whether) the callback
+      // actually fires.
+      state.sub = bus;
+      calls.push('launchBus');
+      pending.push({ cb, bus });
+      if (!holdIndices.includes(index)) {
+        // Reads the CURRENT shared slot, exactly like the real
+        // `self.sub`-reading connect handler — for a call that isn't held,
+        // that's simply the bus this same call just created.
+        cb(null, state.sub);
+      }
+    },
+  };
+}
+
+test('startLogTail: NCOW-54 — a late callback from a timed-out call #1 must not close call #2\'s live bus, even though pm2 hands both calls back the same shared-slot object', async () => {
+  const pm2 = sharedSlotLaunchBusPm2({ holdIndices: [0] });
+  const ctl = createPm2Control(pm2, { pm2CallTimeoutMs: 30 });
+
+  // Call #1: wedges (we deliberately never fire its pm2.launchBus callback
+  // below) and times out.
+  const call1 = ctl.startLogTail(() => {});
+  await withSafetyTimeout(
+    assert.rejects(call1, (err) => {
+      assert.equal(err.code, 'PM2_LOG_TAIL_TIMEOUT');
+      return true;
+    }),
+    2000,
+    'call #1 did not time out — the PM2_LOG_TAIL_TIMEOUT bound appears to be missing or regressed'
+  );
+
+  // Call #2: the retry. It succeeds and, in doing so, reassigns pm2's shared
+  // this.sub slot to its own bus — exactly the sequence that reaches this
+  // bug through the shipped UI (dashboard-view.js resets logTailStarted on
+  // unmount, so navigating off Dashboard and back re-issues startLogTail).
+  const lines = [];
+  const unsubscribe = await withSafetyTimeout(
+    ctl.startLogTail((entry) => lines.push(entry)),
+    2000,
+    'call #2 did not resolve'
+  );
+  assert.equal(pm2.pending.length, 2, 'expected exactly two pm2.launchBus calls');
+  const call2Bus = pm2.pending[1].bus;
+  // Sanity check that this fake genuinely reproduces the shared-slot shape:
+  // the slot pm2 will hand back to ANY callback right now is call #2's bus,
+  // not call #1's own (distinct) bus object.
+  assert.equal(pm2.state.sub, call2Bus);
+  assert.notEqual(pm2.pending[0].bus, call2Bus);
+
+  // Call #1's pm2.launchBus callback finally fires — late, and (faithfully
+  // reproducing pm2's real behavior) with the CURRENT shared slot rather
+  // than any value tied to call #1 itself.
+  pm2.pending[0].cb(null, pm2.state.sub);
+
+  // AC#1/AC#2: the live bus from call #2 must survive — it must not have
+  // been closed by call #1's late callback.
+  assert.ok(
+    !pm2.calls.includes(`${call2Bus.label}:close`),
+    "call #1's late callback must not close call #2's live bus"
+  );
+
+  // And the tail is still genuinely functional, not just un-closed: a log
+  // line pushed through call #2's bus still reaches the caller's onLine.
+  call2Bus.emit('log:out', { process: { name: 'litellm-nim' }, data: 'still alive', type: 'out' });
+  assert.deepEqual(lines, [{ process: 'litellm-nim', data: 'still alive', at: 'out' }]);
+
+  // Cleanup via the unsubscribe handle call #2 returned must still close
+  // exactly that bus (AC#4: an {ok:true}-shaped live handle is genuinely
+  // live and still fully under the caller's control).
+  unsubscribe();
+  assert.ok(pm2.calls.includes(`${call2Bus.label}:close`), 'unsubscribe() must still close call #2\'s bus itself');
+
+  // Note on call #1's own (distinct) bus object: pm2's real shared-slot bug
+  // means call #1's late callback is handed call #2's bus via `self.sub`,
+  // never its own — so call #1's own socket is orphaned by pm2 itself, not
+  // by this fix, and nothing in this codebase ever gets a handle to close
+  // it (matching the task's own description: "the actually-stale socket #1
+  // leaks anyway"). That residual, pm2-side leak is unrelated to AC#1's
+  // concern (closing the wrong, live bus) and is not something a caller of
+  // pm2's own API can fix from here. AC#3's "genuinely stale, no retry"
+  // case — where this file's own close-on-timeout logic is what must still
+  // fire — is covered separately above, using a single, never-overwritten
+  // bus object throughout.
+  assert.equal(pm2.calls.includes(`${pm2.pending[0].bus.label}:close`), false);
+});
+
 test('ensureConnected: only calls pm2.connect once across multiple operations', async () => {
   const pm2 = fakePm2();
   const ctl = createPm2Control(pm2);
