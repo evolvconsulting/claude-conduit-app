@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 18:39'
-updated_date: '2026-08-05 21:30'
+updated_date: '2026-08-05 21:40'
 labels:
   - concurrency
 dependencies:
@@ -62,4 +62,10 @@ AC#7/#8: added explicit success-path tests (tight timeout, genuine success still
 npm test: 425 -> 435 passing, 0 failing, 0 cancelled (run twice for stability). Files touched: src/engine/pm2Control.js, test/engine/pm2Control.test.js, test/main/ipc-mutex.test.js (append-only), test/main/shutdown.test.js, CLAUDE.md, README.md (test-count bump). Confirmed untouched: pm2.list/delete/dump, engine-context.js, mutex.js, and no pre-existing ipc-mutex.test.js content modified.
 
 Session note: worker was interrupted mid-task by an account weekly API-limit error right before its final census grep; resumed from its own transcript, verified via git status/diff that the worktree was exactly as left, and continued to completion with no lost work.
+
+REVIEW PASS 1 (opus) — request_changes. All 10 ACs independently confirmed (mechanism matches NCOW-48 precedent exactly; own call-chain census over pm2Control.js's 8 pm2.* call sites found nothing unbounded; reproduced AC#4's non-vacuity personally -- reverting only the source fix produces exactly 5 failing / 0 cancelled, confirmed the worker's claim true; specifically mutation-tested the launchBus leak-on-late-callback branch in isolation and confirmed it is non-vacuous; verified AC#6's close-the-bus reasoning against pm2/pm2-axon's actual socket-close semantics -- safe, non-throwing, idempotent; verified AC#8's outer-bound-wins-the-race timing and AC#9's named call sites; confirmed test/main/ipc-mutex.test.js is a single append-only hunk with zero collision risk against NCOW-49/NCOW-50's future scope).
+
+BLOCKING FINDING (the only one, non-AC): test/main/shutdown.test.js's new AC#8 test uses pm2CallTimeoutMs:10_000 for its wedged pm2.stop. Because the inner withTimeout's setTimeout is only cleared when it fires (not when the outer 50ms shutdown bound settles first), node's test runner waits out the full 10s before that file can finish -- reviewer measured 137ms on dev's 9 tests vs 10,143ms on this branch's 10 tests (74x), even though the AC#8 test's own recorded duration is 50.4ms. Full suite: 8042ms -> 10371ms. Reviewer verified a fix: pm2CallTimeoutMs:1_000 AND the assertion threshold lowered from elapsed<2000 to elapsed<300 together (moving only the timeout without moving the threshold would make the test vacuous against a regression) -- confirmed both changed together drops the file to 1145ms with real margin on both sides (~50ms pass-side observed, 3.3x fail-side margin).
+
+Non-blocking, recorded for the record (not required for this task's own fix pass): (a) pm2's own launchBus reads self.sub at callback time rather than a captured local, so a >15s wedge followed by a retry followed by a late first-attempt callback could close the wrong (live) bus -- narrow, upstream pm2 behavior, strictly better than the pre-fix indefinite lock hold, not worth fixing here; (b) DESIGN.md's pm2-timeout census (:397-409, :621-624) still only names PM2_LIST/DELETE/SAVE_TIMEOUT, now missing 3 more codes -- matches NCOW-48's own precedent of leaving this to the wave-level integration review rather than the fix branch.
 <!-- SECTION:NOTES:END -->
