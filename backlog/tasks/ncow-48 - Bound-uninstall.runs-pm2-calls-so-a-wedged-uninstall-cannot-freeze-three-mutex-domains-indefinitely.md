@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 17:50'
+updated_date: '2026-08-05 17:59'
 labels: []
 dependencies:
   - NCOW-45
@@ -112,4 +112,30 @@ claudeCode, config, proxy and apikey:clear all stayed dead. As delivered, **this
 **Split ruling on the unbounded-siblings scoping.** For `pm2.stop` (:625), `pm2.start` (:599) and `pm2.launchBus` (:660) the exclusion IS defensible and should become a follow-up task, not a change here — each is a different call path with its own lock story and no AC cites them. **But it is worth filing, because the same-class hazard is live there: proxy:stop and proxy:start/restart hold the proxy lock (which uninstall also needs) for the full duration with no bound at any layer, and shutdown.js bounding its OWN call to pm2Control.stop() does nothing for a Stop clicked in the UI** — so a wedged pm2.stop still kills Start/Stop/Restart and Uninstall until restart. For `pm2.list` (:523) the exclusion is NOT defensible — that is the blocking finding above.
 
 **Overlap risk vs NCOW-51: LOW, textually zero.** This branch's only README hunk is @@ -327 (the Building-from-source npm test line); NCOW-51's are ~50+ lines away on both sides. No rebase conflict in either order. This branch touches neither src/engine/uninstall.js nor DESIGN.md. Shared surface is semantic only: NCOW-51 rewrites README's Uninstalling prose without the new bounded-failure mode.
+
+## Wave 9 fix pass 1 (post-review-pass-1) — recorded by the orchestrator; re-review pending
+
+Four new commits on top of `ea38690` (`cfd21c7`, `3b11f0c`, `90b44b1`, `9215910`), tip `9215910`, pushed. Orchestrator-verified numstat vs dev: src/engine/pm2Control.js +87/-14, test/engine/pm2Control.test.js +215/-0, test/main/ipc-mutex.test.js +310/-0, CLAUDE.md +1/-1, README.md +1/-1.
+
+**BLOCKING finding fixed.** `listApps()`'s `pm2.list` callback now goes through the same `withTimeout()` helper as pm2.delete/pm2.dump, returning `PM2_LIST_TIMEOUT`. This was the call the reviewer traced as one step earlier than the calls the first pass bounded — `deleteAppIfPresent()`, `remove()` AND `getStatus()` all hit `findApp() → listApps() → pm2.list` before ever reaching pm2.delete. Worker reproduced the reviewer's probe itself, before and after:
+
+    BEFORE — PROBE (wedged pm2.list, bound=30ms): FROZEN: STILL FROZEN after 3000ms (100x the bound)
+             PROBE order: ["uninstall:enter","pm2.list called, never calls back"]
+    AFTER  — PROBE (wedged pm2.list, bound=30ms): UNFROZEN: all three locks + apiKey channel proceeded
+             PROBE order: [...,"claudeCode-bg","config-bg","proxy-bg","apiKey:clear"]
+             uninstall result: {"ok":false,"error":{"code":"PM2_LIST_TIMEOUT","message":"pm2 list timed out after 30ms"}}
+
+**MAJOR finding fixed — the 29-cancelled-tests problem is gone.** Added a `withSafetyTimeout()` helper (same shape as ipc-mutex.test.js's) to test/engine/pm2Control.test.js and raced EVERY NCOW-48 assertion in that file against it — including the three pre-existing hanging-delete/hanging-dump/success-path tests from the first pass — plus new pm2.list-bound tests (listApps, getStatus, remove-before-delete). Reproduction with only src/engine/pm2Control.js reverted to its pre-fix-pass (ea38690) state:
+
+    Full suite:              # pass 421 / # fail 4 / # cancelled 0
+    pm2Control.test.js alone: # pass 32 / # fail 3 / # cancelled 0
+    ipc-mutex.test.js alone:  # pass 40 / # fail 1 / # cancelled 0
+
+**Cancelled count is 0 everywhere, down from 29** — a regression now fails exactly the tests that cover it, with readable messages, instead of burying the signal. Fix restored afterwards (diffed byte-identical to pre-revert) and re-run: 425/425 pass, 0 cancelled.
+
+**MINOR finding fixed, with the status-poller claims independently verified by the worker rather than taken on the orchestrator's word.** JSDoc/inline comments now state the bound is reachable beyond `uninstall.run()` — via proxy:start/proxy:restart (startOrRestart() calls deleteAppIfPresent() before pm2.start() and save() after the health check) and via the 5-second status poll (getStatus() → findApp() → listApps()). Verified against src/main/status-poller.js: **tick()'s setInterval fires every 5s regardless of whether the previous tick's `await pm2Control.getStatus()` settled, so a wedged pm2.list today silently accumulates one pending promise per tick forever**; after this bound getStatus() rejects once pm2CallTimeoutMs elapses and the existing `catch { onStatus({status:'errored'}) }` reports the pill as errored rather than freezing at its last value.
+
+**Purity preserved**: both test files remain pure appends relative to dev (215/0 and 310/0, zero deletion lines), so AC#5/AC#6's 'no pre-existing test modified' still holds across the whole branch.
+
+**npm test**: 425/425 pass, 0 fail, 0 cancelled (up from 421). CLAUDE.md:51 and README.md:330 both re-bumped to 425 — orchestrator confirmed both lines read 425 and that only the test-count line in README.md was touched, leaving the wave-mate's regions alone.
 <!-- SECTION:NOTES:END -->
