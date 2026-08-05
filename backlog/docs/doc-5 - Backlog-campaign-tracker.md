@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 17:26'
+updated_date: '2026-08-05 18:57'
 ---
 # Backlog campaign tracker
 
@@ -62,7 +62,25 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 9 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the
+As of wave 9 SETTLEMENT (2026-08-05): **18 resolved** (waves 1-9, all Done), **3 queued and all
+3 ready by dependency** — NCOW-49 (on NCOW-46, Done), NCOW-50 (on NCOW-47, Done) and NCOW-52 (on
+NCOW-48, Done, filed this wave with user approval) — 0 genuinely blocked, 5 excluded pending human
+decomposition (see Not queued). **Expect wave 10 to be SOLO regardless of which item leads**: all
+three remaining tasks are `proxy-mutex` cluster and pairwise-conflicting via `src/main/ipc.js`
+and/or `test/main/ipc-mutex.test.js` — NCOW-49 rewrites resolveDomainLocks/LOCK_ACQUISITION_ORDER/
+DOMAIN_MUTEX_ALIASES, NCOW-50 touches UNSERIALIZED_METHODS plus engine-context.js and mutex.js,
+NCOW-52 adds bounds in pm2Control.js but its AC#3 demonstration lands in ipc-mutex.test.js like
+NCOW-48's did. Re-derive this fresh rather than trusting it. Note the docs-first tie-break no
+longer discriminates (none of the three is docs-only), so the confirmed principle's next rule
+applies: isolated hardening before structural before mutex-serialization — which favours NCOW-52,
+then NCOW-49, then NCOW-50. **Countervailing consideration a future session must weigh rather than
+ignore: NCOW-50 is the only remaining item that fixes a user-visible regression this campaign
+itself introduced** (the measured ~20s freeze from NCOW-47's alias composed with NCOW-45's
+hold-and-wait), and its AC#7 requires reworking `test/main/ipc-mutex.test.js:1106-1142`, whose line
+numbers HAVE NOW MOVED because NCOW-48 appended 310 lines to that file — re-check its citations at
+dispatch.
+
+Prior note, As of wave 9 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the
 prior handover): **16 resolved** (waves 1-8), 4 queued and **all 4 confirmed ready by
 dependency** (NCOW-48 on NCOW-45 Done; NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47 Done;
 NCOW-51 has no dependencies), 0 genuinely blocked, 5 excluded pending human decomposition
@@ -263,10 +281,9 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-48 | proxy-mutex | NCOW-45 (Done) | Dispatched | 9 | Bound uninstall.run's unbounded pm2.delete/pm2.dump calls so a wedge cannot freeze the claudeCode+config+proxy locks indefinitely — NCOW-45 widened this blast radius without bounding what can hang. Filed from wave-7 integration review, user-approved, ready now |
-| 2 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
-| 3 | NCOW-50 | proxy-mutex | NCOW-47 (Done) | To Do | | Stop apiKey.validateAndSave holding the config lock across its NVIDIA network round trips — the emergent ~20s freeze of the proxy AND claudeCode domains that NCOW-47's alias composed with NCOW-45's hold-and-wait. Measured by the wave-8 integration reviewer and proven causal against a pre-NCOW-47 counterfactual. User-approved, ready now. Also carries the config.getManifest exemption inconsistency |
-| 4 | NCOW-51 | docs-consent | (none) | Dispatched | 9 | Document that <userData>/nim-key.enc survives a purge uninstall and correct DESIGN.md 9.4's '(keys included)' claim; README's 'Where things live' table omits the file entirely. Carries an undecided product question (docs only vs. an opt-in 'also forget my API key' step). Pre-existing, surfaced at wave 8. User-approved |
+| 1 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
+| 2 | NCOW-50 | proxy-mutex | NCOW-47 (Done) | To Do | | Stop apiKey.validateAndSave holding the config lock across its NVIDIA network round trips — the emergent ~20s freeze of the proxy AND claudeCode domains that NCOW-47's alias composed with NCOW-45's hold-and-wait. Measured by the wave-8 integration reviewer and proven causal against a pre-NCOW-47 counterfactual. User-approved, ready now. Also carries the config.getManifest exemption inconsistency |
+| 3 | NCOW-52 | proxy-mutex | NCOW-48 (Done) | To Do | | Bound the remaining unbounded pm2 callbacks in pm2Control — pm2.stop (:653), pm2.start (:628) and pm2.launchBus (:685). Filed at wave-9 integration review with explicit user approval, after BOTH NCOW-48 review passes recommended it as a follow-up and neither filed it. Live hazard: proxy:stop holds mutexes.proxy (which uninstall aliases) with no bound at any layer, so a wedged Stop clicked in the UI still freezes Start/Stop/Restart AND Uninstall AND update:install until restart. shutdown.js bounds only its OWN call, which is why the app stays quittable but a UI Stop is unprotected |
 
 ## Resolved
 
@@ -289,6 +306,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 | 15 | NCOW-46 | Done, 2026-08-05, wave 7 | Deduped resolveDomainLocks()'s resolved locks by mutex-function identity (Set, applied AFTER the LOCK_ACQUISITION_ORDER sort so acquisition order is preserved) and added an exported assertLockOrderIsConsistent(order, domains, aliases) called at MODULE LOAD against the real constants. Added the first direct test coverage of LOCK_ACQUISITION_ORDER/DOMAIN_MUTEX_ALIASES/resolveDomainLocks/withLocks, which previously had none. Approved on the first review pass (opus, given the proportionally-deeper scrutiny this campaign's concurrency work has earned): all 6 ACs confirmed. The reviewer judged the delivered source-text regex too weak to establish AC#4 in situ and REPLACED that evidence with 5 real require() loads of mutated module copies (control clean; one domain dropped, two dropped, a new MUTEX_DOMAINS entry added without updating the order, and an absent alias target all throw at load), plus 13 behavioral probes proving dedupe-after-sort never degrades acquisition order (shared duplicate spanning first and last keeps the earliest slot) and NCOW-45's queue-race guarantee intact. Non-vacuity independently reproduced: 6 of 10 new tests fail against reverted source. AC#3's authorized module-load-vs-test choice was DECIDED (not escalated) by the reviewer, which established rather than assumed the blast radius — all inputs are developer-authored constants, opts.mutexes provably cannot reach the assertion, and two existing suites require ipc.js so drift fails CI rather than a user's launch. npm test 400 -> 410. Merged as PR #42 (19d1ff7), plus doc cleanup PR #43 (985389a). Wave-7 integration review filed 3 follow-ups with user approval: NCOW-47, NCOW-48, NCOW-49. |
 | 16 | NCOW-47 | Done, 2026-08-05, wave 8 | Serialized the apiKey IPC domain against the config lock it shares secretStore state with, closing the last IPC domain with a real mutating concern and no lock — the family NCOW-32/NCOW-45 had been draining one instance at a time. Three lines of logic (DOMAIN_MUTEX_ALIASES gains `apiKey: 'config'` as a bare string, not an array, since the only shared-state concern is config.generate's secretStore.load(); UNSERIALIZED_METHODS gains `apiKey: ['getMasked']`), plus 242 lines of new tests appended at test/main/ipc-mutex.test.js:1011 with no pre-existing test modified anywhere. **Three review passes (opus) — the campaign's first task to need two fix cycles.** Passes 1 and 2 both rejected AC#4 alone for the SAME failure mode: replacing one unverified absolute claim with another. Pass 1 killed 'Only app and catalog are domains with genuinely no mutating concern — pure reads, full stop' (false: app.openLogsFolder mkdirSync's into the config-lock-guarded directory with zero locks). Pass 2 then MEASURED the replacement claim as inverted — as shipped a mid-uninstall openLogsFolder lands BEFORE fs.rmSync and is wiped (resurrected false), while aliasing app onto config, the fix that wording implied, is what makes it land after and survive a purge reporting success (resurrected true). Pass 3 reproduced all five timings itself and approved, accepting the negative claim because the case analysis is COMPLETE rather than sampled: before rmSync is wiped, between rmSync and settlement is unreachable (microtask-only chain, both real callers macrotask-delivered), after settlement is the reachable defect. All 6 ACs confirmed. npm test 410 -> 416, verified independently by all three reviewers and again after rebase. Non-vacuity reproduced three separate times (deleting only the alias line fails exactly the 4 load-bearing tests). Merged as PR #44 (81b5eb9), plus doc cleanup PR #45 (ec0f8e9). Wave-8 integration review found an emergent hazard this merge introduced — filed with user approval as NCOW-50 — plus NCOW-51, and corrections to both queued tasks. |
 
+| 17 | NCOW-51 | Done, 2026-08-05, wave 9 | Corrected DESIGN.md 9.4 step 4 (real line 604, not the 597-598 cited) and README so they describe what a purge actually does and does not delete, added the missing `nim-key.enc` row to "Where things live", and recorded an explicit deferral of the "also forget my API key" opt-in. Documentation-only, proven by esprima token-stream identity (188 tokens before and after, streams byte-identical; corroborated by comment excision reducing both revisions to the same 769-character source). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** Pass 1 REJECTED on four blocking findings, the worst being that the branch documented a **"Clear Key" button that has never existed** — four occurrences, twice in README and twice in production source — the same confidently-wrong-mechanism class NCOW-47 was rejected twice for; the true position is more severe (nothing in the shipped app deletes nim-key.enc). Pass 1 also disproved the AC#4 deferral premise (it rested on an NCOW-48 collision in uninstall.js that does not exist). Pass 2 approved after verifying the replacement claim path by path and confirming the macOS path EMPIRICALLY on this machine (nim-key.enc at ~/Library/Application Support/Claude Conduit/, mode 0600, 83 bytes). npm test 416/416. Merged as PR #46 (`65635f5`); prose later reconciled with NCOW-48's bounded-failure mode in PR #48 (`c63eee1`). |
+| 18 | NCOW-48 | Done, 2026-08-05, wave 9 | Bounded the raw pm2 callbacks reachable from uninstall — pm2.delete/pm2.dump/pm2.list — via the `withTimeout` helper `ensureConnected` already used, 15s default matching shutdown.js, injectable via `deps.pm2CallTimeoutMs`. 416 → 425 tests, both test files pure appends (215/0, 310/0). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** **Pass 1 REJECTED AC#1 ON A FINDING THAT MADE THE FIRST ATTEMPT INERT**: `pm2.list` (via findApp → listApps) was still unbounded INSIDE `deleteAppIfPresent` itself and hit BEFORE the newly-bounded `pm2.delete`, so in the canonical wedge (daemon accepts the connection then stops answering RPC) neither new bound engaged — reproduced through the real chain, still frozen after 100× the bound. Pass 1 also corrected the delivered non-vacuity evidence (claimed "0 cancelled", actually 391 pass / 1 fail / **29 cancelled**). Pass 2 proved AC#1 two ways rather than by reading: a mechanical wedge sweep over every pm2 member reachable from `remove()`, and a **Proxy-based exhaustiveness census** (remove → connect/list/delete/dump; save → dump; getStatus → list; start/stop/launchBus provably off these paths, now NCOW-52). Non-vacuity run against BOTH the delta and the merge base, arithmetic closing from both ends (425−7=418, 416+9=425). AC#5 re-verified with real 40ms round trips: identical result shape and identical ~163ms hold, so NCOW-45's multi-lock fairness is intact. Incidentally fixed two pre-existing leaks: status-poller accumulated one never-settling promise per 5s tick forever, and app.js:44 hung the renderer's entire boot. Merged as PR #47 (`4668ddc`), plus PR #48 (`c63eee1`). |
 ## Not queued — needs a human / blocked
 
 - NCOW-7: PARKED pending NCOW-15 (own implementation notes, 2026-07-31) — rebuilding the
@@ -305,6 +324,51 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 ## Wave log
 
+- 2026-08-05 — **wave 9 (tasks: NCOW-51, NCOW-48)**, the first 2-task wave since wave 6, merged as
+  PR #46 (`65635f5`) and PR #47 (`4668ddc`), plus integration-review follow-up PR #48
+  (`c63eee1`). npm test 416 → 425. **Ordering note: NCOW-51 was dispatched and merged FIRST
+  despite sitting 4th in the Queue table**, because the user-confirmed principle (docs-only first)
+  is the live tie-break and the table's numbering predated NCOW-50/51 being filed. NCOW-49 and
+  NCOW-50 were both correctly skipped — the NCOW-48/49/50 trio is pairwise-conflicting via
+  `test/main/ipc-mutex.test.js` and `src/main/ipc.js`, exactly as waves 7 and 8 predicted.
+  **Both tasks were rejected on their first review pass, and in both cases the rejection was
+  load-bearing rather than stylistic.** NCOW-48's first attempt was *inert*: it bounded pm2.delete
+  and pm2.dump but not `pm2.list`, which sits one call earlier inside the same function, so the
+  canonical wedge never reached either bound — the reviewer reproduced the original wave-7
+  three-domain freeze against the "fixed" branch. NCOW-51's first attempt documented a **Clear Key
+  button that has never existed in the app**, four times, twice of them in production source.
+  **Test-count ownership was assigned at dispatch** (NCOW-48 owned `CLAUDE.md:51`/`README.md:330`,
+  NCOW-51 was barred from them) specifically to prevent a predictable one-line rebase conflict —
+  it worked, and unlike waves 6 and 7 no separate count-cleanup PR was needed. Merge order put
+  NCOW-48 second so its mandatory post-rebase run confirmed the true 425 in-branch.
+  **The wave-level integration review found real material for the 9th consecutive wave.** Its
+  sharpest finding: `DESIGN.md`'s acceptance criterion #5 — which NCOW-51 *edited this very wave*
+  — promises `--purge` "leaves no trace under ~/.config/claude-conduit/", but NCOW-48 made that
+  conditionally unkeepable. Probe-confirmed: a Purge that times out returns an error with the
+  **entire config directory still present, including `litellm.env`'s plaintext NVIDIA key**, while
+  the Claude Code CLI keys were already reverted. Causality was *attributed*, not asserted —
+  reverting only `pm2Control.js` turns the observable failure back into a permanent silent hang.
+  Neither per-task reviewer could see it: NCOW-48's never read DESIGN.md, NCOW-51's had no
+  bounded-failure mode to test against. **Second integration finding, and an orchestrator error
+  worth recording plainly: the merge shipped the exact false claim NCOW-51's review had classified
+  BLOCKING in the same wave.** `ipc-mutex.test.js` described the wedge killing "Set Key/Clear Key";
+  that framing originated in the *wave-8* integration review's correction #2 and was forwarded
+  verbatim into NCOW-48's dispatch brief, while NCOW-51's reviewer independently disproved the
+  premise days later in the same wave — **nobody reconciled the two.** A campaign that carries
+  corrections forward between waves needs to re-check them against the current wave's own findings.
+  **The narrow follow-up (PR #48) itself needed two passes, because its first attempt introduced
+  three NEW false claims of the very class it existed to remove** — an invented channel name
+  (`apikey:validateAndSave`, a hybrid of the real wire name and the real CHANNELS path, used
+  nowhere else), an overcorrection generalizing "no UI caller" across both apiKey channels when
+  `validateAndSave` *is* click-reachable, and a §7.4 parenthetical whose distributive reading
+  implied the 5s status poll can emit `PM2_DELETE_TIMEOUT`. **Lesson: writing a correction feels
+  safe, so it gets less verification than the original claim did.** Two figures were corrected
+  during review and should not be re-derived from the knob name: the bounded worst-case three-lock
+  hold is **~75s** (connect 30s + three 15s stages), not 15s and not the ~60s accepted mid-review;
+  and the reviewer ruled **against** a shorter bound for the 5s status poll. Filed with explicit
+  user approval: **NCOW-52**. Two further candidates were presented and **declined for now** —
+  surfacing uninstall's partial state (needs a result-shape change) and `apikey:clear` having no
+  UI caller at all; both remain recorded in NCOW-48's and NCOW-51's notes.
 - 2026-08-05 — **wave 8 (tasks: NCOW-47)**, a solo wave forced by the conflict graph, merged as
   PR #44 (`81b5eb9`) with doc cleanup PR #45 (`ec0f8e9`). npm test 410 -> 416.
   **This wave cost 3 review passes and 2 fix cycles — the first task in this campaign to exhaust
