@@ -807,23 +807,17 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // passes in. The static check just below proves only that the `mutexes`
 // identifier — specifically `mutexes`, not `handlers` — is declared/bare-
 // reassigned exactly once anywhere in index.js. Neither check, nor the pair
-// together, closes the full chain; several separately-identified gaps
-// remain open. Not all of them are actually beyond a text-only check's
-// reach, though: the `handlers` gap immediately below is exactly as
-// reachable by the same single-binding technique the `mutexes` check below
-// already uses — it simply doesn't have one yet (a sibling task, not this
-// one, adds it). The rest genuinely are outside what a text-only check over
-// a file that can't be required under node --test can reach:
+// together, closes the full chain; three further gaps were identified here:
 //
-// - `handlers` has no equivalent single-binding check at all yet. The
-//   static check's one mention of `handlers` only confirms that mutexes'
-//   sole declaration happens to be the
+// - `handlers` had no equivalent single-binding check at all. The static
+//   check's one mention of `handlers` only confirmed that mutexes' sole
+//   declaration happens to be the
 //   `const { handlers, pm2Control, configRegeneration, mutexes } =`
-//   destructure — it does nothing to forbid a SECOND, shadowing `handlers`
+//   destructure — it did nothing to forbid a SECOND, shadowing `handlers`
 //   binding wrapped around createTray({...}), giving the tray a private,
 //   unshared `handlers`. (Confirmed: wrapping the createTray({...}) call in
 //   a nested block that declares its own private
-//   `const handlers = { proxy: {...} }` passes the full suite.)
+//   `const handlers = { proxy: {...} }` passed the full suite.)
 // - Property-level mutation of `mutexes.proxy` (e.g. reassigning it to a
 //   fresh `createDomainMutex()` between registerIpcHandlers() and
 //   createTray({...})) is invisible to both checks — `mutexes` is still
@@ -835,7 +829,36 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 //   `((mutexes) => createTray({ ...createTrayActions({ mutexes, handlers })
 //   }))(privateMutexSet)`, is the same nested-scope-shadowing class the
 //   static check exists to catch, just introduced via a function parameter
-//   instead of a declaration or reassignment — also passes the full suite.
+//   instead of a declaration or reassignment — also passed the full suite.
+//
+// NCOW-41 closes all three. `handlers` turned out to be exactly as
+// reachable by the same single-binding technique as `mutexes` — it simply
+// didn't have one yet — and so did parameter shadowing: it is the same
+// nested-scope-shadowing class the declaration/reassignment checks already
+// covered, just arriving via a third JS binding mechanism (a parameter)
+// instead of a `const` re-declaration or a bare reassignment, and a
+// text-only regex can see a parameter list exactly as well as it can see a
+// declaration. Both are folded into the identifier-binding tests below.
+//
+// NCOW-41 fix pass (reviewer finding): property-level mutation of
+// `mutexes.proxy` (or `handlers.proxy`) was FIRST assumed to be different in
+// kind — the claim briefly written here was that nothing about the
+// *identifier* changes, so no source-text scan could distinguish a
+// legitimate read (`mutexes.proxy.run(...)`) from a mutation. That claim was
+// wrong and was disproven during review: the legitimate read is a
+// member-access-then-call with no `=` anywhere in it, while a mutation is
+// exactly `identifier.prop = ...` (or the computed-key form
+// `identifier['prop'] = ...`) followed by a single `=`, never `==`/`===`.
+// That is a source-text property a regex can and does settle —
+// identifierPropertyIsAssigned() below — with no false positive on the real
+// `mutexes.proxy.run(() => handlers.proxy.stop())` call site and a true
+// positive on the exact mutation NCOW-35's review verified as a real
+// serialization break. The behavioural regression test in
+// test/main/tray-actions.test.js stays as "why this matters" documentation —
+// it reproduces the mutation against the real
+// createTrayActions/registerIpcHandlers/mutex.js primitives and shows the
+// two callers stop sharing a lock — but the AC#2 guard itself is this
+// text-only check, not that behavioural test alone.
 //
 // A fourth gap — a plain object literal override, where a future edit adds
 // its own `onStart`/`onStop`/`onRestart` key to the createTray({...}) object
@@ -843,21 +866,43 @@ test('index.js: a failed configRegeneration is logged, not silently dropped', ()
 // plain JS object semantics let that later key silently win and discard the
 // mutex-wrapped action the spread contributed, with `mutexes` still bound
 // exactly once and the spread text still present verbatim so neither check
-// above would notice — is now CLOSED. NCOW-38 adds two further tests below
-// (after the identifier-binding check that follows this comment): one that
-// extracts this same createTray({...}) block, locates the
-// createTrayActions(...) spread, and fails if an onStart/onStop/onRestart
-// key appears anywhere in the text after it; and a meta-test that
+// above would notice — was addressed by NCOW-38, which added two further
+// tests below (after the identifier-binding check that follows this
+// comment): one that extracts this same createTray({...}) block, locates
+// the createTrayActions(...) spread, and fails if an onStart/onStop/
+// onRestart key appears anywhere in the text after it; and a meta-test that
 // reproduces this exact shape — a key hand-added after the spread in a
 // synthetic createTray({...}) block — and confirms the guard actually
-// catches it, rather than merely existing unexercised.
+// catches it, rather than merely existing unexercised. That guard was not
+// actually closed by NCOW-38's landing, though: a later review (folded into
+// this task, NCOW-41) found its detector, findKeyAfterTraySpread(), was
+// fail-open rather than fail-loud — it returned `undefined` both when no
+// override existed AND when the `...createTrayActions` spread wasn't found
+// in the extracted block at all (e.g. a nested `});` between the spread and
+// an override key truncating the block early), so the exact regression this
+// guard exists to catch could slip through green in that shape. NCOW-41
+// fixes that (the detector now throws if it never locates the spread, rather
+// than returning the same `undefined` as "nothing followed it"), and widens
+// the override-key regex itself to also catch quoted keys, method
+// shorthand, and computed keys, not just the file's one-key-per-line
+// bare-colon style. With both of those landed, this fourth gap is now
+// genuinely closed.
 //
-// Equivalent guards for the three gaps still open above — `handlers`'
-// missing single-binding check, `mutexes.proxy` property-level mutation,
-// and parameter shadowing — remain future work. This pair, plus NCOW-38's
-// post-spread-override guard and tray-actions.test.js's behavioural proof,
-// cover everything currently provable about tray wiring, not full
-// tray-wiring safety.
+// Equivalent guards for the three gaps described above — `handlers`'
+// missing single-binding check, `mutexes`/`handlers` property-level
+// mutation, and parameter shadowing — are added by NCOW-41 too: see the
+// identifier-binding tests immediately below for all three. The
+// property-mutation guard turned out to be exactly as reachable by a
+// text-only check as the other two (identifierPropertyIsAssigned(), added in
+// this task's fix pass — see the comment above for what changed and why);
+// test/main/tray-actions.test.js's existing behavioural test is kept
+// alongside it as "why this matters" proof of the mutation's real-world
+// impact, not as the sole guard against it. Together, this file's static
+// checks and tray-actions.test.js's behavioural proof now cover every
+// tray-wiring identity gap identified across NCOW-35/38/39/41's reviews of
+// this one call site — a description of how thoroughly THIS seam has been
+// reviewed, not a general claim that tray wiring (or this app) has been
+// proven safe end to end.
 test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ mutexes, handlers }), using the context\'s own mutexes/handlers', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
   assert.match(
@@ -899,7 +944,78 @@ test('index.js: createTray({...}) is wired with tray.js\'s createTrayActions({ m
 // behaviour), so this asserts index.js binds the identifier exactly once —
 // the createEngineContext() destructure — with no shadowing re-declaration
 // and no bare reassignment anywhere else in the file.
-test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration or bare reassignment anywhere else in the file', () => {
+/**
+ * NCOW-41: a third JS binding mechanism the declaration/bare-reassignment
+ * checks below cannot see — a function PARAMETER with this name, e.g.
+ * `((mutexes) => createTray({...}))(privateMutexSet)` or the unparenthesized
+ * single-arrow-param form `mutexes => ...`. This is the same
+ * nested-scope-shadowing class NCOW-35's review identified for `mutexes`,
+ * just introduced via a parameter instead of a `const` re-declaration or a
+ * bare reassignment — and it is just as invisible to the call-site regex and
+ * the "spread text still present verbatim" check as those originally were.
+ *
+ * Deliberately regex-based, matching every other static check in this file
+ * (no parser dependency is available in this repo's devDependencies — see
+ * package.json). `[^()]*` for a parameter list is enough for this file's own
+ * arrow-function style (plain identifiers, no nested-paren defaults) and for
+ * the synthetic strings the meta-test below builds.
+ */
+function identifierBoundAsFunctionParam(source, identifier) {
+  const paramLists = [];
+
+  const arrowWithParens = /\(([^()]*)\)\s*=>/g;
+  let m;
+  while ((m = arrowWithParens.exec(source))) paramLists.push(m[1]);
+
+  const namedFunction = /\bfunction\b[^(]*\(([^()]*)\)/g;
+  while ((m = namedFunction.exec(source))) paramLists.push(m[1]);
+
+  const boundByList = paramLists.some((params) =>
+    params
+      .split(',')
+      .map((p) => p.trim().replace(/^\.\.\./, '').split(/[\s=]/)[0])
+      .includes(identifier)
+  );
+  if (boundByList) return true;
+
+  // The unparenthesized single-arrow-param form (`identifier => ...`) has no
+  // enclosing `(...)` for the pattern above to find.
+  const bareArrowParam = new RegExp(`(?<![\\w$])${identifier}(?![\\w$])\\s*=>`);
+  return bareArrowParam.test(source);
+}
+
+/**
+ * NCOW-41 fix pass (AC#2, reviewer finding): catches property-level mutation
+ * of `mutexes.proxy` (or the equivalent `handlers.*` property) — reassigning
+ * a PROPERTY of the shared object, rather than rebinding the identifier
+ * itself, which is what the declaration/reassignment/parameter checks above
+ * each target. `mutexes` (or `handlers`) stays declared exactly once and the
+ * `...createTrayActions({ mutexes, handlers })` spread text stays present
+ * verbatim, so none of those checks notice — but NCOW-35's own review
+ * empirically verified this is a REAL serialization break (a tray Stop ran
+ * concurrently with an in-flight IPC-triggered restart), and it passed the
+ * full suite regardless, until now.
+ *
+ * A first draft of the comment above this function's call sites claimed this
+ * gap was outside a text-only check's reach entirely — a legitimate read
+ * (`mutexes.proxy.run(...)`) and a mutation (`mutexes.proxy = ...`) supposedly
+ * looked too similar for a regex to tell apart. That claim was wrong: a read
+ * is a member access immediately followed by `(` or `.` — never `=` — while
+ * an assignment is the property access followed by exactly one `=` (not `==`
+ * or `===`). That is a source-text distinction, not a runtime one, so a
+ * regex settles it exactly as it settles the declaration/reassignment checks
+ * above. Verified against the real index.js (no match — nothing here
+ * mutates a property of either identifier), the exact mutation NCOW-35's
+ * review reproduced (`mutexes.proxy = require('./mutex').createDomainMutex()`,
+ * matched), and the real call site's own
+ * `mutexes.proxy.run(() => handlers.proxy.stop())` read (not matched).
+ */
+function identifierPropertyIsAssigned(source, identifier) {
+  const pattern = new RegExp(`\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`);
+  return pattern.test(source);
+}
+
+test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, parameter binding, or property mutation anywhere else in the file', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
 
   // Every place `mutexes` is *bound* to a value via a declaration keyword:
@@ -928,6 +1044,178 @@ test('index.js: the `mutexes` identifier is bound exactly once (the createEngine
     0,
     `expected no bare "mutexes = ..." reassignment anywhere in index.js, found: ${JSON.stringify(bareAssignments)}`
   );
+
+  // NCOW-41 (AC#3): a function parameter named `mutexes` shadows the shared
+  // binding just as effectively as the two mechanisms above, via a third JS
+  // binding form neither of them can see.
+  assert.equal(
+    identifierBoundAsFunctionParam(source, 'mutexes'),
+    false,
+    'expected "mutexes" never to appear as a function parameter name in index.js — a wrapping function ' +
+      'like "((mutexes) => createTray({...}))(privateSet)" would shadow the shared binding via a ' +
+      'parameter instead of a declaration or reassignment, evading both checks above'
+  );
+
+  // NCOW-41 fix pass (AC#2, reviewer finding): mutating a PROPERTY of the
+  // shared `mutexes` (e.g. `mutexes.proxy = require('./mutex').createDomainMutex()`
+  // between the createEngineContext() destructure and createTray({...}))
+  // shadows the shared lock just as effectively as the three checks above,
+  // without rebinding the identifier itself at all — see
+  // identifierPropertyIsAssigned()'s own comment for why this is reachable
+  // by a text-only check, contrary to what an earlier draft of the big
+  // review comment above claimed.
+  assert.equal(
+    identifierPropertyIsAssigned(source, 'mutexes'),
+    false,
+    'expected no "mutexes.<property> = ..." or "mutexes[\'<property>\'] = ..." assignment anywhere in ' +
+      'index.js — mutating a property of the shared mutexes object (e.g. reassigning mutexes.proxy to a ' +
+      'fresh lock) breaks serialization exactly as a shadowing rebind would, and NCOW-35\'s review verified ' +
+      'this is a real regression, not a theoretical one'
+  );
+});
+
+// NCOW-41 (AC#1): `handlers` gets the exact same four-way single-binding
+// check `mutexes` already had above — it was exactly as reachable by these
+// techniques, it simply didn't have a test yet. Before this test existed,
+// wrapping createTray({...}) in a nested block that declared its own
+// private `const handlers = { proxy: {...} }` passed the full suite,
+// silently giving the tray a private, unshared `handlers` (confirmed during
+// NCOW-39's review).
+test('index.js: the `handlers` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, parameter binding, or property mutation anywhere else in the file', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+
+  const declarationPattern = /\b(?:const|let|var)\s+(?:\{[^{}]*\bhandlers\b[^{}]*\}|handlers\b)\s*=/g;
+  const declarations = source.match(declarationPattern) ?? [];
+  assert.equal(
+    declarations.length,
+    1,
+    `expected exactly one declaration binding "handlers" in index.js (the createEngineContext() destructure), found ${declarations.length}: ${JSON.stringify(declarations)}`
+  );
+  assert.match(
+    declarations[0],
+    /const \{ handlers, pm2Control, configRegeneration, mutexes \}\s*=$/,
+    'the sole "handlers" binding must be the createEngineContext() destructure, not some other declaration'
+  );
+
+  const bareAssignmentPattern = /(?<!(?:const|let|var)\s+)\bhandlers\s*=(?!=)/g;
+  const bareAssignments = source.match(bareAssignmentPattern) ?? [];
+  assert.equal(
+    bareAssignments.length,
+    0,
+    `expected no bare "handlers = ..." reassignment anywhere in index.js, found: ${JSON.stringify(bareAssignments)}`
+  );
+
+  assert.equal(
+    identifierBoundAsFunctionParam(source, 'handlers'),
+    false,
+    'expected "handlers" never to appear as a function parameter name in index.js — a wrapping function ' +
+      'like "((handlers) => createTray({...}))(privateSet)" would shadow the shared binding via a ' +
+      'parameter instead of a declaration or reassignment, evading the two checks above'
+  );
+
+  // NCOW-41 fix pass (AC#2, reviewer finding): the `handlers` equivalent of
+  // the `mutexes.proxy` mutation check above — see that assertion's comment
+  // and identifierPropertyIsAssigned()'s own comment for why this is
+  // reachable by a text-only check.
+  assert.equal(
+    identifierPropertyIsAssigned(source, 'handlers'),
+    false,
+    'expected no "handlers.<property> = ..." or "handlers[\'<property>\'] = ..." assignment anywhere in ' +
+      'index.js — mutating a property of the shared handlers object shadows it exactly as a shadowing ' +
+      'rebind would, evading the checks above'
+  );
+});
+
+// NCOW-41: proves identifierBoundAsFunctionParam() (used by both tests
+// above) actually catches the parameter-shadowing shape it targets, against
+// synthetic source rather than today's already-correct index.js — mirroring
+// findKeyAfterTraySpread()'s own meta-test further down in this file. Per
+// task guidance, this is what makes AC#3 a genuine regression test rather
+// than a check that merely happens to pass today: reverting this meta-test's
+// assertions to their pre-NCOW-41 (nonexistent) state would leave no test in
+// this suite able to distinguish the "bad" blocks below from safe code.
+test('index.js: the parameter-binding check (used by the mutexes/handlers single-binding tests above) actually catches the shape it targets (meta-test)', () => {
+  const goodSource = 'const tray = createTray({ ...createTrayActions({ mutexes, handlers }) });';
+  for (const identifier of ['mutexes', 'handlers']) {
+    assert.equal(
+      identifierBoundAsFunctionParam(goodSource, identifier),
+      false,
+      'sanity check: real-shaped code with no parameter binding must not be flagged'
+    );
+
+    const wrappedWithParens = `((${identifier}) => createTray({ ...createTrayActions({ mutexes, handlers }) }))(privateSet);`;
+    assert.equal(
+      identifierBoundAsFunctionParam(wrappedWithParens, identifier),
+      true,
+      `expected to catch "${identifier}" reintroduced as a wrapping function parameter (parenthesized form)`
+    );
+
+    const wrappedBare = `${identifier} => createTray({ ...createTrayActions({ mutexes, handlers }) });`;
+    assert.equal(
+      identifierBoundAsFunctionParam(wrappedBare, identifier),
+      true,
+      `expected to catch "${identifier}" reintroduced as a wrapping function parameter (unparenthesized form)`
+    );
+
+    const namedFunctionWrapper = `function withPrivate(${identifier}) { return createTray({ ...createTrayActions({ mutexes, handlers }) }); }`;
+    assert.equal(
+      identifierBoundAsFunctionParam(namedFunctionWrapper, identifier),
+      true,
+      `expected to catch "${identifier}" reintroduced as a named function's parameter`
+    );
+  }
+});
+
+// NCOW-41 fix pass (AC#2, reviewer finding): proves
+// identifierPropertyIsAssigned() (used by both single-binding tests above)
+// actually catches the property-mutation shape it targets, against
+// synthetic source, AND does not flag the real call site's own legitimate
+// read — mirroring the parameter-binding meta-test above and
+// findKeyAfterTraySpread()'s own meta-test further down in this file. This
+// is what makes the AC#2 assertions above a genuine regression test rather
+// than a check that merely happens to pass today: without this meta-test,
+// nothing in this suite would distinguish the "bad" (mutating) strings below
+// from the "good" (reading) one, so a future edit could silently weaken
+// identifierPropertyIsAssigned() back into a no-op and every single-binding
+// test above would keep passing regardless.
+test('index.js: the property-mutation check (used by the mutexes/handlers single-binding tests above) actually catches the shape it targets, without flagging the real call site\'s legitimate mutexes.proxy.run(...)/handlers.proxy.stop() read (meta-test)', () => {
+  const legitimateRead = 'mutexes.proxy.run(() => handlers.proxy.stop())';
+  for (const identifier of ['mutexes', 'handlers']) {
+    assert.equal(
+      identifierPropertyIsAssigned(legitimateRead, identifier),
+      false,
+      `sanity check: the real call site's legitimate "${identifier}.proxy...()" read must not be flagged as a mutation`
+    );
+
+    const equalityCheck = `if (${identifier}.proxy === someOtherMutex) {}`;
+    assert.equal(
+      identifierPropertyIsAssigned(equalityCheck, identifier),
+      false,
+      `sanity check: an equality comparison ("${identifier}.proxy === ...") must not be flagged as an assignment`
+    );
+
+    const spreadRead = `const x = { ...${identifier}.app, quit: 1 };`;
+    assert.equal(
+      identifierPropertyIsAssigned(spreadRead, identifier),
+      false,
+      `sanity check: spreading a property ("...${identifier}.app") must not be flagged as an assignment`
+    );
+
+    const dotMutation = `${identifier}.proxy = require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(dotMutation, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via dot-property mutation — this is the exact ` +
+        "shape NCOW-35's review reproduced as a real serialization break"
+    );
+
+    const computedMutation = `${identifier}['proxy'] = require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(computedMutation, identifier),
+      true,
+      `expected to catch "${identifier}['proxy']" reassigned via computed-property mutation`
+    );
+  }
 });
 
 // NCOW-38: closes the "plain object literal override" gap identified in the
@@ -944,16 +1232,60 @@ test('index.js: the `mutexes` identifier is bound exactly once (the createEngine
 // so the meta-test immediately following it can apply the EXACT same
 // detection logic to a hand-built reproduction of the bad shape, rather than
 // asserting on a second, potentially-drifted copy of the regex.
+//
+// NCOW-41 (AC#6): widened from the original bare-colon-only form
+// (`onStop: ...`) to also catch a quoted key (`'onStop': ...`), method
+// shorthand (`onStop() {...}`, including `async onStop() {...}`), and a
+// computed key (`['onStop']: ...`) — index.js's own style only ever uses the
+// bare-colon form today, but an override introduced any of these other ways
+// is exactly as real a regression and was previously invisible to this
+// guard.
+//
+// NCOW-41 (AC#7, fail-loud fix): before this, the function returned
+// `undefined` both when no override key existed AND when the
+// `...createTrayActions` spread was never found in the supplied block at
+// all — e.g. because the caller's own `indexOf('});')` extraction hit a
+// NESTED `});` between the spread and an override key, truncating the block
+// before the spread text ever appears. Both cases produced the identical
+// `undefined` the guard test below treats as "safe", so the exact
+// regression this guard exists to catch could slip through green in that
+// shape without anyone noticing the block had been cut short before it ever
+// saw the spread. Throwing here instead makes that distinction impossible
+// to miss: no caller can reach "no override key found" without the spread
+// having first been genuinely located.
 function findKeyAfterTraySpread(trayBlock) {
   const spreadMatch = trayBlock.match(/\.\.\.createTrayActions\(\{\s*mutexes,\s*handlers\s*\}\)/);
-  if (!spreadMatch) return undefined;
+  if (!spreadMatch) {
+    throw new Error(
+      'findKeyAfterTraySpread(): no `...createTrayActions({ mutexes, handlers })` spread found in the ' +
+        'supplied block. This is fail-loud on purpose (NCOW-41): returning undefined here would be ' +
+        'indistinguishable from "the spread was found and nothing followed it", which is exactly the ' +
+        'condition the post-spread-override guard treats as safe. If this fired against index.js\'s real ' +
+        'createTray({...}) block, the block was likely truncated before the spread — check the caller\'s ' +
+        'own indexOf(\'});\') extraction for a nested closing "});" between "createTray({" and the spread.'
+    );
+  }
   const afterSpread = trayBlock.slice(spreadMatch.index + spreadMatch[0].length);
   // One property per line is this file's (and index.js's) consistent style,
   // so anchoring the key to the start of a line — rather than matching it
   // anywhere in the text — is enough to find a real object-literal key
-  // without also tripping on the word appearing inside a comment.
-  const match = afterSpread.match(/^\s*(onStart|onStop|onRestart)\s*:/m);
-  return match ? match[1] : undefined;
+  // without also tripping on the word appearing inside a comment. The four
+  // alternatives below cover every way JS lets an object literal (or class-
+  // like method block) introduce one of these three key names: bare colon,
+  // quoted-string colon, computed (bracketed) colon, and method shorthand
+  // (optionally `async`).
+  const KEYS = 'onStart|onStop|onRestart';
+  const overrideKeyPattern = new RegExp(
+    `^\\s*(?:` +
+      `(?:async\\s+)?(${KEYS})\\s*\\(` + // method shorthand: onStop() {...} / async onStop() {...}
+      `|(${KEYS})\\s*:` + // bare colon: onStop: ...
+      `|['"](${KEYS})['"]\\s*:` + // quoted key: 'onStop': ... / "onStop": ...
+      `|\\[\\s*['"](${KEYS})['"]\\s*\\]\\s*:` + // computed key: ['onStop']: ...
+      `)`,
+    'm'
+  );
+  const match = afterSpread.match(overrideKeyPattern);
+  return match ? match[1] || match[2] || match[3] || match[4] : undefined;
 }
 
 test('index.js: createTray({...}) defines no onStart/onStop/onRestart key AFTER the createTrayActions(...) spread (post-spread override guard)', () => {
@@ -963,6 +1295,24 @@ test('index.js: createTray({...}) defines no onStart/onStop/onRestart key AFTER 
   const trayCallEnd = source.indexOf('});', trayCallAt);
   assert.ok(trayCallEnd > -1, 'expected the createTray({...}) call to close with });');
   const trayBlock = source.slice(trayCallAt, trayCallEnd);
+
+  // NCOW-41 (AC#7): explicit, ahead of the real assertion below, that the
+  // spread was actually located inside the extracted block — the naive
+  // indexOf('});') extraction above stops at the FIRST "});" after
+  // "createTray({", so a nested one (e.g. inside a future callback added to
+  // this object literal) would silently truncate trayBlock before the
+  // spread ever appears. findKeyAfterTraySpread() itself now throws in that
+  // case rather than returning the same `undefined` as "nothing followed
+  // the spread" — this assertion documents why that distinction is checked
+  // at all, right where a failure here would otherwise look identical to
+  // the guard just passing.
+  assert.match(
+    trayBlock,
+    /\.\.\.createTrayActions\(\{\s*mutexes,\s*handlers\s*\}\)/,
+    'expected the extracted createTray({...}) block to actually contain the createTrayActions(...) spread ' +
+      '— if this fails, the block was truncated before ever reaching it (see the comment on ' +
+      'findKeyAfterTraySpread() above), and the assertion below would otherwise pass for the wrong reason'
+  );
 
   const overriddenKey = findKeyAfterTraySpread(trayBlock);
   assert.equal(
@@ -983,6 +1333,11 @@ test('index.js: createTray({...}) defines no onStart/onStop/onRestart key AFTER 
 // proving the guard would fail on a real regression, not just that it
 // currently passes on today's (already-correct) index.js for some unrelated
 // reason.
+//
+// NCOW-41 (AC#6): extended beyond the original bare-colon-only cases to also
+// cover a quoted key, method shorthand (plain and async), and a computed
+// key — the three additional forms the widened regex in
+// findKeyAfterTraySpread() now catches.
 test('index.js: the post-spread-override guard actually catches the regression shape it targets (meta-test)', () => {
   const goodBlock = `createTray({
       showDashboard: () => showMainWindow('dashboard'),
@@ -996,18 +1351,61 @@ test('index.js: the post-spread-override guard actually catches the regression s
     'sanity check: a spread with nothing after it in the same object literal must not be flagged'
   );
 
+  const overrideForms = {
+    'bare colon': (key) => `${key}: () => handlers.proxy.stop(),`,
+    'single-quoted key': (key) => `'${key}': () => handlers.proxy.stop(),`,
+    'double-quoted key': (key) => `"${key}": () => handlers.proxy.stop(),`,
+    'method shorthand': (key) => `${key}() { return handlers.proxy.stop(); },`,
+    'async method shorthand': (key) => `async ${key}() { return handlers.proxy.stop(); },`,
+    'computed key (single-quoted)': (key) => `['${key}']: () => handlers.proxy.stop(),`,
+    'computed key (double-quoted)': (key) => `["${key}"]: () => handlers.proxy.stop(),`,
+  };
+
   for (const key of ['onStart', 'onStop', 'onRestart']) {
-    const badBlock = `createTray({
+    for (const [formName, buildLine] of Object.entries(overrideForms)) {
+      const badBlock = `createTray({
       showDashboard: () => showMainWindow('dashboard'),
       showDiagnostics: () => showMainWindow('diagnostics'),
       quit: () => app.quit(),
       ...createTrayActions({ mutexes, handlers }),
-      ${key}: () => handlers.proxy.stop(),
+      ${buildLine(key)}
     });`;
-    assert.equal(
-      findKeyAfterTraySpread(badBlock),
-      key,
-      `expected the guard to catch a literal "${key}" key hand-added after the createTrayActions(...) spread`
-    );
+      assert.equal(
+        findKeyAfterTraySpread(badBlock),
+        key,
+        `expected the guard to catch a literal "${key}" key (${formName} form) hand-added after the ` +
+          'createTrayActions(...) spread'
+      );
+    }
   }
+});
+
+// NCOW-41 (AC#7): proves the fail-loud fix itself — a block that never
+// contains the createTrayActions(...) spread at all (standing in for the
+// truncation scenario described on findKeyAfterTraySpread() above: a nested
+// "});" between the spread and an override key cutting the extracted block
+// short before the spread text ever appears) must throw, not silently
+// return the same `undefined` a spread-with-no-override-after-it would.
+// Before this fix, both shapes were indistinguishable from inside the
+// guard test, so the exact regression the guard exists to catch could slip
+// through green.
+test('index.js: findKeyAfterTraySpread() fails loud (throws) when the spread is not found, rather than returning the same undefined as "no override" (meta-test)', () => {
+  const truncatedBlock = `createTray({
+      showDashboard: () => showMainWindow('dashboard'),
+      onSomethingElse: () => {
+        doSomethingWith(() => {
+          finish();
+        });
+      });`;
+  assert.doesNotMatch(
+    truncatedBlock,
+    /\.\.\.createTrayActions\(\{\s*mutexes,\s*handlers\s*\}\)/,
+    'sanity check: this block must genuinely lack the spread, matching what a nested "});" truncation would produce'
+  );
+  assert.throws(
+    () => findKeyAfterTraySpread(truncatedBlock),
+    /no `\.\.\.createTrayActions/,
+    'expected findKeyAfterTraySpread() to throw rather than silently report "no override found" for a ' +
+      'block that never contained the spread at all'
+  );
 });
