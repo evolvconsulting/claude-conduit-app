@@ -587,6 +587,251 @@ test('ipc: NCOW-32 — uninstall:run and update:install still stay serialized ag
   assert.deepEqual(order, ['uninstall:enter', 'uninstall:exit', 'install:enter']);
 });
 
+test('ipc: NCOW-45 AC#1 — a background config:generate holding the config lock blocks uninstall:run (purge)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          return { ok: true, data: { removed: ['config-directory'], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // Stands in for an in-flight config:generate call — it holds mutexes.config
+  // exactly the way registerIpcHandlers() itself would lock a real
+  // config:generate handler.
+  const background = mutexes.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+    order.push('bg-generate:exit');
+  });
+
+  const uninstallRun = invoke('uninstall:run', { purge: true });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['bg-generate:enter'],
+    'uninstall:run (purge) must be queued, not interleaved with the in-flight config:generate'
+  );
+
+  gate.resolve();
+  await background;
+  await uninstallRun;
+  assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'uninstall:enter']);
+});
+
+test('ipc: NCOW-45 AC#1 — an in-flight uninstall:run (purge) blocks a subsequent config:generate', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          await gate.promise;
+          order.push('uninstall:exit');
+          return { ok: true, data: { removed: ['config-directory'], kept: [] } };
+        },
+      },
+      config: {
+        generate: async () => {
+          order.push('generate:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: true });
+  const generateRun = invoke('config:generate', {});
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['uninstall:enter'], 'config:generate must queue behind the in-flight uninstall, not interleave');
+
+  gate.resolve();
+  await uninstallRun;
+  await generateRun;
+  assert.deepEqual(order, ['uninstall:enter', 'uninstall:exit', 'generate:enter']);
+});
+
+test('ipc: NCOW-45 AC#2 — a background claudeCode:configure holding the claudeCode lock blocks uninstall:run', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          return { ok: true, data: { removed: ['claude-code-cli-config', 'pm2-app'], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // Stands in for an in-flight claudeCode:configure call.
+  const background = mutexes.claudeCode.run(async () => {
+    order.push('bg-configure:enter');
+    await gate.promise;
+    order.push('bg-configure:exit');
+  });
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['bg-configure:enter'],
+    'uninstall:run must be queued, not interleaved with the in-flight claudeCode:configure'
+  );
+
+  gate.resolve();
+  await background;
+  await uninstallRun;
+  assert.deepEqual(order, ['bg-configure:enter', 'bg-configure:exit', 'uninstall:enter']);
+});
+
+test('ipc: NCOW-45 AC#2 — an in-flight uninstall:run blocks a subsequent claudeCode:remove', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          await gate.promise;
+          order.push('uninstall:exit');
+          return { ok: true, data: { removed: [], kept: [] } };
+        },
+      },
+      claudeCode: {
+        remove: async () => {
+          order.push('remove:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+  const removeRun = invoke('claude-code:remove');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['uninstall:enter'], 'claudeCode:remove must queue behind the in-flight uninstall, not interleave');
+
+  gate.resolve();
+  await uninstallRun;
+  await removeRun;
+  assert.deepEqual(order, ['uninstall:enter', 'uninstall:exit', 'remove:enter']);
+});
+
+test('ipc: NCOW-45 AC#3 — the pre-existing proxy-mutex serialization (NCOW-32) still holds unchanged for uninstall:run', async () => {
+  // This is the same scenario as the "NCOW-32 AC#1" test above, kept as its
+  // own NCOW-45-labelled assertion so AC#3 ("the existing NCOW-32
+  // serialization... continues to hold unchanged") has a test that names it
+  // explicitly, rather than relying only on the older test not having been
+  // touched.
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          return { ok: true, data: { removed: ['pm2-app'], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  const uninstallRun = invoke('uninstall:run', { purge: false });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['bg-restart:enter'], 'uninstall:run must still queue behind an in-flight background restart');
+
+  gate.resolve();
+  await background;
+  await uninstallRun;
+  assert.deepEqual(order, ['bg-restart:enter', 'bg-restart:exit', 'uninstall:enter']);
+});
+
+test('ipc: NCOW-45 AC#1+#2+#3 — an in-flight uninstall:run (purge) holds ALL THREE domain locks at once, not just whichever one a single test happens to check', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          await gate.promise;
+          order.push('uninstall:exit');
+          return { ok: true, data: { removed: ['claude-code-cli-config', 'pm2-app', 'config-directory'], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: true });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['uninstall:enter'], 'uninstall must have entered before we probe contention against it');
+
+  // While uninstall is in flight, background work on EACH of the three
+  // domains it touches must queue behind it simultaneously — proving it
+  // genuinely holds claudeCode, config, AND proxy at once, not just one at
+  // a time.
+  const claudeCodeWork = mutexes.claudeCode.run(async () => order.push('claudeCode-bg'));
+  const configWork = mutexes.config.run(async () => order.push('config-bg'));
+  const proxyWork = mutexes.proxy.run(async () => order.push('proxy-bg'));
+
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(
+    order,
+    ['uninstall:enter'],
+    'none of the three background operations may run while uninstall is still in flight'
+  );
+
+  gate.resolve();
+  await uninstallRun;
+  await Promise.all([claudeCodeWork, configWork, proxyWork]);
+
+  // The three post-release background operations run on three independent
+  // per-domain chains, so their relative order against EACH OTHER isn't
+  // meaningful (and isn't guaranteed) — only that all three happened, and
+  // only after uninstall fully exited.
+  assert.deepEqual(order.slice(0, 2), ['uninstall:enter', 'uninstall:exit']);
+  assert.equal(order.length, 5);
+  assert.deepEqual(new Set(order.slice(2)), new Set(['claudeCode-bg', 'config-bg', 'proxy-bg']));
+});
+
 test('index.js: passes engine-context\'s own mutexes into registerIpcHandlers', () => {
   // index.js can't be required under plain `node --test` (electron.app at
   // module scope) — same static-source approach as quit.test.js. This is the

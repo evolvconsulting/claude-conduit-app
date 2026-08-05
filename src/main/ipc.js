@@ -72,44 +72,152 @@ const UNSERIALIZED_METHODS = {
  * launch-time background restart and a user-clicked Start/Stop/Restart
  * already serialize against each other through mutexes.proxy.
  *
- * For `uninstall`, this alias covers that same proxy-mutex concern only —
- * `uninstall.run()` calls pm2Control.remove() directly
- * (src/engine/uninstall.js). It is NOT the domain's only mutating concern:
- * uninstall.run() also removes Claude Code's settings file
- * (removeClaudeCodeSettings()) and, on purge, deletes the config directory
- * (fs.rmSync(opts.configDir)) — both already guarded by their own mutexes
- * (mutexes.claudeCode, mutexes.config respectively), neither of which this
- * alias table touches. That gap is tracked separately as NCOW-45.
+ * For `uninstall`, a single alias is not enough: `uninstall.run()`
+ * (src/engine/uninstall.js) mutates THREE shared-state domains in one call —
+ * it removes Claude Code's settings file (removeClaudeCodeSettings(), the
+ * `claudeCode` domain), calls pm2Control.remove() (the `proxy` domain, the
+ * only one NCOW-32 originally covered), and, on purge, deletes the config
+ * directory (fs.rmSync(opts.configDir), the `config` domain). NCOW-45 widened
+ * this entry to an array of all three so an Uninstall click is serialized
+ * against every mutex it actually touches, not just proxy's — without this,
+ * a purge-uninstall could still interleave with an in-flight
+ * claudeCode:configure/claudeCode:remove or config:generate the same way it
+ * could interleave with a background restart before NCOW-32.
  *
  * Without this alias, an Uninstall click (or an update install) could
  * interleave with an in-flight restart: pm2Control.remove()'s
  * deleteAppIfPresent()+save() racing the restart's own
  * deleteAppIfPresent()->pm2.start() can leave a running proxy behind after
  * "uninstall complete", or a config directory Uninstall is deleting out from
- * under a restart that is concurrently regenerating it.
+ * under a restart that is concurrently regenerating it, or Uninstall's
+ * settings-file removal racing an in-flight claudeCode:configure/remove.
  *
- * Deliberately NOT added to MUTEX_DOMAINS in mutex.js — neither domain needs
- * a *lock of its own* for this proxy-shared concern, only to share proxy's,
- * so aliasing keeps createDomainMutexes() (and its own "exactly these
- * domains" test in mutex.test.js) describing only the domains with an
- * independent mutating concern.
+ * Deliberately NOT added to MUTEX_DOMAINS in mutex.js — neither `uninstall`
+ * nor `update` needs a *lock of its own*; each only needs to share locks
+ * that already exist for domains with an independent mutating concern, so
+ * aliasing keeps createDomainMutexes() (and its own "exactly these domains"
+ * test in mutex.test.js) describing only those domains.
  *
  * Distinct from main/index.js's before-quit shutdown path, which stays
- * deliberately unserialized against this same lock (a wedged pm2 must never
+ * deliberately unserialized against these locks (a wedged pm2 must never
  * make the app unquittable, per CLAUDE.md) — that path calls
  * stopProxyForShutdown() directly, outside any IPC handler, so it is
  * unaffected by this alias table.
  */
 const DOMAIN_MUTEX_ALIASES = {
-  uninstall: 'proxy',
+  uninstall: ['claudeCode', 'config', 'proxy'],
   update: 'proxy',
 };
 
-/** Resolves the lock a domain's methods should serialize against: its own,
- *  if MUTEX_DOMAINS covers it, else its alias's (see DOMAIN_MUTEX_ALIASES),
- *  else none. */
-function resolveDomainLock(mutexes, domain) {
-  return mutexes[domain] ?? mutexes[DOMAIN_MUTEX_ALIASES[domain]];
+/**
+ * NCOW-45: the one and only order in which ANY handler in this file may
+ * acquire more than one domain lock at once — alphabetical by domain name,
+ * chosen with no significance beyond being fixed and easy to re-derive
+ * without consulting this file (so a future change can't accidentally
+ * "reorder for readability" and silently invert it). `uninstall` is
+ * currently the only multi-lock acquirer (see DOMAIN_MUTEX_ALIASES above);
+ * confirmed by grep across src/ and test/ during NCOW-45 that no other
+ * caller anywhere in this codebase ever holds more than one of these locks
+ * at once, so adopting this order cannot contradict an order something else
+ * already relies on.
+ *
+ * Why a single fixed order is deadlock-safe: a lock-ordering deadlock needs
+ * a *cycle* — caller A holding lock X while waiting on lock Y, and caller B
+ * holding Y while waiting on X. That requires at least two callers that each
+ * acquire more than one lock, in opposite relative orders. With only one
+ * multi-lock caller in the whole codebase, no such second caller exists to
+ * form the other half of a cycle, so no cycle is possible regardless of
+ * which order is picked. This constant exists anyway — instead of leaving
+ * `uninstall` to just acquire its three in whatever order its array
+ * happens to list them — so that IF a second multi-lock handler is ever
+ * added, it inherits a pre-existing convention (sort its domains by this
+ * same array, e.g. via resolveDomainLocks() below) rather than inventing an
+ * independent order that could conflict with this one and reintroduce the
+ * exact risk this comment just ruled out.
+ */
+const LOCK_ACQUISITION_ORDER = ['claudeCode', 'claudeDesktop', 'config', 'proxy'];
+
+/** Resolves the ordered list of locks a domain's methods must hold before
+ *  running: its own single lock if MUTEX_DOMAINS covers it, else its
+ *  alias(es) from DOMAIN_MUTEX_ALIASES (normalized to an array whether the
+ *  table lists one domain or several, and sorted into LOCK_ACQUISITION_ORDER
+ *  regardless of the order the table happens to list them in — so a future
+ *  edit to that table can't silently invert the acquisition order), else an
+ *  empty array. */
+function resolveDomainLocks(mutexes, domain) {
+  if (mutexes[domain]) return [mutexes[domain]];
+  const alias = DOMAIN_MUTEX_ALIASES[domain];
+  if (!alias) return [];
+  const aliasDomains = Array.isArray(alias) ? alias : [alias];
+  return [...aliasDomains]
+    .sort((a, b) => LOCK_ACQUISITION_ORDER.indexOf(a) - LOCK_ACQUISITION_ORDER.indexOf(b))
+    .map((d) => mutexes[d])
+    .filter(Boolean);
+}
+
+/**
+ * Composes N single-domain lock decorators into one that holds ALL of them
+ * for the full duration of `fn`, reserving a queue slot on each — in
+ * `locks`' order — SYNCHRONOUSLY, in the same tick, before returning.
+ *
+ * That synchronous, in-order reservation is what keeps a multi-lock caller's
+ * position in any one shared chain consistent with a single-lock competitor
+ * for that same domain: if this is invoked before a single-lock call that
+ * only wants (say) the last domain in `locks`, this reserves its slot on
+ * that domain's chain in the very same synchronous pass that reserves its
+ * slots on every other domain — so the competitor, invoked afterwards,
+ * necessarily queues behind it there too. An earlier version of this
+ * function nested lock acquisition instead (only enqueuing on locks[1] once
+ * locks[0]'s turn had actually arrived, and so on) — which reproduces
+ * LOCK_ACQUISITION_ORDER's intended acquisition order in isolation, but lets
+ * a single-lock competitor for the LAST domain in `locks` win a queue race
+ * against a multi-lock caller that was invoked first, because the
+ * single-lock call reaches that domain's chain in one synchronous step while
+ * the multi-lock call is still working through the microtasks of its earlier
+ * locks. Reserving every slot up front closes that race. (Caught by this
+ * task's own regression test for AC#3 — see ipc-mutex.test.js.)
+ *
+ * Each reservation's callback resolves a per-lock "ready" signal and then
+ * returns the SAME shared `fn(...args)` promise — so, per
+ * createDomainMutex()'s own chain-of-promises design (mutex.js), every one
+ * of these locks stays occupied, blocking whatever else is queued behind it,
+ * until `fn` has fully settled, not merely until its own turn arrived. `fn`
+ * itself only starts once every lock's ready signal has resolved, i.e. once
+ * every lock's turn has arrived.
+ *
+ * The exactly-one-lock case is special-cased to plain `lock(fn)` rather than
+ * running it through the barrier machinery below: the barrier adds a couple
+ * of extra microtask hops before `fn` actually starts (resolving a "ready"
+ * signal and awaiting a Promise.all of it are each their own tick), and one
+ * regression-tested caller (tray-actions.test.js's mutex-identity check)
+ * depends on ipc.js's own single-lock timing matching tray.js's direct
+ * `mutexes.proxy.run(fn)` call tick-for-tick. Every domain but `uninstall`
+ * still resolves to exactly one lock, so this keeps their behaviour, and
+ * that test, byte-for-byte unchanged.
+ */
+function withLocks(locks, fn) {
+  if (locks.length <= 1) return locks.length === 1 ? locks[0](fn) : fn;
+  return (...args) => {
+    const readySignals = locks.map(() => {
+      let resolve;
+      const promise = new Promise((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    });
+
+    const sharedRun = Promise.all(readySignals.map((s) => s.promise)).then(() => fn(...args));
+
+    for (let i = 0; i < locks.length; i++) {
+      const { resolve } = readySignals[i];
+      locks[i](() => {
+        resolve();
+        return sharedRun;
+      })();
+    }
+
+    return sharedRun;
+  };
 }
 
 const ALLOWED_EXTERNAL_URL_PREFIXES = [
@@ -162,9 +270,12 @@ const builtinAppHandlers = {
  *   separate set here would silently mean the launch-time config regeneration
  *   and a user-initiated Start/Stop are locked against different chains, i.e.
  *   not serialized at all. Defaults to a private set only so this function
- *   stays callable in isolation. NCOW-32: 'uninstall' and 'update' have no
- *   entry of their own in this set (see mutex.js's MUTEX_DOMAINS) — they
- *   resolve onto `mutexes.proxy` via DOMAIN_MUTEX_ALIASES above instead.
+ *   stays callable in isolation. NCOW-32/NCOW-45: 'uninstall' and 'update'
+ *   have no entry of their own in this set (see mutex.js's MUTEX_DOMAINS) —
+ *   they resolve onto one or more of `mutexes.{proxy,config,claudeCode}` via
+ *   DOMAIN_MUTEX_ALIASES above instead. `uninstall` resolves to all three
+ *   (acquired in LOCK_ACQUISITION_ORDER via withLocks(), see both above);
+ *   `update` still resolves to `proxy` alone.
  */
 function registerIpcHandlers(handlers = {}, opts = {}) {
   const mergedHandlers = { ...handlers, app: { ...builtinAppHandlers, ...handlers.app } };
@@ -172,12 +283,12 @@ function registerIpcHandlers(handlers = {}, opts = {}) {
 
   for (const [domain, spec] of Object.entries(CHANNELS)) {
     const domainHandlers = mergedHandlers[domain] || {};
-    const lock = resolveDomainLock(mutexes, domain);
+    const locks = resolveDomainLocks(mutexes, domain);
     const unserialized = UNSERIALIZED_METHODS[domain] ?? [];
     for (const [method, channel] of Object.entries(spec.invoke || {})) {
       const impl = domainHandlers[method] || notImplemented(domain, method);
-      const shouldLock = Boolean(lock) && !unserialized.includes(method);
-      const wrapped = shouldLock ? lock(impl) : impl;
+      const shouldLock = locks.length > 0 && !unserialized.includes(method);
+      const wrapped = shouldLock ? withLocks(locks, impl) : impl;
       ipcMain.handle(channel, async (_event, ...args) => {
         try {
           return await wrapped(...args);
