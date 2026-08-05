@@ -3,9 +3,10 @@ id: NCOW-52
 title: >-
   Bound the remaining unbounded pm2 callbacks in pm2Control: stop, start and
   launchBus
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 18:39'
+updated_date: '2026-08-05 19:51'
 labels:
   - concurrency
 dependencies:

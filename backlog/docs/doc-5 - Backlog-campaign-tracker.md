@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 18:57'
+updated_date: '2026-08-05 19:51'
 ---
 # Backlog campaign tracker
 
@@ -62,7 +62,43 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 9 SETTLEMENT (2026-08-05): **18 resolved** (waves 1-9, all Done), **3 queued and all
+
+**As of wave 10 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the prior
+handover)**: ground-truth drift check found `dev` @ `f6140e3`, clean, 0 ahead/0 behind
+`origin/dev`, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
+matched the handover exactly, no drift. **18 resolved** (waves 1-9), **3 queued, all 3 confirmed
+ready by dependency** (NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47 Done; NCOW-52 on NCOW-48 Done),
+0 genuinely blocked, 5 excluded pending human decomposition (re-checked fresh — see Not queued;
+all five still last-updated 2026-07-31, nothing changed). Fresh file-citation conflict read against
+CURRENT source (not the wave-9 citations, several of which have moved): `src/main/ipc.js` is now
+440 lines — `UNSERIALIZED_METHODS` at :50, `DOMAIN_MUTEX_ALIASES` at :163, `LOCK_ACQUISITION_ORDER`
+at :195, `assertLockOrderIsConsistent` at :222, `resolveDomainLocks` at :264;
+`src/engine/pm2Control.js` is now 783 lines — `pm2.start` at :634, `pm2.stop` at :660,
+`pm2.launchBus` at :695 (NCOW-52's own citations of 628/653/685 have each drifted +6-10 lines from
+NCOW-48's fix-pass comments, re-check before dispatch); `test/main/ipc-mutex.test.js` is now 1573
+lines (+310 from wave 9's NCOW-48 append, confirmed a pure trailing append — NCOW-49's cited
+876-880/939-943 read unchanged). Confirms the trio remains pairwise-conflicting exactly as
+predicted: NCOW-49 and NCOW-50 both target `src/main/ipc.js`; all three (NCOW-49, NCOW-50, and
+NCOW-52's own AC#3 demonstration) target `test/main/ipc-mutex.test.js`. **Wave 10 = solo,
+confirmed fresh.** Live finding for whoever eventually dispatches NCOW-50: its AC#6 (fix
+`mutex.js:4-6`'s header to mention `nim-key.enc`) **already appears satisfied** — wave 8's cleanup
+PR #45 already added it; the header at `src/main/mutex.js:4-9` currently reads "...and — since
+NCOW-47 — the encrypted NVIDIA key at `<userData>/nim-key.enc`, which the `config` lock also
+guards even though it lives outside the config directory." Re-verify at NCOW-50's own dispatch
+rather than assume the AC needs new work — do not silently drop the AC either, since the task
+still needs an explicit decision recorded, just possibly a one-line confirmation rather than a
+fix. Greedy over the confirmed ordering principle (docs-only first — none of the three qualifies;
+isolated hardening next; structural next; mutex-serialization last): **NCOW-52 selected for wave
+10** — it follows NCOW-48's precedent directly (bounding raw pm2 callbacks behind the existing
+`withTimeout` helper), is the most isolated and lowest-risk of the three, and shares no edge with
+anything currently in flight (nothing is). NCOW-49 (closing residual gaps in the mutex mechanism
+itself — arguably structural, since it hardens the mechanism NCOW-45/46 built) and NCOW-50 (moving
+network calls out of the config lock — the most behaviorally significant of the three) both
+deferred to future solo waves. **Countervailing consideration carried forward, not dropped**:
+NCOW-50 fixes a real user-visible regression this campaign itself introduced (the measured ~20s
+freeze); it should be wave 11 or 12, not deferred indefinitely.
+
+Prior note, as of wave 9 SETTLEMENT (2026-08-05): **18 resolved** (waves 1-9, all Done), **3 queued and all
 3 ready by dependency** — NCOW-49 (on NCOW-46, Done), NCOW-50 (on NCOW-47, Done) and NCOW-52 (on
 NCOW-48, Done, filed this wave with user approval) — 0 genuinely blocked, 5 excluded pending human
 decomposition (see Not queued). **Expect wave 10 to be SOLO regardless of which item leads**: all
@@ -283,7 +319,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
 | 2 | NCOW-50 | proxy-mutex | NCOW-47 (Done) | To Do | | Stop apiKey.validateAndSave holding the config lock across its NVIDIA network round trips — the emergent ~20s freeze of the proxy AND claudeCode domains that NCOW-47's alias composed with NCOW-45's hold-and-wait. Measured by the wave-8 integration reviewer and proven causal against a pre-NCOW-47 counterfactual. User-approved, ready now. Also carries the config.getManifest exemption inconsistency |
-| 3 | NCOW-52 | proxy-mutex | NCOW-48 (Done) | To Do | | Bound the remaining unbounded pm2 callbacks in pm2Control — pm2.stop (:653), pm2.start (:628) and pm2.launchBus (:685). Filed at wave-9 integration review with explicit user approval, after BOTH NCOW-48 review passes recommended it as a follow-up and neither filed it. Live hazard: proxy:stop holds mutexes.proxy (which uninstall aliases) with no bound at any layer, so a wedged Stop clicked in the UI still freezes Start/Stop/Restart AND Uninstall AND update:install until restart. shutdown.js bounds only its OWN call, which is why the app stays quittable but a UI Stop is unprotected |
+| 3 | NCOW-52 | proxy-mutex | NCOW-48 (Done) | Dispatched | 10 | Bound the remaining unbounded pm2 callbacks in pm2Control — pm2.stop (:660), pm2.start (:634) and pm2.launchBus (:695), citations re-checked fresh at wave 10 dispatch (drifted +6-10 lines from the task's own text). Filed at wave-9 integration review with explicit user approval, after BOTH NCOW-48 review passes recommended it as a follow-up and neither filed it. Live hazard: proxy:stop holds mutexes.proxy (which uninstall aliases) with no bound at any layer, so a wedged Stop clicked in the UI still freezes Start/Stop/Restart AND Uninstall AND update:install until restart. shutdown.js bounds only its OWN call, which is why the app stays quittable but a UI Stop is unprotected |
 
 ## Resolved
 
