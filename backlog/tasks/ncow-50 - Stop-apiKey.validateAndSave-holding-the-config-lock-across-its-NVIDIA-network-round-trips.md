@@ -42,3 +42,15 @@ The wave-8 integration review of NCOW-47 measured an emergent hazard NCOW-47 int
 5. AC#4 (tray path) proven via real createTrayActions({mutexes, handlers}) construction in a test harness, no live Electron app needed.
 6. AC#7: the obsoleted ipc-mutex.test.js:1113-1149 test reworked in place (not deleted), reason recorded in an adjacent comment block.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-50-move-validation-outside-config-lock (2 commits, pushed to origin). Test counts: 435 before, 439 after (435 pre-existing unmodified + 4 net new/reworked). Non-vacuity: worker stashed just the 3 source files (engine-context.js, ipc.js, mutex.js) and confirmed 5 key tests fail against unfixed source (AC#5 getManifest rework, IPC-layer no-longer-locks test, AC#1 IPC-routed test, AC#1+#2 serialization test, AC#3+#4 end-to-end freeze test), then restored and confirmed 439/439.
+
+AC-by-AC per worker: #1 config lock free during validation (direct handler call + real invoke()). #2 validateAndSave's write still queues behind a config-lock-holding stand-in for config.generate; fails if the internal lock is removed. #3 proven end-to-end with real createEngineContext+registerIpcHandlers+fake pm2Control -- uninstall:run and claude-code:get-status stay live during a hanging validation. #4 proven via real createTrayActions({mutexes, handlers}) -- no live Electron app needed. #5 decided and implemented -- config.getManifest now exempt in UNSERIALIZED_METHODS, ipc-mutex.test.js:344-351 reworked. #6 verified already correct (mutex.js:4-8 already names nim-key.enc from an earlier wave's cleanup) -- no change needed there; separately, mutex.js DOES have a new comment elsewhere (~line 75+) documenting the new self-acquisition pattern for validateAndSave vs the alias table -- this is a distinct, legitimate addition, not a contradiction of the AC#6 claim (confirmed by orchestrator via git diff before dispatching review). #7 obsoleted ipc-mutex.test.js:1113-1149 test reworked in place, reason recorded in an adjacent comment. #8 full npm test passes 439/439.
+
+Did not touch setup-view.js/app.js (the optional nav-guard finding noted in the task description) -- explicitly out of AC scope, backend fix eliminates the freeze regardless of renderer navigation.
+
+Files touched: src/main/engine-context.js, src/main/ipc.js, src/main/mutex.js, test/main/ipc-mutex.test.js. Worker also reported a harness "file modified externally" notice during its own git-stash experiment, independently verified via git status/diff as the expected stash side effect (not an injected attack) before proceeding.
+<!-- SECTION:NOTES:END -->
