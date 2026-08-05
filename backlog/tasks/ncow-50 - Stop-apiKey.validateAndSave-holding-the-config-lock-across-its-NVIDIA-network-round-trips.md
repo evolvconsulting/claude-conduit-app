@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 17:04'
-updated_date: '2026-08-05 22:54'
+updated_date: '2026-08-05 23:13'
 labels:
   - concurrency
 dependencies:
@@ -31,3 +31,14 @@ The wave-8 integration review of NCOW-47 measured an emergent hazard NCOW-47 int
 - [ ] #7 Any test rendered obsolete by moving validateAndSave out of the IPC-level lock (test/main/ipc-mutex.test.js:1106-1142) is reworked rather than deleted, and the reason is recorded
 - [ ] #8 All other pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Root cause: apiKey.validateAndSave (engine-context.js) awaits nvidiaKey.validateApiKey() -- up to two sequential 10s network round trips -- BEFORE touching secretStore, but ipc.js locked the entire method around mutexes.config. Composed with NCOW-45's uninstall alias (reserves claudeCode+config+proxy synchronously, holds all three until settled), a slow/offline NVIDIA endpoint turns one Validate-Key click into a ~20s freeze of window, tray, and every claudeCode/proxy method once Uninstall is clicked.
+2. Fix: list validateAndSave in ipc.js's UNSERIALIZED_METHODS.apiKey (IPC layer no longer wraps it), and have engine-context.js acquire mutexes.config itself, scoped to only the secretStore.save() call -- mirroring configGen.regenerateStaleConfig's runProxyOperation precedent. apiKey.clear untouched (no network component, whole-handler lock via the alias remains correct).
+3. AC#5 decided explicitly: added config.getManifest to UNSERIALIZED_METHODS as a pure read, matching the apiKey.getMasked standard, with test/main/ipc-mutex.test.js:344-351 reworked accordingly.
+4. AC#6 verified, not re-fixed: mutex.js:4-8 already names nim-key.enc from an earlier wave's cleanup PR -- confirmed no change needed.
+5. AC#4 (tray path) proven via real createTrayActions({mutexes, handlers}) construction in a test harness, no live Electron app needed.
+6. AC#7: the obsoleted ipc-mutex.test.js:1113-1149 test reworked in place (not deleted), reason recorded in an adjacent comment block.
+<!-- SECTION:PLAN:END -->
