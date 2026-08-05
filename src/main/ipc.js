@@ -118,11 +118,17 @@ const UNSERIALIZED_METHODS = {
  * engine-context.js) that shares state with an operation the `config`
  * domain already guards: config.generate reads that same key via
  * secretStore.load() *inside* the config lock (engine-context.js's
- * config.generate). Without this alias, clicking Clear Key while a
- * config:generate is in flight could interleave a delete with a read that
+ * config.generate). Without this alias, an in-flight `apikey:clear` IPC call
+ * racing a `config:generate` could interleave a delete with a read that
  * bakes the key into litellm.env, or the reverse ordering could hand
  * generate a NO_KEY failure mid-write against a key a save() had already
- * queued behind it — either way, nothing serialized the two. apiKey has no
+ * queued behind it — either way, nothing serialized the two. (There is
+ * currently no shipped UI caller for the `apiKey.clear` channel at all — see
+ * the `apiKey` entry in src/renderer's actual `window.nimProxy.apiKey.*`
+ * call sites — so today this alias is defence-in-depth against a reachable
+ * IPC race, not a click a user can actually trigger; `validateAndSave` DOES
+ * have a real UI caller, the Setup wizard's "Validate & Save" button, so the
+ * alias is load-bearing for that half regardless.) apiKey has no
  * mutating concern of its own beyond this one, so — like uninstall/update —
  * it gets no dedicated entry in MUTEX_DOMAINS (mutex.js), only this alias.
  * apiKey.getMasked is a pure read and stays exempt via UNSERIALIZED_METHODS

@@ -111,7 +111,15 @@ function createDomainMutex() {
  *     unlocked mkdirSync can land inside the purge critical section: a call
  *     delivered mid-uninstall — while uninstall.js's one
  *     `await pm2Control.remove()` is still pending — lands BEFORE
- *     fs.rmSync(configDir) and is wiped out by that same delete, and even
+ *     fs.rmSync(configDir) and is wiped out by that same delete. (NCOW-48
+ *     nuance: that's the shape when `pm2Control.remove()` resolves. It can
+ *     now also reject — a bounded pm2 timeout — in which case uninstall()
+ *     throws before ever reaching the `opts.purge` branch, so there is no
+ *     `fs.rmSync` call at all in that run for this mkdirSync to race
+ *     against. The "no resurrection" conclusion below holds even more
+ *     directly on that path: nothing deletes the directory in the first
+ *     place, so there is nothing for an unlocked mkdirSync to resurrect.)
+ *     On the resolve path, even
  *     scheduled in the exact same tick as uninstall:run it never lands
  *     between that rmSync and uninstall:run's promise fully settling either:
  *     everything from rmSync onward (removed.push, then the async returns
