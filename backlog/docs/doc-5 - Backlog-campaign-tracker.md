@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-05 15:30'
+updated_date: '2026-08-05 15:40'
 ---
 # Backlog campaign tracker
 
@@ -62,7 +62,7 @@ already gave.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
-As of wave 7 settlement (2026-08-05): 15 resolved (waves 1-7, all Done), 3 newly queued and
+As of wave 8 dispatch (2026-08-05): NCOW-47 Dispatched (solo wave 8 — see wave log); NCOW-48 and NCOW-49 remain To Do and ready, held out of wave 8 only by the conflict graph, not by dependency. Prior note, as of wave 7 settlement (2026-08-05): 15 resolved (waves 1-7, all Done), 3 newly queued and
 ready (NCOW-47, NCOW-48, NCOW-49 — all filed this session from wave 7's integration review with
 explicit user approval), 0 genuinely blocked, 5 excluded pending human decomposition (see Not
 queued). **The confirmed queue as drained at init is now EMPTY — every one of NCOW-32 through
@@ -202,7 +202,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-47 | proxy-mutex | NCOW-46 (Done) | To Do | | Serialize the apiKey IPC domain against the config mutex it shares secretStore state with — closes the unmutexed-domain family NCOW-32/NCOW-45 have been draining one instance at a time; also fixes mutex.js:62-64's non-exhaustive comment. Filed from wave-7 integration review, user-approved, ready now |
+| 1 | NCOW-47 | proxy-mutex | NCOW-46 (Done) | Dispatched | 8 | Serialize the apiKey IPC domain against the config mutex it shares secretStore state with — closes the unmutexed-domain family NCOW-32/NCOW-45 have been draining one instance at a time; also fixes mutex.js:62-64's non-exhaustive comment. Filed from wave-7 integration review, user-approved, ready now |
 | 2 | NCOW-48 | proxy-mutex | NCOW-45 (Done) | To Do | | Bound uninstall.run's unbounded pm2.delete/pm2.dump calls so a wedge cannot freeze the claudeCode+config+proxy locks indefinitely — NCOW-45 widened this blast radius without bounding what can hang. Filed from wave-7 integration review, user-approved, ready now |
 | 3 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved, ready now |
 
@@ -241,6 +241,17 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   product decision first.
 
 ## Wave log
+
+- 2026-08-05 — **wave 8 dispatch (tasks: NCOW-47)** — solo wave. All 3 queued tasks are ready
+  by dependency (NCOW-46/NCOW-45 both Done), but the conflict graph came out fully connected on
+  a fresh file-citation read: NCOW-47 and NCOW-49 both rewrite `src/main/ipc.js` AND
+  `test/main/ipc-mutex.test.js` (hard, certain conflict); NCOW-48's own fix target is
+  `src/engine/pm2Control.js`, but its AC#3/#4 tests must exercise `withLocks()` holding the
+  claudeCode+config+proxy locks, whose only existing home is that same
+  `test/main/ipc-mutex.test.js` — ambiguous, so conservatively treated as conflicting per the
+  skill's over-approximate rule. Greedy over confirmed queue order [47, 48, 49] therefore adds
+  NCOW-47 and skips both others. **Wave 8 = {NCOW-47}.** This confirms the wave-7 handover's
+  prediction of sequential solo waves for this trio, verified fresh rather than trusted.
 
 - 2026-08-05 — **wave 7 (tasks: NCOW-46)**, a solo wave by definition (the only ready task).
   Zero request_changes cycles — **three consecutive waves now approved first-pass** (5, 6, 7),

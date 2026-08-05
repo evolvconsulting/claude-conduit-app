@@ -1,9 +1,10 @@
 ---
 id: NCOW-47
 title: Serialize the apiKey IPC domain against the config mutex it shares state with
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 15:27'
+updated_date: '2026-08-05 15:40'
 labels: []
 dependencies:
   - NCOW-46
