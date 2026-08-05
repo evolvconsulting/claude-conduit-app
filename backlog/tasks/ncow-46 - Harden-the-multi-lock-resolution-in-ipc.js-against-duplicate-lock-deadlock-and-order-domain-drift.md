@@ -3,9 +3,10 @@ id: NCOW-46
 title: >-
   Harden the multi-lock resolution in ipc.js against duplicate-lock deadlock and
   order/domain drift
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 13:11'
+updated_date: '2026-08-05 14:30'
 labels: []
 dependencies:
   - NCOW-45
