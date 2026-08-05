@@ -429,7 +429,7 @@ function spawnDaemon(opts = {}) {
  *   pm2.list, deleteAppIfPresent()'s pm2.delete, save()'s pm2.dump, stop()'s
  *   pm2.stop, startOrRestart()'s pm2.start, and startLogTail()'s
  *   pm2.launchBus — reachable from uninstall.run(), proxy:start/
- *   proxy:restart (via startOrRestart()), proxy:stop, proxy:startLogTail,
+ *   proxy:restart (via startOrRestart()), proxy:stop, proxy:start-log-tail,
  *   and the 5-second status poll (via getStatus() -> findApp() ->
  *   listApps()) — see withTimeout below for why those six specifically
  *   needed it.

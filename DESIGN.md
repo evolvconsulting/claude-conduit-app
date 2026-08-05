@@ -406,12 +406,15 @@ wedge rather than hanging forever — but not every call site can reach all six:
 `remove()`), so it can surface any of those three codes; `startOrRestart()` (proxy
 start/restart) reaches those same three plus its own `pm2.start` (the `save()` call only
 once `startOrRestart()`'s health check has succeeded), so it can surface any of four
-codes; the `proxy:stop` channel and the tray's Stop menu item reach only `stop()` and so
-can only ever surface `PM2_STOP_TIMEOUT`; the `proxy:startLogTail` channel reaches only
-`startLogTail()` and so can only ever surface `PM2_LOG_TAIL_TIMEOUT`; while the 5-second
-status poll reaches only `listApps()` (via `getStatus()` -> `findApp()`) and so can only
-ever surface `PM2_LIST_TIMEOUT`. Unlike the before-quit stop, a timeout on those paths is
-an observable *failure* the caller must handle, not a guarantee that the underlying pm2
+codes; the `proxy:stop` channel and the tray's Stop menu item reach `stop()` and —
+because that handler broadcasts a fresh status afterwards (`engine-context.js`'s
+`handlers.proxy.stop` awaits `pm2Control.getStatus()`) — `listApps()` too, so either can
+surface `PM2_STOP_TIMEOUT` or `PM2_LIST_TIMEOUT`, the latter even when the stop itself
+succeeded; the `proxy:start-log-tail` channel reaches only `startLogTail()` and so can
+only ever surface `PM2_LOG_TAIL_TIMEOUT`; while the 5-second status poll reaches only
+`listApps()` (via `getStatus()` -> `findApp()`) and so can only ever surface
+`PM2_LIST_TIMEOUT`. Unlike the before-quit stop, a timeout on those paths is an
+observable *failure* the caller must handle, not a guarantee that the underlying pm2
 effect completed — see 9.4 and acceptance criterion 5 for what that means for `--purge`
 specifically.)
 
