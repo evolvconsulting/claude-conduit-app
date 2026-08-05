@@ -3,9 +3,10 @@ id: NCOW-42
 title: >-
   Harden the remaining unguarded error chain: updateCheck.js, autoUpdate.js's
   darwin path, and index.js's startup backstop
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 02:39'
+updated_date: '2026-08-05 02:48'
 labels: []
 dependencies:
   - NCOW-40
