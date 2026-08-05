@@ -64,25 +64,35 @@ const UNSERIALIZED_METHODS = {
 };
 
 /**
- * NCOW-32: domains with no independent mutating concern of their own, but
- * whose handlers still reach into the same shared state the `proxy` domain
- * already guards. `uninstall.run()` calls pm2Control.remove() directly
- * (src/engine/uninstall.js), and `update.install()`
- * (installUpdateAndRestart -> stopProxyForShutdown, src/main/autoUpdate.js)
- * stops the very same pm2-supervised proxy the launch-time background
- * restart and a user-clicked Start/Stop/Restart already serialize against
- * each other through mutexes.proxy. Without this, an Uninstall click (or an
- * update install) could interleave with an in-flight restart:
- * pm2Control.remove()'s deleteAppIfPresent()+save() racing the restart's own
+ * NCOW-32: aliases two IPC domains onto the `proxy` mutex because their
+ * handlers reach into the same shared state the `proxy` domain already
+ * guards. This is the domain's *only* mutating concern for `update`:
+ * `update.install()` (installUpdateAndRestart -> stopProxyForShutdown,
+ * src/main/autoUpdate.js) stops the very same pm2-supervised proxy the
+ * launch-time background restart and a user-clicked Start/Stop/Restart
+ * already serialize against each other through mutexes.proxy.
+ *
+ * For `uninstall`, this alias covers that same proxy-mutex concern only —
+ * `uninstall.run()` calls pm2Control.remove() directly
+ * (src/engine/uninstall.js). It is NOT the domain's only mutating concern:
+ * uninstall.run() also removes Claude Code's settings file
+ * (removeClaudeCodeSettings()) and, on purge, deletes the config directory
+ * (fs.rmSync(opts.configDir)) — both already guarded by their own mutexes
+ * (mutexes.claudeCode, mutexes.config respectively), neither of which this
+ * alias table touches. That gap is tracked separately as NCOW-45.
+ *
+ * Without this alias, an Uninstall click (or an update install) could
+ * interleave with an in-flight restart: pm2Control.remove()'s
+ * deleteAppIfPresent()+save() racing the restart's own
  * deleteAppIfPresent()->pm2.start() can leave a running proxy behind after
  * "uninstall complete", or a config directory Uninstall is deleting out from
  * under a restart that is concurrently regenerating it.
  *
  * Deliberately NOT added to MUTEX_DOMAINS in mutex.js — neither domain needs
- * a *lock of its own*, only to share proxy's, so aliasing keeps
- * createDomainMutexes() (and its own "exactly these domains" test in
- * mutex.test.js) describing only the domains with an independent mutating
- * concern.
+ * a *lock of its own* for this proxy-shared concern, only to share proxy's,
+ * so aliasing keeps createDomainMutexes() (and its own "exactly these
+ * domains" test in mutex.test.js) describing only the domains with an
+ * independent mutating concern.
  *
  * Distinct from main/index.js's before-quit shutdown path, which stays
  * deliberately unserialized against this same lock (a wedged pm2 must never
