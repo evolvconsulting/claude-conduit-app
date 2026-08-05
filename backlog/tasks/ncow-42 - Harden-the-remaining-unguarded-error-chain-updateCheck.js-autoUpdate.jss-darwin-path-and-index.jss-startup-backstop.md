@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 02:39'
-updated_date: '2026-08-05 03:01'
+updated_date: '2026-08-05 03:08'
 labels: []
 dependencies:
   - NCOW-40
@@ -80,4 +80,37 @@ committing: 377/377, no unhandled rejections in output.
 Files touched: src/engine/updateCheck.js, src/main/autoUpdate.js, src/main/index.js,
 test/engine/updateCheck.test.js, test/main/autoUpdate.test.js, test/main/index.test.js (new).
 Three commits on the branch, each with a Refs NCOW-42. trailer.
+
+Reviewed by an independent Opus reviewer in the same worktree. VERDICT: approve. All 5 ACs
+independently confirmed (AC#1-5). npm test verified by the reviewer directly: 377/377 passing
+(reconciles exactly with the claimed baseline: +8 updateCheck.test.js, +8 autoUpdate.test.js,
++3 new index.test.js).
+
+Reviewer ran their OWN from-scratch adversarial probe (281 assertions across 7 sections, with
+process-level unhandledRejection/uncaughtException traps armed): 16 hostile thrown shapes x
+multiple layers (fetchImpl throw path, response.json() rejection, 12 hostile response-object
+shapes, the full real chain, 21 hostile injected-updateCheck shapes, the index.js backstop
+alone, and the backstop layered over the full chain). Result: zero unhandled rejections or
+uncaught exceptions anywhere. Non-vacuity reproduced via git checkout dev -- <file> reverts
+(not assumed): reverting updateCheck.js alone -> 7/21 probe failures; reverting autoUpdate.js
+alone -> 5 failures; reverting both -> 7 failures with the real TypeError surfacing; reverting
+index.js alone -> 2/3 new index.test.js failures. All files restored via git checkout HEAD,
+working tree left clean.
+
+Non-blocking findings (all low/info/trivial severity, no fix required): (1) one adjacent
+throwing-getter-on-a-resolved-object shape can still make checkForUpdates() reject in
+autoUpdate.js's darwin path, but index.js's new backstop was independently verified to absorb
+it safely (logs a real string, no unhandled rejection) -- so it does not reproduce the failure
+mode this task exists to kill; noted as a candidate for a future follow-up, not a blocker. (2)
+worker's claim that all 3 full-chain tests fail pre-fix was 2/3 accurate (the third is a
+harmless always-passing positive-path test, not a false defect claim). (3) index.test.js's
+source-text-assertion style for untestable Electron-module-scope code matches this repo's own
+established pattern. (4) commits omit the Claude-Session trailer other dev commits carry
+(cosmetic). (5) updateCheck.js now requires configGen.js (transitively node:fs/crypto) --
+verified no require cycle, no Electron import introduced, matches autoUpdate.js's existing
+pattern. Reviewer explicitly checked for injected/suspicious instructions in this worktree:
+none found (grepped for known patterns, zero hits; git status clean; branch byte-identical to
+origin).
+
+Approved for the merge queue.
 <!-- SECTION:NOTES:END -->
