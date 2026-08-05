@@ -163,8 +163,8 @@ function hangingDeletePm2(apps) {
       calls.push('list');
       cb(null, apps);
     },
-    delete: () => {
-      calls.push('delete');
+    delete: (name) => {
+      calls.push(`delete:${name}`);
       // Never calls back — simulates a wedged daemon.
     },
     dump: (cb) => {
@@ -236,7 +236,7 @@ test('deleteAppIfPresent (via remove): a pm2.list call that never calls back rej
   );
   // list is called (and hangs) before delete is ever attempted.
   assert.ok(pm2.calls.includes('list'));
-  assert.ok(!pm2.calls.includes('delete'), 'pm2.delete must never be reached while pm2.list is still wedged ahead of it');
+  assert.ok(!pm2.calls.some((c) => c.startsWith('delete')), 'pm2.delete must never be reached while pm2.list is still wedged ahead of it');
 });
 
 test('deleteAppIfPresent (via remove): a pm2.delete call that never calls back rejects within the bound instead of hanging forever, and reports PM2_DELETE_TIMEOUT', async () => {
