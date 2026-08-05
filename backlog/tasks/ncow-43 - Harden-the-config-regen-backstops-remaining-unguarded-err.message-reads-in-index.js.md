@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 03:59'
-updated_date: '2026-08-05 12:19'
+updated_date: '2026-08-05 12:26'
 labels: []
 dependencies:
   - NCOW-42
@@ -82,4 +82,38 @@ exports were sufficient, confirming the task description's own claim.
 
 Branch fix/NCOW-43-config-regen-backstop-hardening pushed to origin. Two commits: fix(main)
 hardening the two reads; test(main) adding the regression coverage.
+
+REVIEW (opus, independent): verdict APPROVE. All 4 ACs independently confirmed:
+- AC#1/#2: traced describeThrownValue() line by line (safeReadProperty wraps every property
+  read in try/catch, safeStringify() is total, an outer try/catch backstops all of it) and
+  independently ran a 21-case adversarial sweep (null, undefined, Object.create(null), throwing
+  message getter, throwing-everything Proxy, Proxy with throwing ownKeys/has/
+  getOwnPropertyDescriptor, Symbol .message, throwing toString/valueOf/Symbol.toPrimitive,
+  unstringifiable constructor.name, revoked Proxy, etc.) -- zero throws, always returns a
+  string. Also executed the real extracted statement against 7 hostile result.error shapes for
+  AC#2 specifically -- all logged safely; the Proxy and throwing-getter cases both escaped the
+  .then() handler on unpatched dev.
+- AC#3: reviewer's OWN reproduction (not the worker's claim) -- replaced index.js with dev's
+  version, kept the new tests: 4 pass / 5 fail, with the exact same unhandledRejection
+  ("Cannot read properties of null (reading 'message')") independently reproduced. A separate
+  standalone harness against the unpatched block produced 4 genuine unhandled rejections across
+  4 hostile shapes; the patched block produced 0 across 14 scenarios. Restored the worktree and
+  verified byte-identical to the worker's committed state.
+- AC#4: reviewer's own npm test run: 394/394 passing.
+
+Scope confirmed: exactly 2 files (index.js, index.test.js), zero overlap with NCOW-45's
+footprint (ipc.js/uninstall.js/mutex.js all absent from this diff).
+
+Non-blocking findings (none require a branch change): (1) a sibling unhardened read
+(result?.reason at index.js:112) remains, but is unreachable in practice (result always comes
+from a controlled object literal, never an arbitrary value) and is already absorbed by the
+chained .catch() even in the adversarial case reviewer tested -- confirmed no unhandled
+rejection results either way; (2) one existing test's discriminating assertion is actually its
+branch-attribution check, not its unhandled===null check -- still a correct signal, just a
+minor characterization note; (3) the source-text extraction regex is format-sensitive but fails
+loudly with a clear message rather than silently skipping; (4) a 20-line comment for a 2-line
+change is verbose but every factual claim in it was independently verified accurate; (5)
+incidental diagnostic improvement noted (hostile shapes now log a real description instead of
+the literal string "undefined"). No injected-instruction pattern encountered on this worktree
+(slot 1).
 <!-- SECTION:NOTES:END -->
