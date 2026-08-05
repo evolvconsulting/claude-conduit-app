@@ -3,10 +3,10 @@ id: NCOW-43
 title: >-
   Harden the config-regen backstop's remaining unguarded err.message reads in
   index.js
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 03:59'
-updated_date: '2026-08-05 12:26'
+updated_date: '2026-08-05 13:19'
 labels: []
 dependencies:
   - NCOW-42
@@ -25,10 +25,10 @@ Provenance: NOT a regression from NCOW-41 or NCOW-42. NCOW-37 explicitly scoped 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/main/index.js's config-regen backstop (~line 97) no longer interpolates err.message directly; it uses the existing safe-stringification helpers so it cannot itself throw regardless of what rejects into it
-- [ ] #2 src/main/index.js's line ~94 result.error?.message read is hardened through the same safe-stringification helpers so a throwing getter or hostile Proxy result cannot make the .then() handler itself throw
-- [ ] #3 A regression test demonstrates a hostile/malformed error surfacing from the config-regen path does not produce an unhandled rejection at this backstop, mirroring NCOW-42's own adversarial test rigor
-- [ ] #4 npm test passes
+- [x] #1 src/main/index.js's config-regen backstop (~line 97) no longer interpolates err.message directly; it uses the existing safe-stringification helpers so it cannot itself throw regardless of what rejects into it
+- [x] #2 src/main/index.js's line ~94 result.error?.message read is hardened through the same safe-stringification helpers so a throwing getter or hostile Proxy result cannot make the .then() handler itself throw
+- [x] #3 A regression test demonstrates a hostile/malformed error surfacing from the config-regen path does not produce an unhandled rejection at this backstop, mirroring NCOW-42's own adversarial test rigor
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -117,3 +117,9 @@ incidental diagnostic improvement noted (hostile shapes now log a real descripti
 the literal string "undefined"). No injected-instruction pattern encountered on this worktree
 (slot 1).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened src/main/index.js's config-regen backstop: result.error?.message (~line 94) and bare err.message (~line 97) both now route through describeThrownValue() (src/engine/configGen.js), the same helper NCOW-42 used at the sibling auto-update backstop. Verified by independent opus review: all 4 ACs confirmed via a 21-case adversarial sweep of describeThrownValue() (null, undefined, throwing getters, hostile Proxies, unstringifiable constructors, etc. -- zero throws) plus the reviewer's own reproduction of the exact unhandledRejection the fix prevents (reverting only index.js reproduces TypeError: Cannot read properties of null (reading 'message')). npm test 388 -> 394 passing, then 400 after NCOW-45's sibling merge, then 400 unchanged after the wave-6 doc cleanup pass. Merged as PR #39 (5287a3a). Zero overlap with NCOW-45's parallel work confirmed by both reviews and the wave-6 integration review.
+<!-- SECTION:FINAL_SUMMARY:END -->

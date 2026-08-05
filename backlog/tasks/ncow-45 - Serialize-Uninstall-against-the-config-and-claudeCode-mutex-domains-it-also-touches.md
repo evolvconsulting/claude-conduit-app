@@ -3,10 +3,10 @@ id: NCOW-45
 title: >-
   Serialize Uninstall against the config and claudeCode mutex domains it also
   touches
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 11:43'
-updated_date: '2026-08-05 12:39'
+updated_date: '2026-08-05 13:19'
 labels: []
 dependencies:
   - NCOW-32
@@ -21,12 +21,12 @@ The wave-5 integration review of NCOW-32 found that src/engine/uninstall.js touc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Uninstall's config-directory purge (fs.rmSync(configDir) when purge:true) is serialized against the same mutex config:generate uses, so it cannot interleave with an in-flight config regeneration
-- [ ] #2 Uninstall's removeClaudeCodeSettings() call is serialized against the same mutex claudeCode:configure/claudeCode:remove use, so it cannot interleave with either
-- [ ] #3 The existing NCOW-32 serialization of Uninstall against the proxy mutex (background restart) continues to hold unchanged
-- [ ] #4 No lock-ordering deadlock is introduced for any handler that must now acquire more than one domain lock -- the acquisition order is deliberate and documented
-- [ ] #5 A regression test demonstrates Uninstall can no longer interleave with config:generate or claudeCode:configure/claudeCode:remove
-- [ ] #6 npm test passes
+- [x] #1 Uninstall's config-directory purge (fs.rmSync(configDir) when purge:true) is serialized against the same mutex config:generate uses, so it cannot interleave with an in-flight config regeneration
+- [x] #2 Uninstall's removeClaudeCodeSettings() call is serialized against the same mutex claudeCode:configure/claudeCode:remove use, so it cannot interleave with either
+- [x] #3 The existing NCOW-32 serialization of Uninstall against the proxy mutex (background restart) continues to hold unchanged
+- [x] #4 No lock-ordering deadlock is introduced for any handler that must now acquire more than one domain lock -- the acquisition order is deliberate and documented
+- [x] #5 A regression test demonstrates Uninstall can no longer interleave with config:generate or claudeCode:configure/claudeCode:remove
+- [x] #6 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -142,3 +142,9 @@ follow-up task.
 No injected-instruction pattern encountered on this worktree (slot 2) -- reviewer explicitly
 verified this via independent git checks, not narrative claims.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Widened src/main/ipc.js's DOMAIN_MUTEX_ALIASES.uninstall from a single string ('proxy') to an array (['claudeCode', 'config', 'proxy']), since uninstall.run() genuinely touches all three domains' shared state. Added LOCK_ACQUISITION_ORDER (fixed, alphabetical) and withLocks(), which reserves every needed lock synchronously in the same tick before the handler body runs, so partial-reservation races and lock-ordering deadlocks are structurally impossible -- update and every other single-lock domain stay byte-for-byte on the old code path. Verified by independent opus review with proportionally more scrutiny given the concurrency-primitive complexity: all 6 ACs confirmed via genuine stress-testing (starvation scenarios distinguishing 'reserved' from 'running', two concurrent uninstalls, both async- and sync-throwing fault paths with all locks correctly released, an explicit regression check proving the single-lock path is unchanged via instrumented mutex decorators). npm test 388 -> 394 passing standalone, 400 after rebasing onto NCOW-43, then 400 unchanged after the wave-6 doc cleanup pass. Merged as PR #40 (83f4cc67). The wave-6 integration review additionally ran its own behavioral probes (throwing multi-lock handler, two concurrent multi-lock invocations, queue-race fairness) and found the mechanism sound, while surfacing two latent hardening gaps (duplicate-lock self-deadlock, LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift) -- filed as a fresh follow-up, NCOW-46, per user approval, not folded in here since neither is reachable via the current MUTEX_DOMAINS shape and both are outside this task's own ACs.
+<!-- SECTION:FINAL_SUMMARY:END -->
