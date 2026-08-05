@@ -1009,10 +1009,79 @@ function identifierBoundAsFunctionParam(source, identifier) {
  * review reproduced (`mutexes.proxy = require('./mutex').createDomainMutex()`,
  * matched), and the real call site's own
  * `mutexes.proxy.run(() => handlers.proxy.stop())` read (not matched).
+ *
+ * NCOW-44: NCOW-41's own reviewer flagged (non-blocking, on both review
+ * passes) that the above only ever caught the canonical shape one property-
+ * access level deep — `identifier.prop = ...` / `identifier['prop'] = ...` —
+ * and missed four other JS spellings of the exact same serialization break:
+ *
+ *   - `Object.assign(identifier, { proxy: freshMutex })` — identifier used as
+ *     the mutation TARGET (first argument). `Object.assign({}, identifier)`,
+ *     where identifier is merely a SOURCE spread into some other target, is a
+ *     read and must not match — so this is anchored to the first-argument
+ *     position specifically, not just "identifier appears somewhere in the
+ *     call".
+ *   - `Object.defineProperty(identifier, 'proxy', { value: freshMutex })` —
+ *     same target-position anchoring as Object.assign above.
+ *   - Destructuring-assignment, e.g. `({ proxy: identifier.proxy } = x)` or
+ *     `([identifier.proxy] = x)`. The canonical pattern above requires the
+ *     `=` immediately after the property access, but here a `}`/`]` sits in
+ *     between — which is exactly why it was invisible before. Restricted to
+ *     a single, non-nested `{...}`/`[...]` group: this file's checks are
+ *     deliberately text-only (no parser dependency is available in this
+ *     repo's devDependencies), not a general JS parser, and every real shape
+ *     this call site could plausibly grow is flat, not nested.
+ *   - Logical-assignment forms of the canonical shape: `??=`, `||=`, `&&=`.
+ *     Each of these mutates the left-hand property exactly as a bare `=`
+ *     does whenever its short-circuit condition is met, so it is exactly as
+ *     real a serialization break — it was invisible before only because the
+ *     canonical pattern's `=(?!=)` lookahead never considered what character
+ *     precedes the `=`.
+ *
+ * All five shapes are folded into this one function, rather than kept as
+ * separate sibling checks a caller would have to remember to OR together —
+ * so both existing single-binding tests below (and their own meta-test)
+ * inherit the widened coverage with no change of their own. Verified against
+ * the real index.js (still no match on either identifier — see the
+ * dedicated non-vacuity test further down that splices each of these four
+ * shapes into a real copy of index.js's own source and confirms this
+ * function catches all four where NCOW-41's original, unwidened detector
+ * would have missed every one).
  */
 function identifierPropertyIsAssigned(source, identifier) {
-  const pattern = new RegExp(`\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`);
-  return pattern.test(source);
+  // NCOW-41: the canonical shape — identifier.prop = ... / identifier['prop'] = ...
+  const dotOrBracketAssignment = new RegExp(
+    `\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`
+  );
+
+  // NCOW-44: logical-assignment forms (??=, ||=, &&=) of the same canonical
+  // property-access shape.
+  const logicalAssignment = new RegExp(
+    `\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*(?:\\?\\?=|\\|\\|=|&&=)`
+  );
+
+  // NCOW-44: Object.assign(identifier, {...}) / Object.defineProperty(identifier, 'prop', {...}),
+  // both anchored to identifier appearing in the first-argument (mutation-
+  // target) position, so identifier used purely as a source elsewhere in the
+  // call (e.g. `Object.assign({}, identifier)`) is correctly left alone.
+  const objectAssignTarget = new RegExp(`Object\\.assign\\s*\\(\\s*\\b${identifier}\\b\\s*,`);
+  const definePropertyTarget = new RegExp(`Object\\.defineProperty\\s*\\(\\s*\\b${identifier}\\b\\s*,`);
+
+  // NCOW-44: destructuring-assignment mutating a property of identifier,
+  // e.g. ({ proxy: identifier.proxy } = x) or ([identifier.proxy] = x) —
+  // restricted to a single, non-nested brace/bracket group (see this
+  // function's header comment for why).
+  const destructuringAssignment = new RegExp(
+    `[{\\[][^{}\\[\\]]*\\b${identifier}\\.[A-Za-z_$][\\w$]*[^{}\\[\\]]*[}\\]]\\s*=(?!=)`
+  );
+
+  return (
+    dotOrBracketAssignment.test(source) ||
+    logicalAssignment.test(source) ||
+    objectAssignTarget.test(source) ||
+    definePropertyTarget.test(source) ||
+    destructuringAssignment.test(source)
+  );
 }
 
 test('index.js: the `mutexes` identifier is bound exactly once (the createEngineContext() destructure), with no shadowing re-declaration, bare reassignment, parameter binding, or property mutation anywhere else in the file', () => {
@@ -1214,6 +1283,147 @@ test('index.js: the property-mutation check (used by the mutexes/handlers single
       identifierPropertyIsAssigned(computedMutation, identifier),
       true,
       `expected to catch "${identifier}['proxy']" reassigned via computed-property mutation`
+    );
+
+    // NCOW-44: the four additional spellings of the exact same mutation,
+    // flagged as a real (non-blocking) gap by NCOW-41's own reviewer on both
+    // review passes and reconfirmed by the wave-4 integration review.
+
+    const logicalOrAssignment = `${identifier}.proxy ||= require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(logicalOrAssignment, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via ||= logical-assignment`
+    );
+
+    const logicalAndAssignment = `${identifier}.proxy &&= require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(logicalAndAssignment, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via &&= logical-assignment`
+    );
+
+    const nullishAssignment = `${identifier}.proxy ??= require('./mutex').createDomainMutex();`;
+    assert.equal(
+      identifierPropertyIsAssigned(nullishAssignment, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via ??= logical-assignment`
+    );
+
+    const objectAssignMutation = `Object.assign(${identifier}, { proxy: require('./mutex').createDomainMutex() });`;
+    assert.equal(
+      identifierPropertyIsAssigned(objectAssignMutation, identifier),
+      true,
+      `expected to catch "${identifier}" mutated via Object.assign(${identifier}, { proxy: ... })`
+    );
+
+    const definePropertyMutation = `Object.defineProperty(${identifier}, 'proxy', { value: require('./mutex').createDomainMutex() });`;
+    assert.equal(
+      identifierPropertyIsAssigned(definePropertyMutation, identifier),
+      true,
+      `expected to catch "${identifier}" mutated via Object.defineProperty(${identifier}, 'proxy', {...})`
+    );
+
+    const destructuringMutation = `({ proxy: ${identifier}.proxy } = require('./mutex').createDomainMutexes());`;
+    assert.equal(
+      identifierPropertyIsAssigned(destructuringMutation, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via destructuring-assignment`
+    );
+
+    const arrayDestructuringMutation = `([${identifier}.proxy] = [require('./mutex').createDomainMutex()]);`;
+    assert.equal(
+      identifierPropertyIsAssigned(arrayDestructuringMutation, identifier),
+      true,
+      `expected to catch "${identifier}.proxy" reassigned via array-destructuring-assignment`
+    );
+
+    // Sanity checks (no false positive): the same primitives used
+    // legitimately — as a spread SOURCE, or as a bare (non-assigning)
+    // logical/nullish read, or as an unrenamed destructuring READ of
+    // identifier itself — must not be flagged.
+
+    const objectAssignAsSource = `Object.assign({}, ${identifier});`;
+    assert.equal(
+      identifierPropertyIsAssigned(objectAssignAsSource, identifier),
+      false,
+      `sanity check: "${identifier}" spread as a SOURCE into Object.assign (not the mutation target) must not be flagged`
+    );
+
+    const nullishReadOnly = `const fallback = ${identifier}.proxy ?? defaultMutex;`;
+    assert.equal(
+      identifierPropertyIsAssigned(nullishReadOnly, identifier),
+      false,
+      'sanity check: a bare "??" read (no trailing "=") must not be flagged as a logical-assignment mutation'
+    );
+
+    const logicalOrReadOnly = `if (${identifier}.proxy || fallbackMutex) {}`;
+    assert.equal(
+      identifierPropertyIsAssigned(logicalOrReadOnly, identifier),
+      false,
+      'sanity check: a bare "||" read (no trailing "=") must not be flagged as a logical-assignment mutation'
+    );
+
+    const destructuringReadOnly = `const { proxy } = ${identifier};`;
+    assert.equal(
+      identifierPropertyIsAssigned(destructuringReadOnly, identifier),
+      false,
+      `sanity check: an unrenamed destructuring READ of "${identifier}" itself (not a property mutation of it) must not be flagged`
+    );
+  }
+});
+
+// NCOW-44: proves the four widened spellings above are caught against a
+// REAL copy of index.js's own source — not just the synthetic strings in the
+// meta-test above — and that NCOW-41's original, one-property-access-deep
+// detector would have missed every one of them. This is the standard this
+// campaign's reviewers have consistently demanded (see NCOW-41's own review
+// history: a prior "AC#2 test" was rejected once for having inverted
+// polarity, i.e. not actually proving the guard works). The old detector is
+// reproduced verbatim below (not re-derived) so this comparison is against
+// exactly what NCOW-41 landed, not a paraphrase of it.
+function ncow41OriginalIdentifierPropertyIsAssigned(source, identifier) {
+  const pattern = new RegExp(`\\b${identifier}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\])\\s*=(?!=)`);
+  return pattern.test(source);
+}
+
+test('index.js: non-vacuity proof against REAL index.js source — each NCOW-44 mutation spelling is caught by the widened guard but would have been missed by NCOW-41\'s original one-level-deep detector', () => {
+  const realSource = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+
+  // The real, unmodified source must still pass clean under the widened
+  // guard — proving the widening introduces no new false positive against
+  // the actual call site it protects.
+  assert.equal(identifierPropertyIsAssigned(realSource, 'mutexes'), false);
+  assert.equal(identifierPropertyIsAssigned(realSource, 'handlers'), false);
+  assert.equal(ncow41OriginalIdentifierPropertyIsAssigned(realSource, 'mutexes'), false);
+  assert.equal(ncow41OriginalIdentifierPropertyIsAssigned(realSource, 'handlers'), false);
+
+  const injections = {
+    'Object.assign': "Object.assign(mutexes, { proxy: require('./mutex').createDomainMutex() });\n",
+    'Object.defineProperty':
+      "Object.defineProperty(mutexes, 'proxy', { value: require('./mutex').createDomainMutex() });\n",
+    'destructuring-assignment': "({ proxy: mutexes.proxy } = require('./mutex').createDomainMutexes());\n",
+    'logical-assignment (??=)': "mutexes.proxy ??= require('./mutex').createDomainMutex();\n",
+  };
+
+  for (const [label, injection] of Object.entries(injections)) {
+    // Splicing onto a real copy of index.js's own text (rather than a
+    // wholly synthetic fixture) is the concrete non-vacuity proof NCOW-44
+    // was filed to demand: it shows the widened guard working against the
+    // actual file it protects, not just an isolated string.
+    const mutatedSource = `${realSource}\n${injection}`;
+
+    assert.equal(
+      ncow41OriginalIdentifierPropertyIsAssigned(mutatedSource, 'mutexes'),
+      false,
+      `sanity check: NCOW-41's original one-level-deep detector must NOT catch the ${label} form — ` +
+        'reproducing the historical miss this task exists to close'
+    );
+
+    assert.equal(
+      identifierPropertyIsAssigned(mutatedSource, 'mutexes'),
+      true,
+      `expected the NCOW-44-widened guard to catch the real serialization-break shape spelled as ${label}`
     );
   }
 });
