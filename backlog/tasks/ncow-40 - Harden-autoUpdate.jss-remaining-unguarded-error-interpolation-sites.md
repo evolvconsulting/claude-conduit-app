@@ -4,7 +4,7 @@ title: Harden autoUpdate.js's remaining unguarded error-interpolation sites
 status: In Progress
 assignee: []
 created_date: '2026-08-05 01:43'
-updated_date: '2026-08-05 01:46'
+updated_date: '2026-08-05 01:53'
 labels: []
 dependencies:
   - NCOW-37
@@ -26,3 +26,20 @@ NCOW-37 hardened src/main/autoUpdate.js's electron-updater 'error' event handler
 - [ ] #5 A regression test proves both hardened sites resolve (not reject) when given a hostile/malformed error value, mirroring NCOW-37's own adversarial test style
 - [ ] #6 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Route performCheck()'s catch block's err through the already-imported describeThrownValue() instead of bare err.message.
+2. Route the darwin-path result.error.code/message through safeStringify(safeReadProperty(...)), mirroring configGen.js's own restart-failed pattern.
+3. Refactor describeThrownValue() in configGen.js to call safeReadProperty() for its .message and .constructor.name reads instead of duplicating inline try/catch guards.
+4. Export safeReadProperty from configGen.js so autoUpdate.js can consume it directly, giving safeStringify a genuine external consumer.
+5. Add 8 adversarial regression tests (4 per site) to test/main/autoUpdate.test.js.
+6. Stay within autoUpdate.js, configGen.js, and autoUpdate.test.js only.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented by worker (worktree fix/NCOW-40-autoupdate-remaining-sites, commit aef9941, pushed to origin). performCheck()'s catch now uses describeThrownValue(err); darwin-path uses safeStringify(safeReadProperty(result.error, 'code'/'message')). describeThrownValue() refactored to call safeReadProperty() instead of duplicating inline guards (behavior-preserving). safeReadProperty exported from configGen.js; safeStringify now has a real external consumer (autoUpdate.js's darwin path). 8 new adversarial tests added to test/main/autoUpdate.test.js. npm test: 356/356 passing. Pre-fix verification: stashed only the 2 source files (kept new tests), ran against reverted code -- 17 pass / 8 fail, exactly the 8 new tests, with failure messages matching predicted TypeErrors; confirms genuine regression coverage, not happy-path.
+<!-- SECTION:NOTES:END -->
