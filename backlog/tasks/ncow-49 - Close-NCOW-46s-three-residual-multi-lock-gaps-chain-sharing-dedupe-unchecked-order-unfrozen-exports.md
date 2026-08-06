@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-06 00:27'
+updated_date: '2026-08-06 00:55'
 labels: []
 dependencies:
   - NCOW-46
@@ -30,6 +30,17 @@ NCOW-46's wave-7 integration review confirmed the merged fix is sound but found 
 - [ ] #7 All pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified and npm test passes
 - [ ] #8 No domain in UNSERIALIZED_METHODS may be one whose corresponding engine-side handler self-acquires the SAME mutex it's opting out of IPC-level locking for (the NCOW-50 apiKey.validateAndSave pattern) without a guard against re-introducing IPC-level locking on top of it -- since createDomainMutex's FIFO chain is non-reentrant (chain = run.catch(() => {}), mutex.js:53), stacking both locking layers on the same call self-deadlocks permanently rather than merely slowing down, wedging every domain that transitively waits on that lock (e.g. uninstall's claudeCode+config+proxy via the alias). Deliver via an explicit mechanism (a module-load assertion in the assertLockOrderIsConsistent mould, a reentrancy-detecting change to mutex.js, or an equivalently reasoned guard) plus a test that fails against source lacking the guard -- not a comment alone. A second existing instance of the same self-acquisition SHAPE (engine-context.js:234's runProxyOperation) is confirmed not currently reachable from a locked handler; document this scan so it isn't silently missed if that changes.
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. AC#1/#2 (chain-sharing dedupe): reject the ambiguous injection structurally rather than trying to detect chain-sharing after the fact (impossible in general since closures are opaque). Add assertGenuineMutex()/isDomainMutex() duck-typing on the `.run` property createDomainMutex() always attaches; resolveDomainLocks() calls it on every own-domain and aliased lock before returning it. Zero changes to mutex.js required.
+2. AC#3/#4 (LOCK_ACQUISITION_ORDER's order unchecked): extend assertLockOrderIsConsistent() to additionally verify LOCK_ACQUISITION_ORDER === [...MUTEX_DOMAINS].sort() exactly, converting the doc comment's "alphabetical, easy to re-derive" claim into an executable check.
+3. AC#5 (unfrozen exports): add a deepFreeze() helper; deep-freeze both DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER after LOCK_ACQUISITION_ORDER is declared (a shallow freeze was already proven insufficient against the nested uninstall array).
+4. AC#6 (empty alias array / unknown alias key / alias target missing from injected mutexes): empty-array rejection folded into assertLockOrderIsConsistent(); unknown-alias-key check split into its own assertAliasKeysAreKnownChannelDomains(aliases, channelDomains) (kept separate so existing 3-arg test call sites are untouched); missing-mutex-for-alias-target now throws in resolveDomainLocks() instead of silently dropping.
+5. AC#8 (self-acquisition/UNSERIALIZED_METHODS guard): implement entirely inside ipc.js (per this wave's explicit preference, to avoid a same-file collision with NCOW-53's deferred mutex.js:53 work) via a hand-maintained SELF_ACQUIRING_HANDLERS registry + module-load assertUnserializedMethodsCoverSelfAcquirers(), mirroring the existing assertLockOrderIsConsistent() pattern. Document the scan of the second self-acquisition instance (regenerateStaleConfig's runProxyOperation) and why it's not currently reachable from a locked handler.
+6. Verify AC#7 (no regressions) and produce non-vacuity evidence per new/changed test via targeted revert-and-rerun.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
