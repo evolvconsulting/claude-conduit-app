@@ -1,10 +1,10 @@
 ---
 id: NCOW-53
 title: Surface pm2 stop/start/log-tail timeout errors on the renderer and tray
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-06 16:27'
+updated_date: '2026-08-06 16:46'
 labels: []
 dependencies:
   - NCOW-52
@@ -19,12 +19,12 @@ NCOW-52 bounded pm2Control.stop()/startOrRestart()/startLogTail() with timeouts 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A wedged proxy:stop surfaces a visible error to the user on the renderer Stop button, matching the existing pattern used by #start-btn/#restart-btn (result checked, toast or equivalent shown on !ok)
-- [ ] #2 A wedged proxy:stop issued via the tray Stop menu item surfaces some diagnostic trail (at minimum a console.warn/error) rather than being silently absorbed by mutex.js catch — decide and document the mechanism
-- [ ] #3 A wedged proxy:startLogTail surfaces a visible error on the renderer and resets logTailStarted so a retry is possible, rather than leaving the log pane silently stuck with no error and no way to retry until unmount
-- [ ] #4 A test demonstrates each of the three surfaces above actually shows/logs the error for a genuinely wedged call, and fails against current merged source (non-vacuity reproduced and reported)
-- [ ] #5 Normal (non-wedged) Stop/Start/Restart/log-tail behavior on all three surfaces is unchanged
-- [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 A wedged proxy:stop surfaces a visible error to the user on the renderer Stop button, matching the existing pattern used by #start-btn/#restart-btn (result checked, toast or equivalent shown on !ok)
+- [x] #2 A wedged proxy:stop issued via the tray Stop menu item surfaces some diagnostic trail (at minimum a console.warn/error) rather than being silently absorbed by mutex.js catch — decide and document the mechanism
+- [x] #3 A wedged proxy:startLogTail surfaces a visible error on the renderer and resets logTailStarted so a retry is possible, rather than leaving the log pane silently stuck with no error and no way to retry until unmount
+- [x] #4 A test demonstrates each of the three surfaces above actually shows/logs the error for a genuinely wedged call, and fails against current merged source (non-vacuity reproduced and reported)
+- [x] #5 Normal (non-wedged) Stop/Start/Restart/log-tail behavior on all three surfaces is unchanged
+- [x] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -54,3 +54,30 @@ Scope note from worker: tray Start/Restart have the same latent silent-absorptio
 
 CORRECTION (wave-13 integration review): the evidence claim above — "a genuine unhandled rejection for AC#2's pre-fix tray onStop" — is not accurate. The integration reviewer reconstructed the pre-fix onStop and ran the new test's exact body against it with an unhandledRejection listener installed: it failed at assert.doesNotReject() with AssertionError ("Got unwanted rejection"), not as an actual unhandled rejection — assert.doesNotReject() awaits and handles the rejection itself. The underlying AC#2 fix and its non-vacuity are still sound (the pre-fix code does genuinely reject, which is what the assertion correctly catches); only this task record's characterization of the observed failure mode was wrong. See the wave-13 integration review and the NCOW-53 cleanup PR for the corrected comment text.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Surfaced all 3 previously-silent pm2 timeout paths: the renderer's #stop-btn now checks the
+result and toasts on !ok (matching #start-btn/#restart-btn); startLogTailIfNeeded() resets
+logTailStarted and toasts on failure instead of leaving the log pane permanently stuck; the
+tray's Stop menu item now .catch()s the mutex-guarded call and logs a diagnostic, at the
+tray.js call site rather than inside mutex.js (mutex.js confirmed byte-for-byte untouched by
+two independent reviewers). 4 new tests added (npm test 457 -> 461), each independently
+confirmed non-vacuous (fails against reverted pre-fix source) by both the worker and the
+task-level reviewer. Merged as PR #56 (f20eb5d).
+
+A wave-level integration review then found several of NCOW-53's own new comments/test-comments
+contained factually inaccurate claims about pre-fix behavior (this campaign's recurring
+"correction introduces a false claim" pattern, here appearing in the original PR itself) —
+fixed via a comment-only cleanup pass (PR #57, 9245a9d), each corrected claim independently
+reproduced by that PR's reviewer (including a real-Electron probe for the highest-risk claim).
+A related task-record evidence error (a claimed "unhandled rejection" that was actually a
+caught AssertionError) was also corrected on this task's own notes.
+
+Follow-up NCOW-55 filed (user-approved) for giving the tray a real user-visible error surface
+for Start/Stop/Restart, since console.error alone is invisible in a packaged build and
+Start/Restart were never in this task's AC scope.
+
+Final npm test on merged dev: 461/461.
+<!-- SECTION:FINAL_SUMMARY:END -->
