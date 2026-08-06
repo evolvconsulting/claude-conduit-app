@@ -202,8 +202,13 @@ const UNSERIALIZED_METHODS = {
  * layer: the existing behavioral test suite (ipc-mutex.test.js) drives
  * `apiKey:validateAndSave` through the real registered handler, so stacking
  * IPC-level locking back on top of the still-present inner
- * `mutexes.config.run()` call hangs one of those tests rather than passing
- * silently.
+ * `mutexes.config.run()` call aborts the ipc-mutex.test.js run rather than
+ * passing silently: the deadlocked promise chain leaves nothing on the event
+ * loop, so node's test runner reports a still-pending-promise error and
+ * cancels the remaining tests in that file (rather than the whole suite
+ * hanging) — reproduced directly (removing `validateAndSave` from both
+ * UNSERIALIZED_METHODS.apiKey and SELF_ACQUIRING_HANDLERS): 35 pass, 0 fail,
+ * 29 cancelled, exit code 1, in well under a second.
  */
 const SELF_ACQUIRING_HANDLERS = {
   apiKey: { validateAndSave: 'config' },
