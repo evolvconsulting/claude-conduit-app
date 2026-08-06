@@ -420,7 +420,12 @@ function fakeNotificationDeps({ supported = true } = {}) {
 for (const [method, label, wedgeMessage, code] of [
   ['onStart', 'Start', 'pm2 start timed out after 15000ms', 'PM2_START_TIMEOUT'],
   ['onStop', 'Stop', 'pm2 stop timed out after 15000ms', 'PM2_STOP_TIMEOUT'],
-  ['onRestart', 'Restart', 'pm2 restart timed out after 15000ms', 'PM2_RESTART_TIMEOUT'],
+  // Restart has no timeout code/message of its own: engine-context.js wires
+  // `restart: async () => handlers.proxy.start()`, so a wedged Restart in
+  // production runs pm2Control.js's startOrRestart() and surfaces the
+  // START-path code/message below, not a "restart"-flavored one — there is
+  // no PM2_RESTART_TIMEOUT anywhere in the product.
+  ['onRestart', 'Restart', 'pm2 start timed out after 15000ms', 'PM2_START_TIMEOUT'],
 ]) {
   test(`createTrayActions: NCOW-55 — a wedged (rejecting) tray ${label} shows a native notification, not just console.error (AC#${label === 'Start' ? 2 : label === 'Stop' ? 1 : 3}/AC#4)`, async () => {
     reset();
@@ -524,9 +529,20 @@ test('createTrayActions: NCOW-55 — normal (non-wedged) Start/Restart still res
 // createTray({...}) call site uses (and must keep using verbatim, per the
 // mechanism-choice rationale in tray.js), and the shape every pre-existing
 // test above this block in this file already exercises. Not calling
-// notifyDeps at all must not throw, even on a wedged call — Notification
-// falls back to whatever the lazily-required real `electron` module (or its
-// absence) provides.
+// notifyDeps at all must not throw, even on a wedged call.
+//
+// What "falls back" means here is narrower than it sounds: this file seeds
+// require.cache[require.resolve('electron')] (top of this file, above) with
+// its OWN hand-built fake module — `{ ipcMain, app, shell }`, deliberately no
+// `Notification` key — before tray.js's top-level `require('electron')` ever
+// runs, so tray.js's module-scope `electron` binding IS that fake, not the
+// real Electron module and not an absent one. `notifyFailure()`'s
+// `notifyDeps.Notification ?? electron?.Notification` therefore resolves to
+// `undefined` here purely because this fake happens to omit `Notification`,
+// and that is what this test actually exercises: the safe no-op fallback
+// when `electron.Notification` is undefined. It says nothing about the real
+// production `electron.Notification` default — that was only checked live,
+// outside this suite, by a reviewer's throwaway script during review.
 test('createTrayActions: NCOW-55 — omitting the second (notifyDeps) argument entirely still resolves cleanly on a wedged call (no Electron process required)', async () => {
   reset();
   const mutexes = { proxy: { run: (fn) => fn() } };
