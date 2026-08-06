@@ -4,7 +4,7 @@ title: Surface pm2 stop/start/log-tail timeout errors on the renderer and tray
 status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-06 16:12'
+updated_date: '2026-08-06 16:27'
 labels: []
 dependencies:
   - NCOW-52
@@ -51,4 +51,6 @@ AC#5/#6: npm test 457 -> 461 (4 new tests: 2 dashboard-view.test.js, 2 tray-acti
 mutex.js decision: tray.js call site (per dispatch recommendation), not mutex.js-level — mutex.js diff vs baseline is empty.
 
 Scope note from worker: tray Start/Restart have the same latent silent-absorption gap as Stop did, but out of scope per AC#2's literal wording (Stop only) — flagging for a possible future task, not touched here.
+
+CORRECTION (wave-13 integration review): the evidence claim above — "a genuine unhandled rejection for AC#2's pre-fix tray onStop" — is not accurate. The integration reviewer reconstructed the pre-fix onStop and ran the new test's exact body against it with an unhandledRejection listener installed: it failed at assert.doesNotReject() with AssertionError ("Got unwanted rejection"), not as an actual unhandled rejection — assert.doesNotReject() awaits and handles the rejection itself. The underlying AC#2 fix and its non-vacuity are still sound (the pre-fix code does genuinely reject, which is what the assertion correctly catches); only this task record's characterization of the observed failure mode was wrong. See the wave-13 integration review and the NCOW-53 cleanup PR for the corrected comment text.
 <!-- SECTION:NOTES:END -->
