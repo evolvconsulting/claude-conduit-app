@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-06 02:31'
+updated_date: '2026-08-06 16:01'
 ---
 # Backlog campaign tracker
 
@@ -74,7 +74,24 @@ justification.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 12 SETTLEMENT (2026-08-06)**: **22 resolved** (waves 1-12, all Done), **1
+**As of wave 13 DISPATCH (2026-08-06)**: ground-truth drift check found `dev` in sync with
+`origin/dev` at `6911b78` (before this restore's own NCOW-53 status-flip commit `674f455`),
+clean, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
+matched the wave-12 handover exactly, no drift. **22 resolved** (waves 1-12), **1 queued**
+(NCOW-53, on NCOW-52 Done — the only item in the ready set, so no conflict-graph computation
+was needed to make it solo), 0 genuinely blocked, 5 excluded pending human decomposition
+(re-checked fresh — see Not queued; all five still last-updated 2026-07-31, nothing changed).
+**Wave 13 = {NCOW-53}, solo, by construction of the queue itself.** File citations re-verified
+fresh directly against current source rather than trusted from the handover (see the Queue
+table's NCOW-53 row for the corrected line numbers and the literal-quote-vs-paraphrase
+distinction this found) — the `ipc.js`/`engine-context.js` pair has now drifted in every wave
+that has touched or cited it, without exception, since wave 7. Wave base pinned at `674f455`
+(`674f45540f6b1e08172937e32c78e3321a271b8c` — the commit that flipped NCOW-53 to In Progress;
+no code changed by that commit). Task requires no live-verification of the running proxy/UI — all 4 ACs are satisfiable
+via direct function/harness tests (dashboard-view.js click handlers, tray.js's
+`createTrayActions`, both already unit-tested this way per wave 8/10 precedent).
+
+Prior note, as of wave 12 SETTLEMENT (2026-08-06): **22 resolved** (waves 1-12, all Done), **1
 queued** — NCOW-53 (on NCOW-52, Done) — 0 genuinely blocked, 5 excluded pending human
 decomposition (see Not queued). NCOW-49 merged (PR #54, `d49f86f`) after 1 fix cycle on AC#1
 alone; wave-level integration review then found and fixed 2 stale test counts plus a 4th
@@ -487,7 +504,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | To Do | | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved. NCOW-49 (deferred sibling at wave 12) merged WITHOUT touching mutex.js at all — the predicted collision never materialized (see wave-12 settlement note in Frontier) — but the wave-12 integration review found NCOW-49 added 4 places (ipc.js:117-118/155/233, engine-context.js:309) that quote mutex.js:53's exact `chain = run.catch(() => {})` line as justification for its own AC#8 mechanism; if NCOW-53's fix changes that line's shape, those quotations go stale in the same PR. Also: withLocks() discards each lock's returned promise except the shared one, so mutex.js:53's catch is what marks the other N-1 as handled on a throwing multi-lock path (verified: a naive AC#2 fix that logs-and-rethrows at that line produces 3 unhandled rejections on a throwing 3-lock uninstall, confirmed via direct probe against merged dev) — prefer satisfying AC#2 at the tray.js call site (wrap `mutexes.proxy.run(...).catch(...)`) rather than inside mutex.js itself; if it does touch line 53 anyway, keep a rejection handler attached to `run` and re-verify the throwing-multi-lock case |
+| 1 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | Dispatched | 13 | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved. NCOW-49 (deferred sibling at wave 12) merged WITHOUT touching mutex.js at all — the predicted collision never materialized — but wave 12's integration review found NCOW-49 added quotations/paraphrases of mutex.js:53 as justification for its own AC#8 mechanism. **Re-verified fresh at wave 13 dispatch against current `dev` (`674f455`), all line numbers have drifted again from the wave-12 note, as expected**: only 2 sites literally quote the exact text `chain = run.catch(() => {})` — ipc.js:118 and ipc.js:155 (comments) — a 3rd site, ipc.js:238 (inside a thrown Error string), and engine-context.js:308-309 (a comment) both paraphrase the same non-reentrancy property ("createDomainMutex()...is non-reentrant") without literally quoting the code shape, so they are NOT at risk of going textually stale from a pure code-shape change, only from a change to the non-reentrancy property itself. `withLocks()` (confirmed at ipc.js:747, drifted from the wave-12 note's 755-761) still discards every lock's own `run` promise except the one `sharedRun` it returns/awaits, so mutex.js:53's `.catch(() => {})` remains what marks the other N-1 as handled on a throwing multi-lock path — unchanged from wave 12's verified probe (a naive AC#2 fix that logs-and-rethrows there produces unhandled rejections on a throwing 3-lock `uninstall`). Prefer satisfying AC#2 at the tray.js call site (wrap `mutexes.proxy.run(...).catch(...)`) rather than inside mutex.js itself; if it does touch line 53 anyway, keep a rejection handler attached to `run` and re-verify the throwing-multi-lock case. All 3 user-facing gaps (dashboard-view.js #stop-btn :74-76 bare-await, startLogTailIfNeeded :99-117 sets logTailStarted before the await and never resets it on failure, tray.js onStop :130 fully absorbed) independently re-confirmed still present in current source at dispatch. |
 
 ## Resolved
 
