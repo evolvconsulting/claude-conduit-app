@@ -1,9 +1,10 @@
 ---
 id: NCOW-55
 title: Give the tray a user-visible error surface for wedged Start/Stop/Restart calls
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-06 16:27'
+updated_date: '2026-08-06 16:54'
 labels: []
 dependencies:
   - NCOW-53
