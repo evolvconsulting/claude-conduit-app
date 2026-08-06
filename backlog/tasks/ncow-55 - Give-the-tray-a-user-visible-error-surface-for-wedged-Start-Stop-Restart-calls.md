@@ -1,10 +1,10 @@
 ---
 id: NCOW-55
 title: Give the tray a user-visible error surface for wedged Start/Stop/Restart calls
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-06 16:27'
-updated_date: '2026-08-06 17:28'
+updated_date: '2026-08-06 18:24'
 labels: []
 dependencies:
   - NCOW-53
@@ -21,12 +21,12 @@ This task: give the tray a real user-visible error surface for all three actions
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A wedged tray Stop surfaces a real user-visible error (not just console.error) — e.g. a native OS notification or an IPC-broadcast the renderer can show regardless of which view is mounted
-- [ ] #2 A wedged tray Start surfaces the same kind of user-visible error
-- [ ] #3 A wedged tray Restart surfaces the same kind of user-visible error
-- [ ] #4 A test demonstrates each of the three surfaces above actually shows the error for a genuinely wedged call, and fails against current merged source (non-vacuity reproduced and reported)
-- [ ] #5 Normal (non-wedged) Start/Stop/Restart tray behavior is unchanged
-- [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 A wedged tray Stop surfaces a real user-visible error (not just console.error) — e.g. a native OS notification or an IPC-broadcast the renderer can show regardless of which view is mounted
+- [x] #2 A wedged tray Start surfaces the same kind of user-visible error
+- [x] #3 A wedged tray Restart surfaces the same kind of user-visible error
+- [x] #4 A test demonstrates each of the three surfaces above actually shows the error for a genuinely wedged call, and fails against current merged source (non-vacuity reproduced and reported)
+- [x] #5 Normal (non-wedged) Start/Stop/Restart tray behavior is unchanged
+- [x] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -126,3 +126,43 @@ touched only test/main/tray-actions.test.js (pure addition, no lines removed), n
 from pass 1 confirmed still intact and unregressed. npm test 467/467. Two cosmetic prose notes
 raised but explicitly not blocking. Clean to merge.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Gave the tray a real user-visible error surface for wedged Start/Stop/Restart calls, using
+Electron's native Notification API. Mechanism chosen over an IPC-broadcast alternative
+specifically because the broadcast route required adding a 3rd property to
+createTrayActions({ mutexes, handlers })'s first argument, which breaks 2 pre-existing
+regex-based identity guards (NCOW-35/38/39/41) that hardcode that exact literal substring —
+AC#6 forbids modifying pre-existing tests. Notification needed zero changes to index.js's real
+call site; an optional notifyDeps 2nd argument (mirroring createTray()'s own deps pattern)
+exists for test injection only, confirmed unreachable in production (only one call site exists,
+passing a single argument). 6 new tests added (npm test 461 -> 467), each independently
+confirmed non-vacuous.
+
+3 review passes (opus) — pass 1 approved the implementation's substance (all 6 ACs, plus a live
+Electron Notification probe against the real unwrapped call site) but found 2 comment-only
+issues; pass 2 caught that one "fix" had reintroduced the same defect shifted by one commit (a
+`HEAD~1` reference self-invalidating the moment it was committed, since committing shifts what
+HEAD resolves to); pass 3 confirmed the final fix — an absolute SHA anchored to this branch's
+immutable merge-base — genuinely holds, and independently re-reproduced the underlying
+non-vacuity claim. Merged as PR #58 (76a7c3c).
+
+Wave-level integration review then found real material for the 14th consecutive wave: a
+fabricated pm2 error code/message in the new Restart test row (restart actually delegates to
+start internally, so the real code is PM2_START_TIMEOUT, not an invented PM2_RESTART_TIMEOUT),
+and a mischaracterized comment about which electron module a test exercises (the test's own
+seeded fake, not the real module). Both fixed via a comment/test-data-only cleanup pass (PR #59,
+66d5aa0), 1 review pass, reviewer independently re-verified all 4 source citations for the
+correct pm2 code and re-derived the require.cache seeding claim from the actual code.
+
+3 follow-up tasks filed with user approval: NCOW-56 (tray still silent on a resolved {ok:false}
+failure, the more common real-world case — NCOW-55 only covers thrown/rejected calls), NCOW-57
+(notification deliverability never verified on Windows/Linux; no app.setAppUserModelId() call
+anywhere, and the portable Windows build target installs no AUMID-bearing shortcut), NCOW-58
+(document the app's first-ever OS notification behavior, currently undocumented in
+README/DESIGN.md/CLAUDE.md).
+
+Final npm test on merged dev: 467/467.
+<!-- SECTION:FINAL_SUMMARY:END -->
