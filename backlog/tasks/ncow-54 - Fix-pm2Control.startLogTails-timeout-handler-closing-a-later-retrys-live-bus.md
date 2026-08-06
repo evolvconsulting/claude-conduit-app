@@ -1,10 +1,10 @@
 ---
 id: NCOW-54
 title: Fix pm2Control.startLogTail's timeout handler closing a later retry's live bus
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-05 23:13'
+updated_date: '2026-08-06 00:14'
 labels: []
 dependencies:
   - NCOW-52
@@ -19,12 +19,12 @@ NCOW-52 bounded pm2.launchBus with a manual timeout that, on a late-arriving cal
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The late-arriving callback from a timed-out pm2.launchBus call can no longer close a subsequent, currently-live retry's bus — via a generation counter, an identity check against the bus/socket that was actually returned to the caller, or an equivalently reasoned mechanism
-- [ ] #2 A test reproduces the exact sequence (call #1 wedges and times out, call #2 retries and succeeds, call #1's callback fires late) and demonstrates the live bus from call #2 survives — failing against current merged source (non-vacuity reproduced and reported)
-- [ ] #3 The original leak concern NCOW-52's fix existed for is still addressed: a late callback whose bus is genuinely stale (no subsequent retry) still gets closed rather than leaked
-- [ ] #4 engine-context.js's logTailUnsubscribe state is confirmed correct after this fix — a call that returns {ok:true} means the log tail is actually live, not just that a stale unsubscribe handle was set
-- [ ] #5 Normal (non-wedged, non-retried) startLogTail behavior is unchanged
-- [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 The late-arriving callback from a timed-out pm2.launchBus call can no longer close a subsequent, currently-live retry's bus — via a generation counter, an identity check against the bus/socket that was actually returned to the caller, or an equivalently reasoned mechanism
+- [x] #2 A test reproduces the exact sequence (call #1 wedges and times out, call #2 retries and succeeds, call #1's callback fires late) and demonstrates the live bus from call #2 survives — failing against current merged source (non-vacuity reproduced and reported)
+- [x] #3 The original leak concern NCOW-52's fix existed for is still addressed: a late callback whose bus is genuinely stale (no subsequent retry) still gets closed rather than leaked
+- [x] #4 engine-context.js's logTailUnsubscribe state is confirmed correct after this fix — a call that returns {ok:true} means the log tail is actually live, not just that a stale unsubscribe handle was set
+- [x] #5 Normal (non-wedged, non-retried) startLogTail behavior is unchanged
+- [x] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -58,3 +58,13 @@ Non-blocking findings recorded, none require action: (1) a late bus can still be
 
 Scope confirmed: diff touches only src/engine/pm2Control.js (+37/-5) and test/engine/pm2Control.test.js (+144, zero deletions -- pure append, no pre-existing test modified). Confirmed zero overlap with NCOW-50's concurrent worktree (engine-context.js/ipc.js/mutex.js/ipc-mutex.test.js untouched).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed a defect NCOW-52 itself introduced: pm2Control.js's startLogTail() bounded pm2.launchBus with a manual timeout whose late-callback close-on-timeout branch read pm2's own shared-mutable Client.sub slot at callback-fire time rather than a captured per-call value, so a timed-out call's late callback could close a SUBSEQUENT retry's currently-live bus -- killing a healthy log tail while the actually-stale socket leaked anyway. Genuinely reachable through the shipped UI (dashboard-view.js's navigate-away/back unmount cycle re-issues proxy:startLogTail, exactly the retry-after-timeout sequence).
+
+Fix: a closure-scoped activeLogTailBus variable, set to the bus a call actually resolves with and cleared by that call's own unsubscribe closure only if it still points at that bus; the late-callback branch now closes a late-arriving bus only when it's identity-distinct from activeLogTailBus. Contained entirely inside pm2Control.js, no engine-context.js changes needed.
+
+Approved on the first review pass (opus). All 6 ACs independently confirmed -- the reviewer reproduced non-vacuity itself (git apply -R on just the production diff, not the implementer's stash method) and probed 9 further edge cases with an independently-written shared-slot fake (3-way overlapping calls, unsubscribe-before-late-callback ordering, older-bus-unsubscribe not clobbering a newer bus's slot protection, non-shared-slot pm2 semantics) -- all correct, and confirmed the original leak concern (AC#3) still holds under overlap. npm test 435 -> 436, merged as PR #52 (320a8ca).
+<!-- SECTION:FINAL_SUMMARY:END -->

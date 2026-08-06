@@ -3,10 +3,10 @@ id: NCOW-50
 title: >-
   Stop apiKey.validateAndSave holding the config lock across its NVIDIA network
   round trips
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 17:04'
-updated_date: '2026-08-05 23:25'
+updated_date: '2026-08-06 00:14'
 labels:
   - concurrency
 dependencies:
@@ -22,14 +22,14 @@ The wave-8 integration review of NCOW-47 measured an emergent hazard NCOW-47 int
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 apiKey.validateAndSave's NVIDIA validation round trips no longer occur while the config lock is held; only the secretStore write itself remains inside the critical section
-- [ ] #2 NCOW-47's guarantee is preserved and still proven: a clear or validateAndSave write is still serialized against config.generate's secretStore.load(), demonstrated by a test that still fails if the serialization is removed
-- [ ] #3 A test demonstrates the freeze is gone: with a validateAndSave whose validation step hangs, an uninstall:run issued afterwards no longer blocks the proxy and claudeCode domains for the validation's duration — and the test fails against current merged source (non-vacuity reproduced and reported)
-- [ ] #4 The tray path is covered too, not just the renderer path: Start/Stop/Restart via createTrayActions are shown to stay live during a slow validateAndSave
-- [ ] #5 config.getManifest's exemption status is decided explicitly (added to UNSERIALIZED_METHODS as a pure read, or documented as deliberately serialized) rather than left inconsistent with apiKey.getMasked; if it changes, test/main/ipc-mutex.test.js:344-351 is updated accordingly
-- [ ] #6 src/main/mutex.js:4-6's header enumeration of the state these locks guard is corrected to include the encrypted key file, matching the file's own NCOW-47 paragraph
-- [ ] #7 Any test rendered obsolete by moving validateAndSave out of the IPC-level lock (test/main/ipc-mutex.test.js:1106-1142) is reworked rather than deleted, and the reason is recorded
-- [ ] #8 All other pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 apiKey.validateAndSave's NVIDIA validation round trips no longer occur while the config lock is held; only the secretStore write itself remains inside the critical section
+- [x] #2 NCOW-47's guarantee is preserved and still proven: a clear or validateAndSave write is still serialized against config.generate's secretStore.load(), demonstrated by a test that still fails if the serialization is removed
+- [x] #3 A test demonstrates the freeze is gone: with a validateAndSave whose validation step hangs, an uninstall:run issued afterwards no longer blocks the proxy and claudeCode domains for the validation's duration — and the test fails against current merged source (non-vacuity reproduced and reported)
+- [x] #4 The tray path is covered too, not just the renderer path: Start/Stop/Restart via createTrayActions are shown to stay live during a slow validateAndSave
+- [x] #5 config.getManifest's exemption status is decided explicitly (added to UNSERIALIZED_METHODS as a pure read, or documented as deliberately serialized) rather than left inconsistent with apiKey.getMasked; if it changes, test/main/ipc-mutex.test.js:344-351 is updated accordingly
+- [x] #6 src/main/mutex.js:4-6's header enumeration of the state these locks guard is corrected to include the encrypted key file, matching the file's own NCOW-47 paragraph
+- [x] #7 Any test rendered obsolete by moving validateAndSave out of the IPC-level lock (test/main/ipc-mutex.test.js:1106-1142) is reworked rather than deleted, and the reason is recorded
+- [x] #8 All other pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -62,3 +62,11 @@ Non-blocking findings recorded (none require action to merge, but carried into t
 
 Files touched confirmed: exactly engine-context.js, ipc.js, mutex.js, test/main/ipc-mutex.test.js. Confirmed zero overlap with NCOW-54's files (pm2Control.js/pm2Control.test.js untouched). No setup-view.js/app.js/DESIGN.md changes (nav-guard finding and DESIGN.md staleness both explicitly out of this task's scope).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Moved apiKey.validateAndSave's NVIDIA validation round trips (up to two sequential 10s network calls) outside the config mutex lock, eliminating a measured ~20s freeze of the window, tray, and every claudeCode/proxy IPC method that occurred when Uninstall was clicked during a slow/offline Validate Key attempt. validateAndSave now opts out of ipc.js's automatic locking (UNSERIALIZED_METHODS.apiKey) and self-acquires mutexes.config directly in engine-context.js, scoped to only the secretStore.save() write -- preserving NCOW-47's serialization guarantee while collapsing the hold to milliseconds. apiKey.clear is unchanged. Also decided config.getManifest's exemption explicitly (added to UNSERIALIZED_METHODS) and confirmed AC#6 (mutex.js header) was already satisfied by an earlier wave's cleanup.
+
+Verified via 2 independent review passes (opus, given deeper scrutiny as a concurrency-primitive fix): all 8 ACs confirmed with the reviewer's own traced/reproduced evidence, not the implementer's claims -- including independently falsifying AC#2 by reverting only the lock line, and the reviewer's own probe of apiKey.clear racing the self-acquiring validateAndSave in both directions (no deadlock, FIFO holds). npm test 435 -> 439, merged as PR #51 (fe0ed9d). The reviewer also proved a latent re-entrancy deadlock hazard if the UNSERIALIZED_METHODS entry is ever removed without also removing the self-acquisition -- folded into NCOW-49 as a new AC (user-approved) rather than filed separately, since a separate task would have guaranteed a file conflict with NCOW-49's own ipc.js/mutex.js rework. Several stale comments/docs left behind by this merge were fixed in a follow-up cleanup (PR #53).
+<!-- SECTION:FINAL_SUMMARY:END -->
