@@ -11,9 +11,17 @@ const path = require('node:path');
 // precedent. Non-vacuity for both tests below was verified by hand against
 // the pre-NCOW-53 dashboard-view.js (git-stashed during development): the
 // Stop-button test failed because the old handler never captured a result
-// (`await nimProxy.proxy.stop();` with nothing to check), and the log-tail
-// test failed because the old function had no `if (!r.ok)` branch at all —
-// startLogTail()'s result was discarded outright.
+// (`await nimProxy.proxy.stop();` with nothing to check). The log-tail test
+// also failed against that old source, but not at the `if (!r.ok)` check
+// below: the old function's log-tail call was a bare
+// `await nimProxy.proxy.startLogTail();` with no `const r =` at all, so
+// `fnBody.indexOf('const r = await nimProxy.proxy.startLogTail();')` finds
+// no match and returns -1 — which then trips the ordering assertion right
+// after it (misreported as "logTailStarted must still be set true before
+// the startLogTail() call") rather than ever reaching the `if (!r.ok)`
+// check. The explicit guard assertion added just below the indexOf call
+// exists so a future regression of this kind fails with an accurate,
+// specific message instead.
 
 const RENDERER = path.join(__dirname, '..', '..', 'src', 'renderer');
 const read = (...p) => fs.readFileSync(path.join(RENDERER, ...p), 'utf8');
@@ -47,6 +55,7 @@ test('dashboard: a failed startLogTail surfaces a toast and resets logTailStarte
   // rather than discarded.
   const guardIndex = fnBody.indexOf('logTailStarted = true;');
   const startTailIndex = fnBody.indexOf('const r = await nimProxy.proxy.startLogTail();');
+  assert.ok(startTailIndex >= 0, 'expected a "const r = await nimProxy.proxy.startLogTail();" assignment');
   assert.ok(guardIndex >= 0 && guardIndex < startTailIndex,
     'logTailStarted must still be set true before the startLogTail() call');
 

@@ -138,8 +138,13 @@ function createTray(opts, deps = {}) {
  * a mutex.js-level swallow-removal was considered and rejected — it produces
  * unhandled rejections on any throwing multi-lock call and permanently wedges
  * that lock for every later caller).
+ *
  * @param {{mutexes: {proxy: {run: (fn: () => any) => Promise<any>}}, handlers: {proxy: {start: () => any, stop: () => any, restart: () => any}}}} deps
- * @returns {{onStart: () => Promise<any>, onStop: () => Promise<any>, onRestart: () => Promise<any>}}
+ * @returns {{onStart: () => Promise<any>, onStop: () => Promise<any>, onRestart: () => Promise<any>}} onStop
+ *   never rejects (NCOW-53): its `.catch()` swallows a wedged/failed
+ *   handlers.proxy.stop() after logging it via console.error, so it always
+ *   resolves — to `undefined` on that failure path, or to whatever
+ *   handlers.proxy.stop() resolved with otherwise.
  */
 function createTrayActions({ mutexes, handlers }) {
   return {
