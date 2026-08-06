@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-06 00:55'
+updated_date: '2026-08-06 02:09'
 labels: []
 dependencies:
   - NCOW-46
@@ -80,4 +80,12 @@ AC-by-AC: #1/#2 -- resolveDomainLocks() now rejects (throws) any injected lock l
 mutex.js: confirmed NOT touched at all (verified directly via git diff --stat against the wave base) -- fully avoids the collision risk with NCOW-53 this wave's dispatch was worried about. engine-context.js's only change is comment-only (verified by reading the diff directly): updates a stale "NCOW-49 (queued)" note to describe the now-real guard.
 
 Files touched: src/main/ipc.js (the fix), src/main/engine-context.js (comment-only), test/main/ipc-mutex.test.js (14 new tests, additive only).
+
+Reviewer verdict (opus, deep concurrency-primitive scrutiny, 2 review passes): pass 1 request_changes on AC#1 alone (a transparent wrapper forwarding .run -- new Proxy(realMutex,{}), Object.assign, or a copied .run reference -- evaded isDomainMutex's duck-type check while still sharing the same underlying FIFO chain, reproduced live: 3 locks resolved, handler never entered after 300 ticks; the code's own docstrings over-claimed "reliably tells the two apart"). ACs 2-8 confirmed on pass 1 with the reviewer's own independent reproduction (not just reading tests): AC#2's exact contrived shape reproduced deadlocking on dev, throwing on the branch; AC#3/#4 via mutating a branch copy to reorder LOCK_ACQUISITION_ORDER and observing a module-load throw (silent on dev); AC#5 via 11 mutation shapes in both strict and sloppy mode; AC#6 via mutated-copy module-load probes for empty/typo'd alias keys; AC#7 via a diff-shape check (import addition + pure append only); AC#8 via a mutated branch copy with validateAndSave removed from UNSERIALIZED_METHODS only, confirming a require()-time throw, plus independently reading main/index.js's real call order to confirm runProxyOperation's non-reachability claim. Also independently verified (not just trusted): src/main/mutex.js untouched (identical blob SHA) and engine-context.js's change is comment-only (esprima token-stream comparison, 0 diffs).
+
+Fix pass 1 of 2 allowed: changed resolveDomainLocks()'s dedupe/rejection to key on the lock's .run function identity (not the lock object's own identity), closing every wrapper-forwarding evasion shape the reviewer found, and reworded the two over-claiming docstrings to state the real, narrower guarantee plus the one honestly-documented residual (a wrapper that invents an entirely new, non-forwarded .run function). Also bundled 2 non-blocking findings from the same review: deep-froze the previously-unfrozen SELF_ACQUIRING_HANDLERS (consistent with AC#5's own tables), and reworded a comment that dangled a reference outside the repo into a self-contained one.
+
+Re-review (pass 2) APPROVED, all 8 ACs independently reconfirmed. Reproduced the Proxy/assign/run-copy/own-key-copy-loop shapes directly against the fix (all now dedupe to 2 locks, handler enters and settles; production createDomainMutexes() unaffected); confirmed the claimed residual (a wrapper with a genuinely new, non-forwarded .run) still deadlocks exactly as documented, i.e. honestly disclosed not silently omitted; independently reproduced non-vacuity in an isolated scratch copy (fix-pass-1 blob fails all 3 new tests with the predicted signatures, HEAD passes all 3); re-confirmed mutex.js still untouched and engine-context.js still comment-only. One non-blocking finding noted for the record, not requiring a further fix cycle: the .run-identity keying is a strict widening of the dedupe that could in principle over-collapse two independently-constructed mutexes whose .run properties happen to alias the same function while their outer call syntax differs -- reviewer judged this scenario as requiring a deliberately self-inconsistent, non-idiomatic construction with no realistic trigger in this codebase, and confirmed no docstring overclaims it can't happen.
+
+npm test: 440 -> 454 (initial implementation) -> 457 (fix pass 1, +3 tests: 2 Proxy-wrapper regression tests + 1 SELF_ACQUIRING_HANDLERS freeze test). Both the initial 454 and final 457 counts independently reproduced by the orchestrator and by both review passes, not merely trusted from worker/fix-pass self-reports.
 <!-- SECTION:NOTES:END -->
