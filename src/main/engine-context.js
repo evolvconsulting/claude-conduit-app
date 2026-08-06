@@ -303,21 +303,24 @@ function createEngineContext(deps) {
         // discarded, or the renderer reports success while the key was
         // never actually persisted.
         //
-        // NCOW-49 (queued): this self-acquisition only works because
-        // `validateAndSave` is listed in ipc.js's UNSERIALIZED_METHODS, so
-        // no lock is already held when this line runs. createDomainMutex()
-        // (mutex.js) is non-reentrant: if IPC-level locking were ever
-        // re-added on top of this call (e.g. removing `validateAndSave`
-        // from that array without also removing this line), the outer
-        // acquisition's chain could only resolve after this inner one does
-        // — and this inner one can't even start until the outer one
-        // resolves, since they share the same `mutexes.config` chain. That
-        // is a self-deadlock, not a slow path: `mutexes.config` becomes
-        // permanently unacquirable, wedging every other caller of it
-        // (including uninstall's claudeCode+config+proxy via
-        // DOMAIN_MUTEX_ALIASES) forever, not just for ~20s. This comment is
-        // an interim, documentation-only mitigation; NCOW-49 will add a
-        // real structural guard.
+        // NCOW-49: this self-acquisition only works because `validateAndSave`
+        // is listed in ipc.js's UNSERIALIZED_METHODS, so no lock is already
+        // held when this line runs. createDomainMutex() (mutex.js) is
+        // non-reentrant: if IPC-level locking were ever re-added on top of
+        // this call (e.g. removing `validateAndSave` from that array without
+        // also removing this line), the outer acquisition's chain could only
+        // resolve after this inner one does — and this inner one can't even
+        // start until the outer one resolves, since they share the same
+        // `mutexes.config` chain. That is a self-deadlock, not a slow path:
+        // `mutexes.config` becomes permanently unacquirable, wedging every
+        // other caller of it (including uninstall's claudeCode+config+proxy
+        // via DOMAIN_MUTEX_ALIASES) forever, not just for ~20s. ipc.js's
+        // SELF_ACQUIRING_HANDLERS registry and its module-load
+        // assertUnserializedMethodsCoverSelfAcquirers() call now guard
+        // against exactly this regression: removing `validateAndSave` from
+        // UNSERIALIZED_METHODS without also removing it (and this
+        // self-acquisition) from that registry fails loudly at require()
+        // time instead of silently reintroducing the deadlock.
         const saveResult = await mutexes.config.run(() => secretStore.save(key));
         if (!saveResult.ok) {
           // Reworded (rather than passed through verbatim) so the setup

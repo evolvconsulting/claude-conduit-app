@@ -109,21 +109,20 @@ const UNSERIALIZED_METHODS = {
   // still exactly right for `clear`, which has no network component and is
   // correctly locked for its whole (trivial) body.
   //
-  // NCOW-49 (queued): keeping `validateAndSave` in this array is
-  // load-bearing for CORRECTNESS, not just lock scope. createDomainMutex()
-  // (mutex.js) is non-reentrant — chaining `chain = run.catch(() => {})`
-  // assumes each acquisition is a fresh call into the chain, not a call
-  // already running inside a held lock. If IPC-level locking were ever
-  // re-added on top of engine-context.js's inner mutexes.config.run()
-  // (e.g. by moving `validateAndSave` back out of this array without also
-  // removing its self-acquisition), the outer acquisition would await a
-  // chain that can only resolve after the inner one it's blocking — the two
-  // never resolve, and `mutexes.config` becomes permanently unacquirable:
-  // every other caller of that lock (including uninstall's
-  // claudeCode+config+proxy via DOMAIN_MUTEX_ALIASES) wedges forever, not
-  // just for the ~20s this fix was scoped to bound. This comment is an
-  // interim, documentation-only mitigation; NCOW-49 will add a real
-  // structural guard against re-nesting the two.
+  // NCOW-49: keeping `validateAndSave` in this array is load-bearing for
+  // CORRECTNESS, not just lock scope — see SELF_ACQUIRING_HANDLERS and
+  // assertUnserializedMethodsCoverSelfAcquirers() further down this file for
+  // the real structural guard against removing it from here without also
+  // removing its self-acquisition in engine-context.js. In short:
+  // createDomainMutex() (mutex.js) is non-reentrant — chaining `chain =
+  // run.catch(() => {})` assumes each acquisition is a fresh call into the
+  // chain, not a call already running inside a held lock — so stacking this
+  // file's automatic locking back on top of engine-context.js's inner
+  // mutexes.config.run() would deadlock `mutexes.config` permanently,
+  // wedging every other caller of it too (including uninstall's
+  // claudeCode+config+proxy via DOMAIN_MUTEX_ALIASES), not just for the ~20s
+  // this fix was scoped to bound. That regression now fails loudly at
+  // module load instead of silently reintroducing the deadlock.
   apiKey: ['getMasked', 'validateAndSave'],
   // NCOW-50 AC#5: config.getManifest is an equally pure read of the same
   // manifest.json config.generate writes — manifestStore.readManifest()
@@ -141,6 +140,127 @@ const UNSERIALIZED_METHODS = {
   // config method with a genuine mutating concern, and stays locked.
   config: ['getManifest'],
 };
+
+/**
+ * NCOW-49 AC#8: an explicit, hand-maintained registry of every engine-side
+ * handler that self-acquires one of the shared domain mutexes DIRECTLY
+ * (rather than being wrapped by this file's automatic per-method locking),
+ * paired with which mutex it self-acquires. Today this is exactly one entry:
+ * engine-context.js's apiKey.validateAndSave, which runs
+ * `mutexes.config.run(() => secretStore.save(key))` itself, after opting out
+ * of ipc.js's own locking via UNSERIALIZED_METHODS above (see that entry's
+ * own long comment for the full "why").
+ *
+ * Why this needs its own guard: createDomainMutex()'s FIFO chain (mutex.js)
+ * is non-reentrant — `chain = run.catch(() => {})` assumes every acquisition
+ * is a fresh call into the chain, never a call already running inside a lock
+ * it also holds. If a future edit ever removed `validateAndSave` from
+ * UNSERIALIZED_METHODS.apiKey WITHOUT also removing its self-acquisition in
+ * engine-context.js, this file would go back to wrapping the whole handler
+ * in `mutexes.config` at the IPC layer, on top of the self-acquisition still
+ * inside it — the outer acquisition's chain could only resolve after the
+ * inner one it's blocking, so neither ever does. That is a PERMANENT
+ * deadlock, not a slow path: `mutexes.config` becomes unacquirable for every
+ * other caller of it too (including uninstall's claudeCode+config+proxy via
+ * DOMAIN_MUTEX_ALIASES below), not just for the ~20s NCOW-50 was scoped to
+ * fix.
+ *
+ * assertUnserializedMethodsCoverSelfAcquirers() below turns that regression
+ * from "silently reintroduce a permanent, wedge-everything deadlock" into a
+ * loud module-load crash — the same trade this file already makes for
+ * LOCK_ACQUISITION_ORDER via assertLockOrderIsConsistent(). This registry is
+ * deliberately a hand-maintained allowlist rather than something derived by
+ * scanning engine-context.js's source: the point is that removing
+ * `validateAndSave` from UNSERIALIZED_METHODS requires a DELIBERATE,
+ * corresponding edit here too (or the assertion fails), not that the
+ * assertion tries to infer self-acquisition from source text.
+ *
+ * A second existing instance of the same self-acquisition SHAPE —
+ * configGen.regenerateStaleConfig's injected `runProxyOperation` (`(fn) =>
+ * mutexes.proxy.run(fn)`, engine-context.js) — is deliberately NOT listed
+ * here. Scanned as part of this task (NCOW-49 AC#8): createEngineContext()
+ * invokes regenerateStaleConfig(), and therefore this self-acquisition, once,
+ * synchronously, during its own composition — and main/index.js calls
+ * createEngineContext() BEFORE registerIpcHandlers() ever wires up any
+ * IPC-level locking (see main/index.js's call order). So this second
+ * self-acquisition is not reachable from a locked handler today and cannot
+ * stack with anything. If a future change ever invokes
+ * regenerateStaleConfig/runProxyOperation from inside an IPC handler (or
+ * moves registerIpcHandlers() earlier), it would need its own entry here —
+ * this comment exists so that scan isn't silently forgotten if that changes.
+ *
+ * Scope of assertUnserializedMethodsCoverSelfAcquirers()'s guarantee: it is a
+ * tripwire against ONE specific regression direction — `validateAndSave`
+ * dropped from UNSERIALIZED_METHODS while staying listed here, i.e. this
+ * registry and reality (the method still self-acquires in engine-context.js)
+ * disagreeing with UNSERIALIZED_METHODS. It does NOT, and structurally
+ * cannot, catch the other direction: removing `validateAndSave` from BOTH
+ * UNSERIALIZED_METHODS and this registry together while its self-acquisition
+ * stays in engine-context.js — from this registry's own point of view that
+ * looks like a deliberate, coordinated removal of a self-acquirer, not a
+ * regression. That second direction is still caught, just by a different
+ * layer: the existing behavioral test suite (ipc-mutex.test.js) drives
+ * `apiKey:validateAndSave` through the real registered handler, so stacking
+ * IPC-level locking back on top of the still-present inner
+ * `mutexes.config.run()` call hangs one of those tests rather than passing
+ * silently.
+ */
+const SELF_ACQUIRING_HANDLERS = {
+  apiKey: { validateAndSave: 'config' },
+};
+
+/**
+ * NCOW-49 AC#8: throws if any domain.method named in `selfAcquiring` is
+ * missing from `unserializedMethods` — i.e. if UNSERIALIZED_METHODS no
+ * longer opts a self-acquiring handler out of this file's automatic
+ * per-method locking, which would stack IPC-level locking on top of that
+ * handler's own inner acquisition of the exact same mutex and deadlock it
+ * permanently (see SELF_ACQUIRING_HANDLERS above for the full reasoning).
+ */
+function assertUnserializedMethodsCoverSelfAcquirers(unserializedMethods, selfAcquiring) {
+  const missing = [];
+  for (const [domain, methods] of Object.entries(selfAcquiring)) {
+    const unserializedForDomain = unserializedMethods[domain] ?? [];
+    for (const method of Object.keys(methods)) {
+      if (!unserializedForDomain.includes(method)) missing.push(`${domain}.${method}`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `${JSON.stringify(missing)} self-acquire a shared domain mutex directly (see SELF_ACQUIRING_HANDLERS) but ` +
+        `${missing.length === 1 ? 'is' : 'are'} missing from UNSERIALIZED_METHODS — stacking this file's ` +
+        `automatic IPC-level locking on top of that self-acquisition deadlocks permanently, since ` +
+        `createDomainMutex()'s FIFO chain (mutex.js) is non-reentrant. Re-add ${missing.length === 1 ? 'it' : 'them'} ` +
+        `to UNSERIALIZED_METHODS, or remove the self-acquisition and this registry entry together.`
+    );
+  }
+}
+
+assertUnserializedMethodsCoverSelfAcquirers(UNSERIALIZED_METHODS, SELF_ACQUIRING_HANDLERS);
+
+/**
+ * NCOW-49 AC#5: recursively (not just shallowly) freezes an object/array and
+ * everything nested inside it. A shallow Object.freeze() on
+ * DOMAIN_MUTEX_ALIASES would stop `DOMAIN_MUTEX_ALIASES.apiKey = 'proxy'` or
+ * `delete DOMAIN_MUTEX_ALIASES.apiKey` (freeze makes top-level properties
+ * non-writable/non-configurable) but would NOT stop
+ * `DOMAIN_MUTEX_ALIASES.uninstall.push(...)` or
+ * `DOMAIN_MUTEX_ALIASES.uninstall[0] = ...` — the nested `uninstall` ARRAY
+ * is a separate object the outer freeze never touches. Reversing that
+ * array's order is already harmless (resolveDomainLocks sorts by
+ * LOCK_ACQUISITION_ORDER regardless, see its own comment below), but
+ * adding/removing an element from it is a real membership change — exactly
+ * the class of mutation this whole freeze exists to prevent. Recursing into
+ * every nested value closes that gap for any current or future nested
+ * shape, not just the one array that happens to exist today.
+ */
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
+}
 
 /**
  * NCOW-32: aliases two IPC domains onto the `proxy` mutex because their
@@ -250,6 +370,10 @@ const DOMAIN_MUTEX_ALIASES = {
   update: 'proxy',
   apiKey: 'config',
 };
+// NCOW-49 AC#5: deep-frozen below (after LOCK_ACQUISITION_ORDER is declared)
+// so neither table's membership, nested alias arrays, nor bare-string alias
+// values can be mutated by a consumer after module load in a way that
+// changes real lock resolution — see deepFreeze()'s own doc comment above.
 
 /**
  * NCOW-45: the one and only order in which ANY handler in this file may
@@ -276,29 +400,86 @@ const DOMAIN_MUTEX_ALIASES = {
  * same array, e.g. via resolveDomainLocks() below) rather than inventing an
  * independent order that could conflict with this one and reintroduce the
  * exact risk this comment just ruled out.
+ *
+ * NCOW-49: this order being alphabetical is also what makes it independently
+ * CHECKABLE, not just assertable by comment. assertLockOrderIsConsistent()
+ * below now verifies this array equals `[...MUTEX_DOMAINS].sort()` exactly,
+ * so a future edit that reorders it — in full, or by moving just one domain
+ * (even claudeDesktop, the one domain no alias references, which the
+ * membership checks alone can't catch) — fails loudly at module load instead
+ * of only failing incidentally if some unrelated test's deepEqual happens to
+ * also encode the order.
  */
 const LOCK_ACQUISITION_ORDER = ['claudeCode', 'claudeDesktop', 'config', 'proxy'];
 
+// NCOW-49 AC#5: all three of this file's hand-maintained lock-resolution
+// registries are deep-frozen from here on — see deepFreeze()'s doc comment
+// further up this file for exactly what a SHALLOW freeze would have missed
+// (DOMAIN_MUTEX_ALIASES.uninstall's own nested array) and why that matters
+// (membership changes to it, not just harmless reordering). SELF_ACQUIRING_
+// HANDLERS is included here too (fix pass 2) for the same reason, even though
+// it is declared earlier in the file: deepFreeze() only needs the object to
+// already exist, not to be declared textually after this point, and freezing
+// it here — alongside the other two, after deepFreeze() itself is defined —
+// keeps every "freeze the lock-resolution registries" call in one place
+// instead of splitting it across the file.
+deepFreeze(DOMAIN_MUTEX_ALIASES);
+deepFreeze(LOCK_ACQUISITION_ORDER);
+deepFreeze(SELF_ACQUIRING_HANDLERS);
+
 /**
- * NCOW-46: throws if `order` is not exactly a permutation of `domains`, or if
- * any domain referenced anywhere in `aliases` is missing from `order`.
+ * NCOW-46/49: throws if `order` is not exactly a permutation of `domains`, if
+ * any domain referenced anywhere in `aliases` is missing from `order`, if any
+ * alias entry is an empty array, or if `order`'s actual sequence isn't
+ * exactly alphabetical (see LOCK_ACQUISITION_ORDER's own doc comment for why
+ * that's the checkable invariant).
  *
- * Why this matters: resolveDomainLocks() below sorts by
- * `order.indexOf(domain)`, and Array.prototype.indexOf returns -1 for a
- * domain that isn't listed. With exactly one domain missing, ordering still
- * happens to stay consistent (nothing else compares equal to it). With TWO OR
- * MORE domains missing, they all compare equal (-1 === -1), and
+ * Why membership alone isn't enough (NCOW-46): resolveDomainLocks() below
+ * sorts by `order.indexOf(domain)`, and Array.prototype.indexOf returns -1
+ * for a domain that isn't listed. With exactly one domain missing, ordering
+ * still happens to stay consistent (nothing else compares equal to it). With
+ * TWO OR MORE domains missing, they all compare equal (-1 === -1), and
  * Array.prototype.sort's stability then means their relative order silently
  * collapses to whatever DOMAIN_MUTEX_ALIASES happened to list them in —
  * exactly the acquisition-order inconsistency LOCK_ACQUISITION_ORDER exists
  * to prevent, reintroduced without so much as a warning.
  *
+ * Why membership alone STILL isn't enough (NCOW-49, wave-7 review): none of
+ * the checks above look at `order`'s actual SEQUENCE, only its membership —
+ * so moving a domain (even one no alias references at all, like
+ * claudeDesktop) elsewhere in LOCK_ACQUISITION_ORDER passed every check here
+ * and left the whole test suite green. The alphabetical check added below
+ * closes that: LOCK_ACQUISITION_ORDER's own doc comment already commits to
+ * "alphabetical by domain name... easy to re-derive without consulting this
+ * file", which makes the canonical order independently computable from
+ * `domains` alone (`[...domains].sort()`) rather than needing a second
+ * hand-maintained copy that could itself drift.
+ *
+ * Also NCOW-49: an empty alias array is never meaningful — omitting the
+ * alias entry entirely already means "no lock" unambiguously, so an empty
+ * array can only arise from a mistake (e.g. every element removed in a
+ * refactor) that would otherwise silently drop serialization for every
+ * mutating method of that domain. Rejected outright, unconditionally.
+ *
+ * NCOW-49 AC#6's OTHER named shape — a DOMAIN_MUTEX_ALIASES key that names no
+ * real IPC domain (e.g. a typo like "uninstal") — is deliberately NOT checked
+ * here. That check needs CHANNELS (see assertAliasKeysAreKnownChannelDomains
+ * below), a data source foreign to this function's other three inputs and to
+ * every existing direct call this function already has in ipc-mutex.test.js
+ * (see NCOW-46's original comment on why this is exported: "so a dedicated
+ * test can also exercise it directly against deliberately-broken inputs...
+ * without mutating this module's real constants"). Keeping that check in its
+ * own function, called separately at module load, means this function's
+ * signature and every pre-existing call to it — direct or at module load —
+ * stays exactly as it already was; only the module-load site gains a second,
+ * additional call to the new function.
+ *
  * Called once below, at module load, against the real
- * LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS/DOMAIN_MUTEX_ALIASES: the check is a
- * handful of Set operations over four-element arrays (negligible, and paid
+ * LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS/DOMAIN_MUTEX_ALIASES: every check here
+ * is a handful of Set/sort operations over small arrays (negligible, and paid
  * exactly once per process, not per IPC call), and a drift between these
- * three hand-maintained lists is exactly as broken on a user's machine as it
- * is in CI — a loud require()-time crash here is preferable to a build that
+ * hand-maintained lists is exactly as broken on a user's machine as it is in
+ * CI — a loud require()-time crash here is preferable to a build that
  * silently ships with the acquisition-order guarantee already gone. Exported
  * so a dedicated test can also exercise it directly against
  * deliberately-broken inputs (see ipc-mutex.test.js) without mutating this
@@ -315,6 +496,7 @@ function assertLockOrderIsConsistent(order, domains, aliases) {
         `${JSON.stringify(domains)} (missing: ${JSON.stringify(missingFromOrder)}, unexpected: ${JSON.stringify(unknownInOrder)})`
     );
   }
+
   const aliasedDomains = Object.values(aliases).flatMap((v) => (Array.isArray(v) ? v : [v]));
   const unlistedAliasDomains = [...new Set(aliasedDomains.filter((d) => !orderSet.has(d)))];
   if (unlistedAliasDomains.length > 0) {
@@ -323,9 +505,112 @@ function assertLockOrderIsConsistent(order, domains, aliases) {
         `LOCK_ACQUISITION_ORDER ${JSON.stringify(order)}`
     );
   }
+
+  const emptyAliasKeys = Object.entries(aliases)
+    .filter(([, v]) => Array.isArray(v) && v.length === 0)
+    .map(([k]) => k);
+  if (emptyAliasKeys.length > 0) {
+    throw new Error(
+      `DOMAIN_MUTEX_ALIASES has an empty alias array for: ${JSON.stringify(emptyAliasKeys)} — name at least one ` +
+        `domain to lock, or remove the entry entirely (omission already means "no lock" unambiguously)`
+    );
+  }
+
+  const expectedOrder = [...domains].sort();
+  if (JSON.stringify(order) !== JSON.stringify(expectedOrder)) {
+    throw new Error(
+      `LOCK_ACQUISITION_ORDER ${JSON.stringify(order)} must be exactly the alphabetical ordering of MUTEX_DOMAINS ` +
+        `(expected ${JSON.stringify(expectedOrder)}) — its own doc comment guarantees this order is alphabetical ` +
+        `and independently re-derivable; an unchecked reorder (even one preserving membership, e.g. moving a ` +
+        `domain no alias references) would silently invalidate that guarantee`
+    );
+  }
 }
 
 assertLockOrderIsConsistent(LOCK_ACQUISITION_ORDER, MUTEX_DOMAINS, DOMAIN_MUTEX_ALIASES);
+
+/**
+ * NCOW-49 AC#6: throws if any key of `aliases` (DOMAIN_MUTEX_ALIASES) names
+ * no domain in `channelDomains` (CHANNELS' top-level keys) — a typo'd key
+ * (e.g. "uninstal") is invisible to assertLockOrderIsConsistent() above,
+ * since resolveDomainLocks() is only ever queried with a REAL channel domain
+ * name (registerIpcHandlers() iterates Object.entries(CHANNELS)), so a
+ * misspelled alias key just means the intended domain's alias silently
+ * doesn't exist — degrading it to zero locks with nothing above noticing.
+ *
+ * Kept as its own function, called separately at module load (rather than
+ * folded into assertLockOrderIsConsistent as another parameter), so that
+ * function's signature and every existing call to it — including the
+ * deliberately-broken-input tests in ipc-mutex.test.js that predate this
+ * task — stays completely unchanged; only the module-load site below gains
+ * this second call.
+ */
+function assertAliasKeysAreKnownChannelDomains(aliases, channelDomains) {
+  const channelDomainSet = new Set(channelDomains);
+  const unknownAliasKeys = Object.keys(aliases).filter((k) => !channelDomainSet.has(k));
+  if (unknownAliasKeys.length > 0) {
+    throw new Error(
+      `DOMAIN_MUTEX_ALIASES has key(s) ${JSON.stringify(unknownAliasKeys)} that name no domain in CHANNELS — a ` +
+        `typo'd key here silently vanishes instead of failing (the real domain it was meant to lock then ` +
+        `resolves to zero locks)`
+    );
+  }
+}
+
+assertAliasKeysAreKnownChannelDomains(DOMAIN_MUTEX_ALIASES, Object.keys(CHANNELS));
+
+/**
+ * NCOW-49 AC#1: true for anything that at least LOOKS like a lock produced by
+ * createDomainMutex()/createDomainMutexes() (mutex.js) — duck-typed on the
+ * `.run` property that constructor unconditionally attaches (see mutex.js's
+ * own JSDoc: `{((fn) => Function) & {run: (fn) => Promise<any>}}`). A bare,
+ * hand-rolled wrapper with no `.run` of its own at all, e.g.
+ * `(fn) => realMutex(fn)` or `realMutex.bind(null)`, does NOT carry `.run` —
+ * only the thing it forwards to does — so this rejects those outright.
+ *
+ * This check is deliberately NARROWER than its name might suggest: it does
+ * NOT prove `lock` is the exact object createDomainMutex() returned, only
+ * that it exposes a `.run` function. A transparent forwarding wrapper around
+ * a real mutex — `new Proxy(realMutex, {})`, `Object.assign(w, realMutex)`,
+ * or `w.run = realMutex.run` — carries a `.run` too (the Proxy forwards
+ * property access, and the other two copy the reference), so it passes THIS
+ * check while still being a distinct object from `realMutex`. Closing that
+ * gap is not this function's job: see resolveDomainLocks()'s dedupe step
+ * below, which keys on `lock.run` identity rather than `lock` identity for
+ * exactly this reason. A wrapper that invents an entirely NEW `.run` function
+ * of its own (one that internally calls through to the real chain rather
+ * than forwarding/copying the existing `.run` reference) would still evade
+ * both this check's spirit and that dedupe — but doing so requires writing
+ * new indirection code, unlike the three forwarding shapes above, which are
+ * the idiomatic way to transparently wrap an existing object in JS.
+ *
+ * Why this matters: the wave-7 integration review found that two DISTINCT
+ * functions can silently forward onto the SAME underlying FIFO chain without
+ * resolveDomainLocks()'s (then identity-based) dedupe (`seen.has(lock)`) ever
+ * seeing them as equal — e.g. `{ claudeCode: (fn) => s(fn), config: s, proxy:
+ * p }` resolves `uninstall` to what LOOKS like 3 distinct locks, but two of
+ * them share one chain, so withLocks() reserves that chain twice and the
+ * second reservation can never get its turn: a permanent deadlock,
+ * reintroducing NCOW-46's hazard through indirection instead of literal
+ * reuse. This check alone stops the no-`.run`-at-all shape; it takes the
+ * `.run`-identity dedupe below to also stop the three forwarding shapes.
+ */
+function isDomainMutex(value) {
+  return typeof value === 'function' && typeof value.run === 'function';
+}
+
+function assertGenuineMutex(lock, domain) {
+  if (!isDomainMutex(lock)) {
+    throw new Error(
+      `resolveDomainLocks: mutexes.${domain} is not a lock produced by createDomainMutex()/createDomainMutexes() ` +
+        `(mutex.js) — a wrapper or hand-rolled function here can silently share another domain's underlying FIFO ` +
+        `chain without being caught by identity-based dedupe, reintroducing NCOW-46's deadlock through ` +
+        `indirection (NCOW-49). Pass the exact function createDomainMutex()/createDomainMutexes() returned, not ` +
+        `a wrapper around it.`
+    );
+  }
+  return lock;
+}
 
 /** Resolves the ordered list of locks a domain's methods must hold before
  *  running: its own single lock if MUTEX_DOMAINS covers it, else its
@@ -333,7 +618,9 @@ assertLockOrderIsConsistent(LOCK_ACQUISITION_ORDER, MUTEX_DOMAINS, DOMAIN_MUTEX_
  *  table lists one domain or several, sorted into LOCK_ACQUISITION_ORDER
  *  regardless of the order the table happens to list them in — so a future
  *  edit to that table can't silently invert the acquisition order — and
- *  deduplicated by resolved lock identity), else an empty array.
+ *  deduplicated by resolved lock's `.run` identity, NOT the lock object's own
+ *  identity — see the NCOW-49 fix-pass-2 paragraph below for why), else an
+ *  empty array.
  *
  *  NCOW-46: the dedupe step matters even though no current
  *  DOMAIN_MUTEX_ALIASES entry resolves two of its aliased domains to the same
@@ -345,21 +632,68 @@ assertLockOrderIsConsistent(LOCK_ACQUISITION_ORDER, MUTEX_DOMAINS, DOMAIN_MUTEX_
  *  underlying FIFO chain twice for the same call, and the second reservation
  *  can never get its turn — its own release depends on the shared run it is
  *  blocking, a permanent deadlock. Deduping degrades that case to holding the
- *  shared mutex once instead. */
+ *  shared mutex once instead.
+ *
+ *  NCOW-49 fix pass 1: every lock this function is about to return
+ *  (own-domain or aliased) is validated by assertGenuineMutex() — this
+ *  rejects a bare wrapper with no `.run` of its own at all (e.g.
+ *  `(fn) => s(fn)`), which was the wave-7 review's original probe.
+ *
+ *  NCOW-49 fix pass 2 (this fix): fix pass 1's dedupe still keyed on the lock
+ *  OBJECT's own identity (`seen.has(lock)`), which a follow-up review then
+ *  showed is not enough on its own — a TRANSPARENT forwarding wrapper around
+ *  a genuine mutex (`new Proxy(realMutex, {})`, `Object.assign(w,
+ *  realMutex)`, or `w.run = realMutex.run`) is a distinct object from
+ *  `realMutex`, so it survives assertGenuineMutex() (it does carry a `.run`)
+ *  AND survives object-identity dedupe (it isn't `===` to `realMutex`), while
+ *  still sharing `realMutex`'s exact underlying FIFO chain — reintroducing
+ *  NCOW-46's deadlock through a second layer of indirection. All three of
+ *  those forwarding shapes copy or forward the ORIGINAL `.run` function by
+ *  reference rather than creating a new one, so `wrapper.run ===
+ *  realMutex.run` holds for all three even though `wrapper === realMutex`
+ *  does not. Keying dedupe on `lock.run` instead of `lock` itself catches all
+ *  three, and still catches literal same-object reuse too (if `wrapper ===
+ *  realMutex`, then trivially `wrapper.run === realMutex.run`), so this is a
+ *  strict widening of fix pass 1's dedupe, not a replacement of a different
+ *  kind. It does NOT catch a wrapper that defines a brand-new `.run` function
+ *  which merely calls through to the real chain internally (`w.run = (fn) =>
+ *  realMutex.run(fn)`) — that requires deliberately writing new indirection
+ *  code, unlike the three idiomatic "wrap an existing object" shapes above,
+ *  and remains an accepted, deliberately-scoped-out residual limitation.
+ *
+ *  Also (implementation-note #4 from NCOW-49): an alias target whose mutex is
+ *  entirely ABSENT from the injected `mutexes` set used to be silently
+ *  dropped here (`if (!lock || seen.has(lock)) continue`) — pre-existing from
+ *  NCOW-45, and worse after NCOW-47/50 since it could degrade `apiKey` all
+ *  the way to zero locks, indistinguishable from a domain deliberately left
+ *  unlocked. That is now a loud throw instead of a silent degrade. */
 function resolveDomainLocks(mutexes, domain) {
-  if (mutexes[domain]) return [mutexes[domain]];
+  if (mutexes[domain]) return [assertGenuineMutex(mutexes[domain], domain)];
   const alias = DOMAIN_MUTEX_ALIASES[domain];
   if (!alias) return [];
   const aliasDomains = Array.isArray(alias) ? alias : [alias];
   const sorted = [...aliasDomains].sort(
     (a, b) => LOCK_ACQUISITION_ORDER.indexOf(a) - LOCK_ACQUISITION_ORDER.indexOf(b)
   );
-  const seen = new Set();
+  // Keyed on `lock.run` identity, not `lock` identity — see this function's
+  // own doc comment (NCOW-49 fix pass 2) for why a wrapper object can be
+  // `!==` its underlying mutex while still forwarding/copying the exact same
+  // `.run` reference, and so must dedupe as "the same lock" anyway.
+  const seenRuns = new Set();
   const locks = [];
   for (const d of sorted) {
     const lock = mutexes[d];
-    if (!lock || seen.has(lock)) continue;
-    seen.add(lock);
+    if (!lock) {
+      throw new Error(
+        `resolveDomainLocks: "${domain}" aliases onto "${d}" (see DOMAIN_MUTEX_ALIASES) but mutexes.${d} is ` +
+          `missing from the injected mutex set — this would silently drop serialization for every mutating ` +
+          `method of "${domain}" instead of failing. Pass the complete set createDomainMutexes() produces, not ` +
+          `a hand-built subset.`
+      );
+    }
+    assertGenuineMutex(lock, d);
+    if (seenRuns.has(lock.run)) continue;
+    seenRuns.add(lock.run);
     locks.push(lock);
   }
   return locks;
@@ -524,4 +858,13 @@ module.exports = {
   assertLockOrderIsConsistent,
   DOMAIN_MUTEX_ALIASES,
   LOCK_ACQUISITION_ORDER,
+  // NCOW-49 AC#6: exported for the same reason assertLockOrderIsConsistent
+  // above is — so ipc-mutex.test.js can exercise it directly against
+  // deliberately-broken inputs.
+  assertAliasKeysAreKnownChannelDomains,
+  // NCOW-49 AC#8: exported so ipc-mutex.test.js can exercise the
+  // self-acquirer guard directly against deliberately-broken inputs, the
+  // same pattern assertLockOrderIsConsistent above already established.
+  assertUnserializedMethodsCoverSelfAcquirers,
+  SELF_ACQUIRING_HANDLERS,
 };
