@@ -198,14 +198,20 @@ test('createTrayActions: negative control — a DIFFERENT (shadowed) mutex set f
 // pm2Control.stop()'s PM2_STOP_TIMEOUT rejection, NCOW-52) propagated as a
 // rejection of the promise mutexes.proxy.run() hands back — mutex.js's
 // `chain = run.catch(() => {})` only protects its OWN internal chain, not
-// that returned promise — and nothing in tray.js awaited or caught it, so it
-// vanished with no console output and no other trace at all. Reproduced here
-// against the actual createTrayActions() from source: this test fails on the
-// pre-fix `onStop: () => mutexes.proxy.run(() => handlers.proxy.stop())`
-// because that expression has no `.catch()`, so the rejection surfaces as an
-// unhandled promise rejection instead of a caught, logged one — `await
-// actions.onStop()` below would throw instead of resolving, and
-// console.error would never run.
+// that returned promise — and nothing in tray.js awaited or caught it, so in
+// the real Electron click handler it vanished with no console output and no
+// other trace at all. Reproduced here against the actual createTrayActions()
+// from source: this test fails on the pre-fix
+// `onStop: () => mutexes.proxy.run(() => handlers.proxy.stop())` because
+// that expression has no `.catch()`. Verified directly (temporarily
+// reverting tray.js's onStop to that shape and running this file under
+// `node --test`): the observed failure is a plain, caught AssertionError
+// from `assert.doesNotReject(() => actions.onStop())` below (operator
+// 'doesNotReject', "Got unwanted rejection") — assert.doesNotReject itself
+// awaits and catches the rejection, so this is a normal, reported test
+// failure, not a Node unhandledRejection event; none fired during that run.
+// What genuinely never happens pre-fix is the console.error call the
+// assertions after this one check for.
 test('createTrayActions: NCOW-53 — a wedged (rejecting) proxy.stop surfaces via console.error instead of vanishing silently', async () => {
   reset();
   const mutexes = { proxy: { run: (fn) => fn() } };

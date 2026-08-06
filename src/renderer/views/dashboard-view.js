@@ -118,12 +118,24 @@ async function startLogTailIfNeeded() {
   const r = await nimProxy.proxy.startLogTail();
   if (!r.ok) {
     // NCOW-53: without this, a wedged startLogTail (PM2_LOG_TAIL_TIMEOUT)
-    // left logTailStarted permanently true with no error shown and no
-    // subscription ever attached — the log pane stayed stuck at whatever was
-    // seeded above, silently, until the view unmounted. Resetting the flag
-    // means the guard at the top of this function no longer blocks a later
-    // call (e.g. leaving and returning to this view re-mounts it, which
-    // re-runs this function from scratch) — that later call is the retry.
+    // left logTailStarted true with no error ever shown to the user. Pre-fix
+    // the code below didn't check the result at all, so the onLogLine
+    // subscription just below was still reached and attached even on this
+    // failure path — what never happened was an actual log line arriving,
+    // because the wedge is on the main-process side: pm2Control.startLogTail()
+    // never obtains a working pm2 bus to broadcast from. So the log pane
+    // stayed stuck at whatever was seeded above, silently, for as long as
+    // this view stayed mounted.
+    //
+    // Resetting the flag here is mostly hygiene, not what enables a retry:
+    // unmount() already resets logTailStarted whenever it was true, and the
+    // router (router.js's render()) always calls unmount() before the next
+    // mount(), so leaving and returning to this view could already retry
+    // startLogTailIfNeeded() before this fix. What the reset here avoids is
+    // unmount() treating this failed attempt as an active tail — calling
+    // stopLogTail() and a stale unsubscribeLog() pointlessly, since this
+    // early return skips the reassignment below. The toast on the next line
+    // is the actually new, user-visible behavior.
     logTailStarted = false;
     toast(`Log streaming failed: ${r.error?.message}`, { kind: 'error' });
     return;
