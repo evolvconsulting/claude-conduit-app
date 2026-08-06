@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-06 00:17'
+updated_date: '2026-08-06 00:27'
 ---
 # Backlog campaign tracker
 
@@ -74,9 +74,56 @@ justification.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 11 SETTLEMENT (2026-08-05/06)**: **21 resolved** (waves 1-11, all Done), **2
-queued** — NCOW-49 (on NCOW-46, Done) and NCOW-53 (on NCOW-52, Done), confirmed mutually
-disjoint at wave-11 dispatch, expected to pair cleanly as wave 12 with zero greedy-drop — 0
+**As of wave 12 DISPATCH (2026-08-06)**: ground-truth drift check found `dev` in sync with
+`origin/dev` at `7be35cd`, clean, all wave-11 PRs (#51/#52/#53) merged, no leftover
+branches/worktrees/PRs, all 4 treehouse trees available (none leased) — matched the wave-11
+handover exactly, no drift. **21 resolved** (waves 1-11), **2 queued, both confirmed ready by
+dependency** (NCOW-49 on NCOW-46 Done; NCOW-53 on NCOW-52 Done), 0 genuinely blocked, 5 excluded
+pending human decomposition (re-checked fresh — see Not queued; all five still last-updated
+2026-07-31, nothing changed).
+
+**Conflict graph RECOMPUTED FRESH rather than trusted from the wave-11 dispatch note below** —
+and it reverses that note's own "no edge NCOW-49 ↔ NCOW-53" conclusion. That prior conclusion
+predates NCOW-49's own AC#8 (added during wave 11's settlement, after the wave-11 dispatch
+conflict graph was computed). AC#8's own text explicitly authorizes implementing its guard as
+"a reentrancy-detecting change to mutex.js" — one of three named options, alongside a
+module-load assertion in ipc.js (the `assertLockOrderIsConsistent` mould) or an "equivalently
+reasoned guard." Independently, this doc's own Critical-context note already confirms
+`src/main/mutex.js` as "a hub file for this cluster too, not just ipc.js" from wave 11's own
+fresh read, which found NCOW-53's AC#2 (surfacing the tray Stop's silently-absorbed rejection)
+targets the exact same file — `mutex.js:53`'s deliberate `chain = run.catch(() => {})`. Read
+directly against current source at this restore (`src/main/mutex.js`, `src/main/tray.js`,
+`src/renderer/views/dashboard-view.js`, `src/main/ipc.js`, all re-read fresh): NCOW-53's AC#2 is
+plausibly satisfiable without touching mutex.js at all (wrapping `tray.js`'s
+`createTrayActions().onStop` in its own `.catch` is the minimal fix, since `withLock`'s `run` —
+the promise it actually returns — is not itself already caught, only the internal `chain`
+variable is); and NCOW-49's AC#8 is plausibly satisfiable entirely inside `ipc.js` too (a second
+module-load assertion alongside `assertLockOrderIsConsistent`, matching the file's own
+established pattern). But "plausible minimal path" is not the same as "guaranteed" for either —
+AC#8 names mutex.js as an explicitly sanctioned alternative, and the wave-11 integration
+reviewer that filed AC#8 itself described NCOW-49's own surface as an "ipc.js/mutex.js rework."
+Given this file is a proven, not merely hypothetical, hub file for this exact pairing one wave
+ago (NCOW-50 ↔ NCOW-53 both genuinely touched it), and per this skill's own over-approximate-on-
+ambiguity rule (echoing wave 8's identical judgment call on NCOW-48 ↔ NCOW-49's shared test
+file): **treat NCOW-49 ↔ NCOW-53 as conflicting for wave 12's purposes.** Greedy over the
+confirmed queue order [NCOW-49, NCOW-53]: NCOW-49 added (first in confirmed order); NCOW-53
+skipped (conflicts with NCOW-49, already in wave). **Wave 12 = {NCOW-49}, solo.** NCOW-53
+deferred to wave 13, where its actual footprint should be re-verified fresh against whatever
+NCOW-49 actually lands as (the standing lesson: a pre-implementation conflict prediction is
+provisional either way, and this campaign has seen it resolve wrong in both directions — NCOW-32
+predicted-but-didn't touch a shared file at wave 4/5; NCOW-50/53 predicted-and-did at wave 11).
+Wave base pinned at `7be35cd` (`7be35cdb3862881391eb85983063d0c998c3e341`). Neither NCOW-49 nor
+NCOW-53 appears to require live-verifying the running proxy/UI as written (NCOW-49 is pure
+unit-level concurrency-primitive work; NCOW-53's ACs are all satisfiable via direct
+function/harness tests per the precedent set by wave 8's `createTrayActions` probe and wave 10's
+`pm2.launchBus` mocking) — moot for this wave since only one task is dispatched, but noted for
+wave 13.
+
+Prior note, as of wave 11 SETTLEMENT (2026-08-05/06): **21 resolved** (waves 1-11, all Done),
+**2 queued** — NCOW-49 (on NCOW-46, Done) and NCOW-53 (on NCOW-52, Done), confirmed mutually
+disjoint at wave-11 dispatch (a conclusion the wave-12 dispatch note above has since reversed,
+once NCOW-49's own AC#8 existed to consider), expected to pair cleanly as wave 12 with zero
+greedy-drop — 0
 genuinely blocked, 5 excluded pending human decomposition (see Not queued). Both wave-11 tasks
 approved on their first review pass; NCOW-50 (given deeper scrutiny as a concurrency-primitive
 fix) needed none, NCOW-54 needed none either. The wave-level integration review found real
@@ -417,8 +464,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | To Do | | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved. AMENDED at wave 11 with a new AC#8 (user-approved): guard against a proven latent re-entrancy deadlock if a future maintainer removes an UNSERIALIZED_METHODS entry whose engine-side handler self-acquires the same mutex without also removing the self-acquisition (createDomainMutex is non-reentrant). Disjoint from NCOW-53, expected to pair cleanly in wave 12 — re-derive fresh regardless, file citations have drifted again (see NCOW-49's own recorded notes) |
-| 2 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | To Do | | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved. Citations confirmed clean at wave-11's integration review (dashboard-view.js/tray.js untouched this wave; mutex.js:53 unmoved, NCOW-50's own mutex.js addition landed below it) — disjoint from NCOW-49, expected to pair cleanly in wave 12 |
+| 1 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | Dispatched | 12 | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved. AMENDED at wave 11 with a new AC#8 (user-approved): guard against a proven latent re-entrancy deadlock if a future maintainer removes an UNSERIALIZED_METHODS entry whose engine-side handler self-acquires the same mutex without also removing the self-acquisition (createDomainMutex is non-reentrant). Wave-12 dispatch REVERSED the wave-11 "disjoint from NCOW-53" call: AC#8 itself names mutex.js as a sanctioned implementation surface, and mutex.js is a proven hub file for this exact pairing (NCOW-50/NCOW-53 both touched it at wave 11) — dispatched solo instead, see Frontier |
+| 2 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | To Do | | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved. DEFERRED to wave 13 at wave-12 dispatch: AC#2's own target (mutex.js:53) creates a live conflict risk with NCOW-49's AC#8, which explicitly names mutex.js as a possible implementation surface too — re-verify its actual footprint fresh once NCOW-49 has actually landed, not from this note |
 
 ## Resolved
 
@@ -461,6 +508,18 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   product decision first.
 
 ## Wave log
+
+- 2026-08-06 — **wave 12 dispatched (tasks: NCOW-49)**: ground-truth drift check found `dev` in
+  sync with `origin/dev` at `7be35cd`, clean, all wave-11 PRs merged, no leftover
+  branches/worktrees/PRs, all 4 treehouse trees available — matched the wave-11 handover exactly,
+  no drift. Conflict graph recomputed fresh over the full ready set {NCOW-49, NCOW-53} rather
+  than trusted from the wave-11 dispatch note: reversed that note's "no edge NCOW-49 ↔ NCOW-53"
+  conclusion, since NCOW-49's own AC#8 (added after that note was written) explicitly names
+  `mutex.js` as a sanctioned implementation surface and `mutex.js` is a proven hub file for this
+  exact pairing (NCOW-50/NCOW-53 both touched it at wave 11). Treated as conflicting per this
+  skill's over-approximate-on-ambiguity rule — see Frontier for the full reasoning. Greedy over
+  confirmed queue order [NCOW-49, NCOW-53]: NCOW-49 added; NCOW-53 skipped (conflicts, already
+  in wave). **Wave 12 = {NCOW-49}, solo.** Wave base pinned at `7be35cd`.
 
 - 2026-08-05/06 — **wave 11 (tasks: NCOW-50, NCOW-54)**: dispatched as recorded below, both
   approved on their first task-level review pass (NCOW-50 given deeper scrutiny as a
