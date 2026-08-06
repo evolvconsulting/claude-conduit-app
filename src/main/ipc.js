@@ -109,12 +109,12 @@ const UNSERIALIZED_METHODS = {
   // still exactly right for `clear`, which has no network component and is
   // correctly locked for its whole (trivial) body.
   //
-  // NCOW-49 (queued): removing `validateAndSave` from this array is
+  // NCOW-49 (queued): keeping `validateAndSave` in this array is
   // load-bearing for CORRECTNESS, not just lock scope. createDomainMutex()
   // (mutex.js) is non-reentrant — chaining `chain = run.catch(() => {})`
   // assumes each acquisition is a fresh call into the chain, not a call
   // already running inside a held lock. If IPC-level locking were ever
-  // re-added on top of engine-context.js's inner mutexes.config.run() below
+  // re-added on top of engine-context.js's inner mutexes.config.run()
   // (e.g. by moving `validateAndSave` back out of this array without also
   // removing its self-acquisition), the outer acquisition would await a
   // chain that can only resolve after the inner one it's blocking — the two
@@ -201,8 +201,8 @@ const UNSERIALIZED_METHODS = {
  * depth against a reachable IPC race, not a click a user can actually
  * trigger. As of NCOW-50 below, `validateAndSave` no longer resolves its
  * lock through this alias at all, so the alias is load-bearing only for
- * `clear` — which, per the point just made, has no UI caller of its own
- * either.) apiKey has no
+ * `clear` — which, per the point just made above, is the one of apiKey's
+ * two mutating methods with no UI caller of its own.) apiKey has no
  * mutating concern of its own beyond this one, so — like uninstall/update —
  * it gets no dedicated entry in MUTEX_DOMAINS (mutex.js), only this alias.
  * apiKey.getMasked is a pure read and stays exempt via UNSERIALIZED_METHODS

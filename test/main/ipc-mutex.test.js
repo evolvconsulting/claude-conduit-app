@@ -1121,17 +1121,24 @@ test('ipc: NCOW-46 AC#4 — a DOMAIN_MUTEX_ALIASES target absent from an otherwi
   );
 });
 
-// --- NCOW-47: apiKey's mutating methods (validateAndSave, clear) alias onto
-// the `config` lock, because config.generate reads the exact same
-// secretStore state (secretStore.load()) inside that lock. Before this task,
-// resolveDomainLocks(mutexes, 'apiKey') returned an empty array — apiKey had
-// neither a MUTEX_DOMAINS entry nor a DOMAIN_MUTEX_ALIASES entry — so an
-// apikey:clear IPC call could interleave with an in-flight config:generate.
-// (There is no shipped UI caller for apiKey.clear — the Setup wizard's real
-// buttons are "Validate & Save" and "Continue" — so the reachable half of
-// that is the `apikey:clear` channel itself, not a click; `validateAndSave`
-// DOES have a real UI caller, the Setup wizard's "Validate & Save" button
-// (setup-view.js) — see src/main/ipc.js's DOMAIN_MUTEX_ALIASES comment.)
+// --- NCOW-47: apiKey's mutating methods (validateAndSave, clear) were both
+// aliased onto the `config` lock, because config.generate reads the exact
+// same secretStore state (secretStore.load()) inside that lock. Before this
+// task, resolveDomainLocks(mutexes, 'apiKey') returned an empty array —
+// apiKey had neither a MUTEX_DOMAINS entry nor a DOMAIN_MUTEX_ALIASES entry
+// — so an apikey:clear IPC call could interleave with an in-flight
+// config:generate. (There is no shipped UI caller for apiKey.clear — the
+// Setup wizard's real buttons are "Validate & Save" and "Continue" — so the
+// reachable half of that is the `apikey:clear` channel itself, not a click;
+// `validateAndSave` DOES have a real UI caller, the Setup wizard's
+// "Validate & Save" button (setup-view.js).)
+//
+// NCOW-50: only `clear` still resolves through this alias table now.
+// `validateAndSave` no longer aliases onto `config` here — it acquires
+// `mutexes.config` directly inside engine-context.js, around just the
+// secretStore.save() call, after its NVIDIA validation round trip has
+// already settled. See src/main/ipc.js's UNSERIALIZED_METHODS and
+// DOMAIN_MUTEX_ALIASES comments for the full rationale.
 
 test('ipc: NCOW-47 AC#1 — resolveDomainLocks() resolves apiKey onto the config lock (single alias, not a new mechanism)', () => {
   const mutexes = createDomainMutexes();
