@@ -4,7 +4,7 @@ title: Surface pm2 stop/start/log-tail timeout errors on the renderer and tray
 status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-06 16:00'
+updated_date: '2026-08-06 16:12'
 labels: []
 dependencies:
   - NCOW-52
@@ -26,3 +26,29 @@ NCOW-52 bounded pm2Control.stop()/startOrRestart()/startLogTail() with timeouts 
 - [ ] #5 Normal (non-wedged) Stop/Start/Restart/log-tail behavior on all three surfaces is unchanged
 - [ ] #6 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Re-read dashboard-view.js, tray.js, mutex.js fresh in the worktree.
+2. AC#1: dashboard-view.js's #stop-btn handler captures the result and toasts on !ok, matching #start-btn/#restart-btn.
+3. AC#3: startLogTailIfNeeded() captures startLogTail()'s result; on !ok resets logTailStarted=false, toasts, and returns before subscribing onLogLine.
+4. AC#2: implemented at the tray.js call site (not inside mutex.js) — .catch(err => console.error(...)) appended to onStop's mutexes.proxy.run(...) call. mutex.js left byte-for-byte untouched.
+5. Added tests for all three surfaces (empirically confirmed non-vacuous via git stash of pre-fix source), ran full suite, updated CLAUDE.md/README.md test counts, committed in 3 logical commits, pushed.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented on fix/NCOW-53-surface-timeout-errors (b7bfc14..872b622, 3 commits), pushed.
+
+AC#1: dashboard-view.js #stop-btn now `const r = await nimProxy.proxy.stop(); if (!r.ok) toast('Stop failed: ...')` — matches #start-btn/#restart-btn exactly.
+AC#2: tray.js onStop wraps mutexes.proxy.run(() => handlers.proxy.stop()) in .catch(err => console.error('[tray] Stop failed:', err?.code, err?.message)). mutex.js:53 confirmed byte-identical to baseline (untouched) — the swallowed `chain` variable is internal sequencing state only; the `run` promise handed back to the caller was already unswallowed, so the fix needed no mutex.js change and ipc.js:118/155's literal quotations of mutex.js:53 remain accurate.
+AC#3: startLogTailIfNeeded() captures startLogTail()'s result; on !ok resets logTailStarted=false, toasts, returns before subscribing onLogLine (enables retry).
+AC#4 (non-vacuity): each new test independently confirmed to fail against pre-fix source via git stash/revert/restore of the exact file, then stash pop to restore the fix — reported exact failure messages for all 3 surfaces (assertion text for AC#1/#3's static source checks; a genuine unhandled rejection for AC#2's pre-fix tray onStop).
+AC#5/#6: npm test 457 -> 461 (4 new tests: 2 dashboard-view.test.js, 2 tray-actions.test.js), all 457 pre-existing tests pass unmodified, full suite green. CLAUDE.md/README.md test counts updated to 461.
+
+mutex.js decision: tray.js call site (per dispatch recommendation), not mutex.js-level — mutex.js diff vs baseline is empty.
+
+Scope note from worker: tray Start/Restart have the same latent silent-absorption gap as Stop did, but out of scope per AC#2's literal wording (Stop only) — flagging for a possible future task, not touched here.
+<!-- SECTION:NOTES:END -->
