@@ -38,8 +38,13 @@ const {
   assertLockOrderIsConsistent,
   DOMAIN_MUTEX_ALIASES,
   LOCK_ACQUISITION_ORDER,
+  // NCOW-49
+  assertAliasKeysAreKnownChannelDomains,
+  assertUnserializedMethodsCoverSelfAcquirers,
+  SELF_ACQUIRING_HANDLERS,
 } = require('../../src/main/ipc');
 const { createDomainMutex, createDomainMutexes, MUTEX_DOMAINS } = require('../../src/main/mutex');
+const { CHANNELS } = require('../../src/main/ipc-channels');
 const { createPm2Control } = require('../../src/engine/pm2Control');
 const { uninstall: runUninstall } = require('../../src/engine/uninstall');
 // NCOW-50 AC#3/#4: engine-context.js has no `require('electron')` at module
@@ -2057,4 +2062,256 @@ test('ipc+engine-context+tray: NCOW-50 AC#3+#4 — a validateAndSave whose valid
       await withSafetyTimeout(saveRun, 2000, "validateAndSave did not settle after its validation gate was finally released");
     });
   });
+});
+
+// --- NCOW-49: closes three residuals the wave-7 integration review of
+// NCOW-46 found in the merged fix — chain-sharing dedupe, an unchecked
+// LOCK_ACQUISITION_ORDER sequence, and unfrozen exports — plus AC#8 (folded
+// in during wave 11), a guard against re-stacking IPC-level locking on top
+// of an engine-side handler that already self-acquires the same mutex.
+
+// AC#1+#2: identity-based dedupe (seen.has(lock)) only catches literal
+// same-function reuse. Two DISTINCT functions that both forward onto the
+// SAME underlying createDomainMutex() chain (one wrapped, one raw) evade it
+// and reintroduce NCOW-46's duplicate-reservation deadlock through
+// indirection. Fix chosen: reject the injection of anything that isn't a
+// genuine, unwrapped createDomainMutex() output in the first place (duck
+// typed on the `.run` property that constructor always attaches — no change
+// to mutex.js needed, wrappers simply don't carry it), rather than trying to
+// detect the sharing after the fact.
+
+test('ipc: NCOW-49 AC#1 — resolveDomainLocks() rejects a wrapper function that forwards onto the same underlying mutex chain as another aliased domain, instead of silently returning it as a third, undeduped lock', () => {
+  const s = createDomainMutex();
+  const p = createDomainMutex();
+  // The exact contrived shape the wave-7 review's probe used: `claudeCode`'s
+  // entry is a NEW function that forwards to `s`, so `seen.has(lock)`
+  // (identity-based) never sees it as equal to `config`'s literal `s`.
+  const mutexes = { claudeCode: (fn) => s(fn), config: s, proxy: p };
+
+  assert.throws(
+    () => resolveDomainLocks(mutexes, 'uninstall'),
+    /not a lock produced by createDomainMutex/,
+    'a wrapped mutex must be rejected at resolution time instead of silently deadlocking downstream'
+  );
+});
+
+test('ipc: NCOW-49 AC#2 — end to end, registerIpcHandlers() itself throws when given the wrapper-function chain-sharing fixture, so uninstall:run can no longer be constructed in a way that deadlocks it', () => {
+  reset();
+  const s = createDomainMutex();
+  const p = createDomainMutex();
+  const mutexes = { claudeCode: (fn) => s(fn), config: s, proxy: p };
+
+  // registerIpcHandlers() calls resolveDomainLocks() once per CHANNELS domain
+  // during registration itself (not lazily per call), so this throws
+  // synchronously before any handler is ever registered — the classic
+  // "uninstall:run never enters its handler after N microtask ticks"
+  // deadlock signature from the wave-7 review can no longer even be
+  // constructed, because there is no longer any point at which invoke()
+  // could be called at all against this fixture.
+  assert.throws(
+    () =>
+      registerIpcHandlers(
+        { uninstall: { run: async () => ({ ok: true, data: { removed: [], kept: [] } }) } },
+        { mutexes }
+      ),
+    /not a lock produced by createDomainMutex/
+  );
+});
+
+test('ipc: NCOW-49 — a genuine, unwrapped mutex reused across two aliased domains is still accepted and deduped (no regression to NCOW-46 AC#1)', () => {
+  const shared = createDomainMutex();
+  const mutexes = { claudeCode: shared, config: shared, proxy: createDomainMutex() };
+  const locks = resolveDomainLocks(mutexes, 'uninstall');
+  assert.equal(locks.length, 2, 'literal reuse of the same genuine mutex must still dedupe to one entry, not throw');
+});
+
+test('ipc: NCOW-49 (implementation-note #4) — an alias target whose mutex is entirely missing from the injected set is now rejected instead of silently degrading serialization', () => {
+  // Before this fix: resolveDomainLocks({ proxy: createDomainMutex() }, 'apiKey')
+  // silently returned []  (apiKey aliases onto `config`, which isn't in this
+  // partial set) — indistinguishable from a domain deliberately left
+  // unlocked. Same shape degraded `uninstall` from 3 locks to 1.
+  const partial = { proxy: createDomainMutex() };
+  assert.throws(
+    () => resolveDomainLocks(partial, 'apiKey'),
+    /missing from the injected mutex set/,
+    'apiKey aliasing onto a missing mutexes.config must fail loudly, not resolve to zero locks'
+  );
+  assert.throws(
+    () => resolveDomainLocks(partial, 'uninstall'),
+    /missing from the injected mutex set/,
+    'uninstall aliasing onto missing targets must fail loudly, not silently degrade from 3 locks to 1'
+  );
+});
+
+// AC#3+#4: LOCK_ACQUISITION_ORDER's membership was checked, but never its
+// actual sequence — moving a domain (even one no alias references, like
+// claudeDesktop) passed every existing check and left the whole suite green.
+// Fix: LOCK_ACQUISITION_ORDER's own doc comment already commits to
+// "alphabetical by domain name... easy to re-derive without consulting this
+// file" — assertLockOrderIsConsistent() now verifies that promise directly.
+
+test('ipc: NCOW-49 AC#3+#4 — moving claudeDesktop (the one domain no alias references) elsewhere in LOCK_ACQUISITION_ORDER is now caught by assertLockOrderIsConsistent() itself, not just an incidental deepEqual in an unrelated test', () => {
+  const reordered = ['claudeDesktop', 'claudeCode', 'config', 'proxy'];
+  assert.throws(
+    () => assertLockOrderIsConsistent(reordered, MUTEX_DOMAINS, DOMAIN_MUTEX_ALIASES),
+    /must be exactly the alphabetical ordering/,
+    'a membership-preserving reorder of a domain no alias references must still be caught'
+  );
+});
+
+test('ipc: NCOW-49 AC#3 — a full inversion of LOCK_ACQUISITION_ORDER is now caught by assertLockOrderIsConsistent() itself, delivering ipc.js\'s own stated guarantee rather than only an incidental deepEqual elsewhere in this file', () => {
+  const inverted = [...LOCK_ACQUISITION_ORDER].reverse();
+  assert.throws(
+    () => assertLockOrderIsConsistent(inverted, MUTEX_DOMAINS, DOMAIN_MUTEX_ALIASES),
+    /must be exactly the alphabetical ordering/
+  );
+});
+
+// AC#5: DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER used to be exported
+// as live, mutable references — resolveDomainLocks() reads the module-scope
+// bindings, so a consumer mutating the exported object changed real lock
+// resolution after the module-load assertions had already passed. A SHALLOW
+// freeze would stop top-level reassignment/deletion but not a nested array's
+// own mutation (DOMAIN_MUTEX_ALIASES.uninstall.push(...)) — deepFreeze()
+// closes both.
+
+test('ipc: NCOW-49 AC#5 — DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER are deep-frozen, so no consumer mutation after module load (top-level, nested array, or bare-string alias value) can change real lock resolution', () => {
+  assert.ok(Object.isFrozen(DOMAIN_MUTEX_ALIASES), 'DOMAIN_MUTEX_ALIASES itself must be frozen');
+  assert.ok(Object.isFrozen(DOMAIN_MUTEX_ALIASES.uninstall), 'the nested uninstall array must ALSO be frozen — a shallow freeze would not do this');
+  assert.ok(Object.isFrozen(LOCK_ACQUISITION_ORDER), 'LOCK_ACQUISITION_ORDER itself must be frozen');
+
+  assert.throws(() => {
+    DOMAIN_MUTEX_ALIASES.apiKey = 'proxy';
+  }, TypeError, 'reassigning an existing alias entry must be rejected');
+
+  assert.throws(() => {
+    delete DOMAIN_MUTEX_ALIASES.apiKey;
+  }, TypeError, 'deleting an alias entry must be rejected — this exact mutation fully reverted NCOW-47\'s fix pre-freeze');
+
+  assert.throws(() => {
+    DOMAIN_MUTEX_ALIASES.uninstall.push('somethingElse');
+  }, TypeError, 'a SHALLOW freeze would not have caught this — the nested array must be frozen too');
+
+  assert.throws(() => {
+    DOMAIN_MUTEX_ALIASES.uninstall[0] = 'proxy';
+  }, TypeError, 'overwriting a nested array element must be rejected');
+
+  assert.throws(() => {
+    LOCK_ACQUISITION_ORDER.reverse();
+  }, TypeError, 'mutating the exported order array must be rejected');
+
+  assert.throws(() => {
+    LOCK_ACQUISITION_ORDER.push('extra');
+  }, TypeError);
+
+  // Real resolution is provably unaffected by every mutation attempted above
+  // (each threw before landing).
+  const mutexes = createDomainMutexes();
+  assert.equal(
+    resolveDomainLocks(mutexes, 'uninstall').length,
+    3,
+    'uninstall must still resolve to all three locks — none of the attempted mutations above actually landed'
+  );
+  assert.deepEqual(
+    resolveDomainLocks(mutexes, 'apiKey'),
+    [mutexes.config],
+    'apiKey must still resolve onto config — deleting the alias entry above did not actually take effect'
+  );
+});
+
+// AC#6: an empty alias array, and a DOMAIN_MUTEX_ALIASES key naming no real
+// CHANNELS domain, are each explicitly handled rather than left implicit.
+// (implementation-note #4's third named shape — an alias TARGET missing from
+// the injected mutexes set — is handled above, in resolveDomainLocks().)
+
+test('ipc: NCOW-49 AC#6 — an empty DOMAIN_MUTEX_ALIASES array is rejected outright (naming zero domains to lock is never meaningful; the entry should be removed instead)', () => {
+  const aliases = { ...DOMAIN_MUTEX_ALIASES, update: [] };
+  assert.throws(
+    () => assertLockOrderIsConsistent(LOCK_ACQUISITION_ORDER, MUTEX_DOMAINS, aliases),
+    /empty alias array/i
+  );
+});
+
+test('ipc: NCOW-49 AC#6 — a DOMAIN_MUTEX_ALIASES key that names no real CHANNELS domain (e.g. a typo like "uninstal") is caught by assertAliasKeysAreKnownChannelDomains() when given the real channel domains, as the module-load call site does', () => {
+  const aliases = { ...DOMAIN_MUTEX_ALIASES };
+  aliases.uninstal = aliases.uninstall;
+  delete aliases.uninstall;
+
+  assert.throws(
+    () => assertAliasKeysAreKnownChannelDomains(aliases, Object.keys(CHANNELS)),
+    /name no domain in CHANNELS/
+  );
+});
+
+test('ipc: NCOW-49 AC#6 — the module-load call site actually wires assertAliasKeysAreKnownChannelDomains against the real DOMAIN_MUTEX_ALIASES/CHANNELS, not only exists for tests to call manually', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'ipc.js'), 'utf8');
+  assert.match(
+    source,
+    /^assertAliasKeysAreKnownChannelDomains\(DOMAIN_MUTEX_ALIASES,\s*Object\.keys\(CHANNELS\)\);/m,
+    'must call the alias-key/CHANNELS consistency check against the real constants at module scope'
+  );
+});
+
+// AC#7: pre-existing tests are asserted to still pass, unmodified, via the
+// full `npm test` run recorded in this task's evidence — nothing further to
+// add here beyond not having touched them.
+
+// AC#8: no domain in UNSERIALIZED_METHODS may be one whose engine-side
+// handler self-acquires the SAME mutex it opts out of IPC-level locking for,
+// without a guard against re-introducing IPC-level locking on top of it.
+// Delivered entirely inside ipc.js (SELF_ACQUIRING_HANDLERS +
+// assertUnserializedMethodsCoverSelfAcquirers), deliberately NOT as a
+// mutex.js reentrancy change — see this task's own evidence for why.
+
+test('ipc: NCOW-49 AC#8 — removing apiKey.validateAndSave from UNSERIALIZED_METHODS (re-introducing IPC-level locking on top of its self-acquired config lock) is caught at module load, not left to silently deadlock', () => {
+  const brokenUnserializedMethods = {
+    proxy: ['getStatus', 'getRecentLogs'],
+    update: ['check'],
+    apiKey: ['getMasked'], // validateAndSave removed — the exact regression this guards against
+    config: ['getManifest'],
+  };
+  assert.throws(
+    () => assertUnserializedMethodsCoverSelfAcquirers(brokenUnserializedMethods, SELF_ACQUIRING_HANDLERS),
+    /self-acquire a shared domain mutex directly/
+  );
+});
+
+test('ipc: NCOW-49 AC#8 — the guard does not fire against the real, correctly-configured UNSERIALIZED_METHODS (no false positive)', () => {
+  const correctUnserializedMethods = {
+    proxy: ['getStatus', 'getRecentLogs'],
+    update: ['check'],
+    apiKey: ['getMasked', 'validateAndSave'],
+    config: ['getManifest'],
+  };
+  assert.doesNotThrow(() =>
+    assertUnserializedMethodsCoverSelfAcquirers(correctUnserializedMethods, SELF_ACQUIRING_HANDLERS)
+  );
+});
+
+test('ipc: NCOW-49 AC#8 — the self-acquirer guard actually runs at module load against the real UNSERIALIZED_METHODS/SELF_ACQUIRING_HANDLERS, not only exists for tests to call manually', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'ipc.js'), 'utf8');
+  assert.match(
+    source,
+    /^assertUnserializedMethodsCoverSelfAcquirers\(UNSERIALIZED_METHODS,\s*SELF_ACQUIRING_HANDLERS\);/m,
+    'must call the self-acquirer consistency check against the real constants at module scope'
+  );
+});
+
+test('ipc+engine-context: NCOW-49 AC#8 (documented scan) — index.js still calls createEngineContext() (whose composition invokes regenerateStaleConfig\'s runProxyOperation self-acquisition once, synchronously) BEFORE registerIpcHandlers() wires up any IPC-level locking — which is why that second self-acquisition instance is not reachable from a locked handler today, and needs no SELF_ACQUIRING_HANDLERS entry of its own', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+  const createEngineContextIdx = source.indexOf('createEngineContext(');
+  const registerIpcHandlersIdx = source.indexOf('registerIpcHandlers(');
+  assert.ok(createEngineContextIdx !== -1 && registerIpcHandlersIdx !== -1, 'both call sites must exist in index.js');
+  assert.ok(
+    createEngineContextIdx < registerIpcHandlersIdx,
+    "createEngineContext() (and therefore regenerateStaleConfig's runProxyOperation self-acquisition) must still " +
+      'run before registerIpcHandlers() wires up IPC-level locking, or engine-context.js\'s runProxyOperation ' +
+      'self-acquisition becomes reachable from a locked handler and needs its own SELF_ACQUIRING_HANDLERS-style guard'
+  );
 });
