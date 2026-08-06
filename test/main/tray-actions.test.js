@@ -376,10 +376,15 @@ test('createTrayActions: regression — mutating `mutexes.proxy` to a fresh lock
 // driveable under plain `node --test` with no real Electron process.
 //
 // Non-vacuity, confirmed by hand: with tray.js's createTrayActions()
-// temporarily reverted to its pre-NCOW-55 shape (`git show HEAD~1:src/main/tray.js`
-// — the single-argument `function createTrayActions({ mutexes, handlers })`
-// with no `notifyDeps` parameter and no `notifyFailure` at all — i.e.
-// exactly what NCOW-53 left behind) and this file run directly under
+// temporarily reverted to its pre-NCOW-55 shape (`git show
+// e9f0c4f:src/main/tray.js` — e9f0c4f is this branch's base commit on
+// `dev`, i.e. tray.js before any of NCOW-55's changes; an absolute SHA is
+// used deliberately here, since a relative ref like `HEAD~1` self-
+// invalidates the moment this very comment is committed to the same file
+// it describes — yielding the single-argument
+// `function createTrayActions({ mutexes, handlers })` with no
+// `notifyDeps` parameter and no `notifyFailure` at all — i.e. exactly
+// what NCOW-53 left behind) and this file run directly under
 // `node --test test/main/tray-actions.test.js`, all three per-action tests
 // below failed, but NOT identically — the two shapes NCOW-53 left behind
 // really do differ, and both differences reproduced here exactly as this
