@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-06 00:27'
+updated_date: '2026-08-06 02:31'
 ---
 # Backlog campaign tracker
 
@@ -74,7 +74,30 @@ justification.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 12 DISPATCH (2026-08-06)**: ground-truth drift check found `dev` in sync with
+**As of wave 12 SETTLEMENT (2026-08-06)**: **22 resolved** (waves 1-12, all Done), **1
+queued** — NCOW-53 (on NCOW-52, Done) — 0 genuinely blocked, 5 excluded pending human
+decomposition (see Not queued). NCOW-49 merged (PR #54, `d49f86f`) after 1 fix cycle on AC#1
+alone; wave-level integration review then found and fixed 2 stale test counts plus a 4th
+instance of "a correction introduces a new false claim" (cleanup PR #55, `b148f4b`, 1 review
+pass). **The dispatch-time conflict prediction that made this wave solo (NCOW-49's AC#8 might
+touch `mutex.js`, colliding with NCOW-53's AC#2) turned out WRONG, in the same direction this
+campaign has seen before (NCOW-32 at waves 4/5)**: NCOW-49 as actually merged does not touch
+`mutex.js` at all (confirmed via identical blob SHA both by the task reviewer and the
+integration reviewer). This means **wave 13 should re-derive NCOW-53's conflict status fresh
+rather than assume the wave-11/wave-12 caution still applies** — there is no longer any file
+NCOW-53 shares with merged work, but the integration review surfaced a NEW, narrower
+consideration to brief wave 13's worker on instead of a file conflict: NCOW-49 added 4 places
+(`ipc.js:117-118`/`155`/`233`, `engine-context.js:309`) that quote `mutex.js:53`'s exact
+`chain = run.catch(() => {})` line verbatim as justification for its own AC#8 mechanism, so if
+NCOW-53's own fix changes that line's shape, those quotations go stale in the same PR; and
+`withLocks()`'s discard-except-shared-run behavior means `mutex.js:53`'s catch is what marks a
+multi-lock throwing path's other N-1 promises as handled — a naive AC#2 fix that logs-and-
+rethrows there was measured to produce unhandled rejections on a throwing 3-lock `uninstall`.
+See the Queue table's NCOW-53 row for the full note. Wave 13, if dispatched, will very likely
+be solo again regardless (NCOW-53 is now the only queued item), so this doesn't change wave
+sizing — it changes what the NCOW-53 worker needs to be briefed on.
+
+Prior note, as of wave 12 DISPATCH (2026-08-06): ground-truth drift check found `dev` in sync with
 `origin/dev` at `7be35cd`, clean, all wave-11 PRs (#51/#52/#53) merged, no leftover
 branches/worktrees/PRs, all 4 treehouse trees available (none leased) — matched the wave-11
 handover exactly, no drift. **21 resolved** (waves 1-11), **2 queued, both confirmed ready by
@@ -464,8 +487,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-49 | proxy-mutex | NCOW-46 (Done) | Dispatched | 12 | Close NCOW-46's own three residuals: chain-sharing dedupe (identity dedupe misses two distinct fns sharing a chain), LOCK_ACQUISITION_ORDER's order itself unchecked, and unfrozen exported constants mutable after the module-load assertion. Filed from wave-7 integration review, user-approved. AMENDED at wave 11 with a new AC#8 (user-approved): guard against a proven latent re-entrancy deadlock if a future maintainer removes an UNSERIALIZED_METHODS entry whose engine-side handler self-acquires the same mutex without also removing the self-acquisition (createDomainMutex is non-reentrant). Wave-12 dispatch REVERSED the wave-11 "disjoint from NCOW-53" call: AC#8 itself names mutex.js as a sanctioned implementation surface, and mutex.js is a proven hub file for this exact pairing (NCOW-50/NCOW-53 both touched it at wave 11) — dispatched solo instead, see Frontier |
-| 2 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | To Do | | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved. DEFERRED to wave 13 at wave-12 dispatch: AC#2's own target (mutex.js:53) creates a live conflict risk with NCOW-49's AC#8, which explicitly names mutex.js as a possible implementation surface too — re-verify its actual footprint fresh once NCOW-49 has actually landed, not from this note |
+| 1 | NCOW-53 | proxy-mutex | NCOW-52 (Done) | To Do | | Surface pm2 stop/start/log-tail timeout errors on the renderer and tray — NCOW-52's new PM2_STOP_TIMEOUT/PM2_START_TIMEOUT/PM2_LOG_TAIL_TIMEOUT are currently silently discarded on dashboard-view.js's #stop-btn and log-tail path, and fully absorbed with zero trace by tray.js's Stop (mutex.js:53's deliberate catch). Filed from wave-10 integration review, user-approved. NCOW-49 (deferred sibling at wave 12) merged WITHOUT touching mutex.js at all — the predicted collision never materialized (see wave-12 settlement note in Frontier) — but the wave-12 integration review found NCOW-49 added 4 places (ipc.js:117-118/155/233, engine-context.js:309) that quote mutex.js:53's exact `chain = run.catch(() => {})` line as justification for its own AC#8 mechanism; if NCOW-53's fix changes that line's shape, those quotations go stale in the same PR. Also: withLocks() discards each lock's returned promise except the shared one, so mutex.js:53's catch is what marks the other N-1 as handled on a throwing multi-lock path (verified: a naive AC#2 fix that logs-and-rethrows at that line produces 3 unhandled rejections on a throwing 3-lock uninstall, confirmed via direct probe against merged dev) — prefer satisfying AC#2 at the tray.js call site (wrap `mutexes.proxy.run(...).catch(...)`) rather than inside mutex.js itself; if it does touch line 53 anyway, keep a rejection handler attached to `run` and re-verify the throwing-multi-lock case |
 
 ## Resolved
 
@@ -492,6 +514,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 | 19 | NCOW-52 | Done, 2026-08-05, wave 10 | Bounded pm2Control's last 3 unbounded raw pm2 callbacks (stop, start, launchBus) via the NCOW-48 precedent: PM2_STOP_TIMEOUT, PM2_START_TIMEOUT, and a manual-timeout PM2_LOG_TAIL_TIMEOUT (launchBus needed a manual timeout, not plain withTimeout, since a late callback yields a live bus handle that must be explicitly closed to avoid leaking an open pm2 pub-socket). **2 review passes (opus), all 10 ACs confirmed both passes.** Pass 1's own independent call-chain census found nothing missed (contrast NCOW-48's first attempt, rejected for exactly this); its one blocking finding was non-AC — the new AC#8 shutdown-integration test's 10s inner timeout wasn't cleared until it fired, adding ~2.3s to every npm test run (74x regression on that one file). Fix pass tightened the test's own inner timeout and assertion threshold together (moving only one would have made the test pass vacuously against a regressed outer bound — pass 2 proved this by reproducing the vacuity trap itself, not just trusting the fix). npm test 425 → 435. Merged as PR #49 (`d4a4115`). Wave-10 integration review found 2 real defects NCOW-52 itself introduced — filed with user approval as **NCOW-53** (its own new timeout codes are silently discarded on the renderer's Stop/log-tail and fully absorbed by tray's Stop with zero trace) and **NCOW-54** (its own launchBus leak-prevention close() can close a later retry's live bus, reachable via the shipped UI's navigate-away/back cycle) — plus 2 narrow doc-staleness items (a stale "three codes" pm2-timeout census in DESIGN.md and pm2Control.js's own JSDoc, now six), fixed directly as cleanup PR #50 (`410e40b`). That cleanup itself needed one review-found correction — an overcorrected false claim that proxy:stop/tray "can only ever surface PM2_STOP_TIMEOUT" (false: the same handler's post-stop status broadcast also reaches listApps(), so PM2_LIST_TIMEOUT is reachable even when the stop itself succeeds) — fixed and re-approved. |
 | 20 | NCOW-50 | Done, 2026-08-05/06, wave 11 | Moved apiKey.validateAndSave's NVIDIA validation round trips (up to two sequential 10s network calls) outside the config mutex lock, eliminating a measured ~20s freeze of the window, tray, and every claudeCode/proxy IPC method that occurred when Uninstall was clicked during a slow/offline Validate Key attempt. validateAndSave now opts out of ipc.js's automatic locking (UNSERIALIZED_METHODS.apiKey) and self-acquires mutexes.config directly in engine-context.js, scoped to only the secretStore.save() write — preserving NCOW-47's serialization guarantee while collapsing the hold to milliseconds. apiKey.clear unchanged. Also decided config.getManifest's exemption explicitly and confirmed AC#6 (mutex.js header) already satisfied by an earlier wave's cleanup. **Approved on the first review pass (opus, given deeper scrutiny as a concurrency-primitive fix): all 8 ACs confirmed with the reviewer's own traced/reproduced evidence** — independently falsified AC#2 by reverting only the lock line, and independently probed apiKey.clear racing the self-acquiring validateAndSave in both directions (no deadlock, FIFO holds). npm test 435 → 439. Merged as PR #51 (`fe0ed9d`). The reviewer also proved a latent re-entrancy deadlock hazard if the UNSERIALIZED_METHODS entry is ever removed without also removing the self-acquisition — folded into NCOW-49 as a new AC#8 (user-approved) rather than filed separately, avoiding a guaranteed file conflict with NCOW-49's own ipc.js/mutex.js rework. Several stale comments/docs left behind by this merge fixed in cleanup PR #53 (`7d6e5d1`, see wave log — needed one request_changes → fix → re-review cycle). |
 | 21 | NCOW-54 | Done, 2026-08-05/06, wave 11 | Fixed a defect NCOW-52 itself introduced: startLogTail's late-arriving timeout callback read pm2's own shared-mutable Client.sub slot at callback-fire time rather than a captured per-call value, so a timed-out call's late callback could close a SUBSEQUENT retry's currently-live bus — killing a healthy log tail while the actually-stale socket leaked anyway. Genuinely reachable via the shipped UI's navigate-away/back unmount cycle. Fix: a closure-scoped activeLogTailBus variable, identity-checked before closing, contained entirely inside pm2Control.js. **Approved on the first review pass (opus): all 6 ACs confirmed** — the reviewer reproduced non-vacuity itself (git apply -R on just the production diff) and probed 9 further edge cases with an independently-written shared-slot fake (3-way overlapping calls, unsubscribe-before-late-callback ordering, non-shared-slot pm2 semantics) — all correct. npm test 435 → 436 (440 in-branch after composing with NCOW-50's merge). Merged as PR #52 (`320a8ca`). |
+| 22 | NCOW-49 | Done, 2026-08-06, wave 12 | Closed NCOW-46's three wave-7-flagged residual multi-lock gaps plus wave-11's new AC#8, dispatched SOLO (deferring sibling NCOW-53 over a mutex.js collision risk that, per this settlement, turned out not to materialize — see the Queue table's NCOW-53 row for the residual semantic-coupling note this created instead). AC#1/#2: resolveDomainLocks() now dedupes/rejects locks by `.run` FUNCTION identity rather than lock-object identity, closing every wrapper-forwarding chain-sharing evasion (Proxy, Object.assign, copied `.run` reference) that survived the initial naive-wrapper-only guard — one residual (a wrapper inventing an entirely new, non-forwarded `.run`) is honestly documented as accepted. AC#3/#4: assertLockOrderIsConsistent() now also verifies LOCK_ACQUISITION_ORDER equals the alphabetical sort of MUTEX_DOMAINS exactly. AC#5: DOMAIN_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER/SELF_ACQUIRING_HANDLERS all deep-frozen. AC#6: empty alias arrays, unknown alias keys, and an alias target missing from the injected mutex set (a pre-existing NCOW-45 gap) all now throw loudly instead of silently degrading. AC#8: a hand-maintained SELF_ACQUIRING_HANDLERS registry + module-load assertUnserializedMethodsCoverSelfAcquirers(), implemented entirely inside ipc.js (deliberately, to avoid the NCOW-53 mutex.js collision) rather than the mutex.js-reentrancy-guard alternative AC#8 also authorized; the second self-acquisition instance (engine-context.js's runProxyOperation) was scanned and confirmed not reachable from a locked handler today. **2 review passes (opus, deeper scrutiny as a concurrency-primitive fix), 1 fix cycle**: pass 1 request_changes on AC#1 alone — reproduced a transparent `.run`-forwarding wrapper (`new Proxy(realMutex,{})` et al.) evading the initial duck-type guard while still sharing the same FIFO chain (3 locks resolved, handler never entered); fix pass switched the dedupe key to `.run` identity, reworded the over-claiming docstrings. Pass 2 approved, all 8 ACs independently reconfirmed with fresh reproduction, including independently verifying the `mutex.js`-untouched and `engine-context.js`-comment-only claims and the AC#8 non-reachability claim by reading `main/index.js`'s real call order directly. npm test 440 → 454 → 457 across the two passes (both counts independently reproduced by the orchestrator and both reviewers, not merely trusted). Merged as PR #54 (`d49f86f`). **Wave-level integration review found real material for the 12th consecutive wave**: 2 stale test counts (CLAUDE.md/README.md still said 440) plus a factually-mischaracterized claim added in fix pass 2 (`ipc.js`'s SELF_ACQUIRING_HANDLERS comment claimed a specific regression "hangs" a test; reviewer reproduced it actually aborts via node's test runner cancelling 29 tests with a still-pending-promise error, not a hang) — the campaign's **4th instance of "a correction introduces a new false claim"** (after PR #45, PR #48/#50, wave 11's PR #53), this time caught by integration review before it could compound further. Fixed directly (narrow_findings path, no new task) as cleanup PR #55 (`b148f4b`), 1 review pass, reviewer independently re-reproduced the new comment's exact claimed numbers fresh rather than trusting the prior reproduction — matched exactly (35 pass, 0 fail, 29 cancelled). Final npm test on merged dev: 457/457. |
 
 ## Not queued — needs a human / blocked
 
@@ -508,6 +531,49 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   product decision first.
 
 ## Wave log
+
+- 2026-08-06 — **wave 12 settled (task: NCOW-49, Done)**: implemented in the treehouse-leased
+  worktree pinned at wave-base `7be35cd`. Task-level review: pass 1 (opus, deeper scrutiny as a
+  concurrency-primitive fix) `request_changes` on AC#1 alone — reproduced a transparent
+  `.run`-forwarding wrapper (`new Proxy(realMutex,{})`, `Object.assign`, a copied `.run`
+  reference) evading the initial `isDomainMutex` duck-type guard while still sharing the
+  wrapped mutex's underlying FIFO chain (3 locks resolved, handler never entered after 300
+  ticks) — the code's own docstrings had over-claimed "reliably tells the two apart". Fix pass
+  (1 of 2 allowed) switched `resolveDomainLocks()`'s dedupe/rejection key from lock-object
+  identity to the lock's `.run` FUNCTION identity, closing every evasion shape found, reworded
+  the over-claiming docstrings to state the real (narrower) guarantee plus the one honestly
+  documented residual (a wrapper inventing an entirely new, non-forwarded `.run`), and bundled
+  2 non-blocking findings from the same review (deep-froze the previously-unfrozen
+  `SELF_ACQUIRING_HANDLERS`; reworded a comment that dangled a reference outside the repo).
+  Pass 2 `approve`, all 8 ACs independently reconfirmed with fresh reproduction — not just
+  re-reading the fix's own tests — including independently re-verifying the `mutex.js`-
+  untouched and `engine-context.js`-comment-only claims and hunting for (and ruling out) a
+  NEW evasion the `.run`-identity fix might have introduced. npm test 440 → 454 (implementation)
+  → 457 (fix pass), every count independently reproduced by the orchestrator and both reviewers.
+  Rebased cleanly onto `dev` (only orchestrator bookkeeping commits had landed since the wave
+  base), re-verified 457/457 post-rebase, merged as PR #54 (`d49f86f`).
+  **Wave-level integration review found real material for the 12th consecutive wave.** Two
+  narrow, expected findings (stale test counts in `CLAUDE.md:51`/`README.md:331`, still "440")
+  and one unexpected one: `ipc.js`'s new `SELF_ACQUIRING_HANDLERS` comment (added in the fix
+  pass, the branch's least-scrutinized commit) claimed a specific regression scenario "hangs"
+  a test in `ipc-mutex.test.js`. Reproduced: it does not hang — node's test runner detects the
+  deadlocked promise chain has nothing left on the event loop and CANCELS the remaining 29
+  tests in that file with a still-pending-promise error (35 pass, 0 fail, 29 cancelled, exit
+  code 1, well under a second) rather than hanging the suite. The underlying claim ("still
+  caught, not passing silently") was true; only the described mechanism was wrong. **This is
+  the campaign's 4th instance of "a correction introduces a new false claim"** (after PR #45,
+  PR #48/#50, wave 11's PR #53) — this time caught by integration review before merge could
+  compound it further across another wave, rather than being forwarded stale for several waves
+  as happened with NCOW-49's own citation notes at wave 8-11. Fixed directly (narrow_findings,
+  no new task) as cleanup PR #55 (`b148f4b`): 1 review pass, the reviewer specifically
+  re-reproduced the NEW comment's exact claimed numbers fresh (not trusting the "already
+  independently reproduced" framing) and matched them exactly. Final npm test on merged `dev`:
+  457/457.
+  **The dispatch-time reasoning for going solo (NCOW-49's AC#8 might touch `mutex.js`,
+  colliding with NCOW-53's deferred AC#2) did not materialize** — NCOW-49 chose an ipc.js-only
+  implementation for AC#8 throughout (both the initial pass and the fix pass), confirmed via
+  identical blob SHA on `mutex.js` at every stage. See Frontier for what this changes (and
+  doesn't change) for wave 13.
 
 - 2026-08-06 — **wave 12 dispatched (tasks: NCOW-49)**: ground-truth drift check found `dev` in
   sync with `origin/dev` at `7be35cd`, clean, all wave-11 PRs merged, no leftover
