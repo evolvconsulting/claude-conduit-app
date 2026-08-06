@@ -121,13 +121,33 @@ function createTray(opts, deps = {}) {
  * a test can drive directly with a real mutex set and prove shares the SAME
  * instance ipc.js/engine-context.js use (see test/main/tray-actions.test.js).
  *
+ * NCOW-53: onStop specifically also guards against a wedged
+ * handlers.proxy.stop() (PM2_STOP_TIMEOUT and friends, bounded by NCOW-52)
+ * vanishing with zero diagnostic trail. Unlike the IPC channel
+ * (registerIpcHandlers() in ipc.js wraps every handler in its own
+ * try/catch and turns a throw into a returned `{ok:false, error}`), a tray
+ * menu item's `click` callback has no caller that inspects its return value
+ * at all — Electron fires it and moves on. mutex.js's withLock() ALSO
+ * doesn't swallow the promise it hands back to its caller (only the
+ * internal `chain` it uses to sequence future acquisitions) — see mutex.js's
+ * own `chain = run.catch(() => {})` comment — so the rejection here is real,
+ * it just has nowhere to go. `.catch()` right here, at the call site, is the
+ * fix: it needs no changes to the shared mutex primitive every other domain
+ * depends on, so it can't touch mutex.js's FIFO-chain guarantee for
+ * multi-lock domains like `uninstall` (see NCOW-53's dispatch notes for why
+ * a mutex.js-level swallow-removal was considered and rejected — it produces
+ * unhandled rejections on any throwing multi-lock call and permanently wedges
+ * that lock for every later caller).
  * @param {{mutexes: {proxy: {run: (fn: () => any) => Promise<any>}}, handlers: {proxy: {start: () => any, stop: () => any, restart: () => any}}}} deps
  * @returns {{onStart: () => Promise<any>, onStop: () => Promise<any>, onRestart: () => Promise<any>}}
  */
 function createTrayActions({ mutexes, handlers }) {
   return {
     onStart: () => mutexes.proxy.run(() => handlers.proxy.start()),
-    onStop: () => mutexes.proxy.run(() => handlers.proxy.stop()),
+    onStop: () =>
+      mutexes.proxy.run(() => handlers.proxy.stop()).catch((err) => {
+        console.error('[tray] Stop failed:', err?.code ?? '', err?.message ?? err);
+      }),
     onRestart: () => mutexes.proxy.run(() => handlers.proxy.restart()),
   };
 }

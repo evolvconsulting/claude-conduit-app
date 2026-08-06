@@ -66,7 +66,8 @@ function render() {
     if (!r.ok) toast(`Start failed: ${r.error?.message}`, { kind: 'error' });
   });
   root.querySelector('#stop-btn').addEventListener('click', async () => {
-    await nimProxy.proxy.stop();
+    const r = await nimProxy.proxy.stop();
+    if (!r.ok) toast(`Stop failed: ${r.error?.message}`, { kind: 'error' });
   });
   root.querySelector('#restart-btn').addEventListener('click', async () => {
     const r = await nimProxy.proxy.restart();
@@ -114,7 +115,19 @@ async function startLogTailIfNeeded() {
     viewer.scrollTop = viewer.scrollHeight;
   }
 
-  await nimProxy.proxy.startLogTail();
+  const r = await nimProxy.proxy.startLogTail();
+  if (!r.ok) {
+    // NCOW-53: without this, a wedged startLogTail (PM2_LOG_TAIL_TIMEOUT)
+    // left logTailStarted permanently true with no error shown and no
+    // subscription ever attached — the log pane stayed stuck at whatever was
+    // seeded above, silently, until the view unmounted. Resetting the flag
+    // means the guard at the top of this function no longer blocks a later
+    // call (e.g. leaving and returning to this view re-mounts it, which
+    // re-runs this function from scratch) — that later call is the retry.
+    logTailStarted = false;
+    toast(`Log streaming failed: ${r.error?.message}`, { kind: 'error' });
+    return;
+  }
   unsubscribeLog = nimProxy.proxy.onLogLine((entry) => {
     const viewer = root?.querySelector('#log-viewer');
     if (!viewer) return;
