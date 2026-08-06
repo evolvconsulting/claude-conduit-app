@@ -4,7 +4,7 @@ title: Give the tray a user-visible error surface for wedged Start/Stop/Restart 
 status: In Progress
 assignee: []
 created_date: '2026-08-06 16:27'
-updated_date: '2026-08-06 17:14'
+updated_date: '2026-08-06 17:21'
 labels: []
 dependencies:
   - NCOW-53
@@ -96,4 +96,16 @@ Blocking findings (both comment-only, no behavior change):
    *first* argument elsewhere in the file (createTray()'s own deps).
 
 Dispatched a fresh worker fix pass into the same worktree with both findings verbatim.
+
+Task-level review, pass 2 (opus): request_changes again, all 6 ACs re-confirmed unaffected.
+Finding 2 (notifyDeps) from pass 1 was correctly and scopefully fixed (confirmed byte-identical
+elsewhere). Finding 1 (non-vacuity reproduction recipe) was NOT fixed — it was reintroduced with
+the identical off-by-one, shifted forward one commit: the fix pass changed `git show
+HEAD:src/main/tray.js` to `git show HEAD~1:src/main/tray.js`, but committing that very change
+made HEAD~1 resolve to the fix commit itself (4ef871d) again, not the pre-fix source (e9f0c4f).
+Reviewer verified directly: `git show HEAD~1:...  | grep -c notifyDeps` returns 3 (should be 0
+for genuinely pre-fix content). Root cause: any HEAD~n reference in a committed comment
+self-invalidates on the next commit that touches the same file. Reviewer's explicit
+recommendation: use an immutable ref instead — e9f0c4f (this branch's base on dev) — not another
+relative offset.
 <!-- SECTION:NOTES:END -->
