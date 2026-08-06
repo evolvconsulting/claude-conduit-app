@@ -328,7 +328,7 @@ is not required; installing the new one over it is fine.
 
 ```sh
 npm install
-npm test              # 467 tests, no network or real config touched
+npm test              # 474 tests, no network or real config touched
 npm run dev           # run from source
 npm run icons         # regenerate icons from build/icon.svg
 ```
