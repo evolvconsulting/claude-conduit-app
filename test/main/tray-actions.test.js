@@ -363,3 +363,177 @@ test('createTrayActions: regression — mutating `mutexes.proxy` to a fresh lock
   await ipcRestart;
   await trayStop;
 });
+
+// NCOW-55: NCOW-53 gave onStop a console.error diagnostic trail for a wedged
+// handlers.proxy.stop(), but the wave-13 integration review found stderr is
+// invisible to an end user in a packaged build — a wedged Stop was logged
+// but still silent to the *user*, and Start/Restart had no `.catch()` at
+// all (a wedge there was a genuine unhandled rejection, not even a silent
+// one). This surfaces all three via a native OS notification
+// (Electron's Notification API), injected through createTrayActions()'s
+// SECOND argument — the same `deps`-injection style test/main/tray.test.js
+// already uses for createTray()'s Tray/Menu/nativeImage — so this stays
+// driveable under plain `node --test` with no real Electron process.
+//
+// Non-vacuity, confirmed by hand: with tray.js's createTrayActions()
+// temporarily reverted to its pre-NCOW-55 shape (`git show HEAD:src/main/tray.js`
+// — the single-argument `function createTrayActions({ mutexes, handlers })`
+// with no `notifyDeps` parameter and no `notifyFailure` at all — i.e.
+// exactly what NCOW-53 left behind) and this file run directly under
+// `node --test test/main/tray-actions.test.js`, all three per-action tests
+// below failed, but NOT identically — the two shapes NCOW-53 left behind
+// really do differ, and both differences reproduced here exactly as this
+// file's own docstring above (the NCOW-53 block) says they would:
+//   - onStop: pre-fix HAD a `.catch()` (NCOW-53), so `assert.doesNotReject`
+//     passed; the failure landed on `assert.equal(instances.length, 1, ...)`,
+//     reporting "0 !== 1" — no Notification was ever constructed.
+//   - onStart / onRestart: pre-fix had NO `.catch()` at all, so the wedge
+//     propagated as a real rejection and `assert.doesNotReject` itself
+//     failed first, reporting "Got unwanted rejection. Actual message:
+//     'pm2 start timed out after 15000ms'" (and the matching restart
+//     message) — the Notification-count assertion further down was never
+//     even reached.
+// Restoring the fix made all three pass again, confirming the assertions
+// below are exercising something the pre-fix source genuinely lacked, not
+// a vacuous check.
+function fakeNotificationDeps({ supported = true } = {}) {
+  const instances = [];
+  class FakeNotification {
+    constructor(options) {
+      this.options = options;
+      this.shown = false;
+      instances.push(this);
+    }
+    show() {
+      this.shown = true;
+    }
+  }
+  FakeNotification.isSupported = () => supported;
+  return { instances, Notification: FakeNotification };
+}
+
+for (const [method, label, wedgeMessage, code] of [
+  ['onStart', 'Start', 'pm2 start timed out after 15000ms', 'PM2_START_TIMEOUT'],
+  ['onStop', 'Stop', 'pm2 stop timed out after 15000ms', 'PM2_STOP_TIMEOUT'],
+  ['onRestart', 'Restart', 'pm2 restart timed out after 15000ms', 'PM2_RESTART_TIMEOUT'],
+]) {
+  test(`createTrayActions: NCOW-55 — a wedged (rejecting) tray ${label} shows a native notification, not just console.error (AC#${label === 'Start' ? 2 : label === 'Stop' ? 1 : 3}/AC#4)`, async () => {
+    reset();
+    const mutexes = { proxy: { run: (fn) => fn() } };
+    const wedgeError = Object.assign(new Error(wedgeMessage), { code });
+    const handlers = {
+      proxy: {
+        start: async () => { throw wedgeError; },
+        stop: async () => { throw wedgeError; },
+        restart: async () => { throw wedgeError; },
+      },
+    };
+    const { instances, Notification } = fakeNotificationDeps();
+
+    const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+    const originalConsoleError = console.error;
+    const errorCalls = [];
+    console.error = (...args) => errorCalls.push(args);
+    try {
+      // Must not throw/reject — same "contain the failure" contract NCOW-53
+      // established for onStop, now proven for all three.
+      await assert.doesNotReject(() => actions[method]());
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    assert.equal(errorCalls.length, 1, 'expected the pre-existing console.error diagnostic trail to remain (this fix adds to it, not replaces it)');
+
+    assert.equal(instances.length, 1, `expected exactly one Notification to be constructed for a wedged ${label}`);
+    assert.equal(instances[0].shown, true, 'Notification.show() must actually be called — constructing it alone never displays anything');
+    assert.match(instances[0].options.body, new RegExp(`${label} failed`), 'the notification body must name which action failed');
+    assert.match(
+      instances[0].options.body,
+      new RegExp(wedgeMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      'the notification body must carry the underlying error message, not just a generic "something failed"'
+    );
+  });
+}
+
+test('createTrayActions: NCOW-55 — Notification.isSupported() === false skips showing a notification without throwing (falls back to the console.error trail alone)', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const wedgeError = new Error('wedged');
+  const handlers = { proxy: { stop: async () => { throw wedgeError; } } };
+  const { instances, Notification } = fakeNotificationDeps({ supported: false });
+
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  try {
+    await assert.doesNotReject(() => actions.onStop());
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(errorCalls.length, 1, 'the console.error trail must still fire regardless of notification support');
+  assert.equal(instances.length, 0, 'no Notification should be constructed when isSupported() reports false');
+});
+
+// NCOW-55 (AC#5): the fix must not change ordinary, non-wedged behavior for
+// Start/Restart either — mirroring the pre-existing onStop normal-path test
+// above. onStop's own normal-path case is already covered there; this adds
+// the two NCOW-55 actually changed (onStart/onRestart previously had no
+// `.catch()` at all, so there was no failure path to be "unchanged" — but
+// the success path must still resolve to the handler's own result untouched).
+test('createTrayActions: NCOW-55 — normal (non-wedged) Start/Restart still resolve cleanly with no console.error and no notification', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const handlers = {
+    proxy: {
+      start: async () => ({ ok: true, which: 'start' }),
+      restart: async () => ({ ok: true, which: 'restart' }),
+    },
+  };
+  const { instances, Notification } = fakeNotificationDeps();
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  let startResult;
+  let restartResult;
+  try {
+    startResult = await actions.onStart();
+    restartResult = await actions.onRestart();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(startResult, { ok: true, which: 'start' });
+  assert.deepEqual(restartResult, { ok: true, which: 'restart' });
+  assert.equal(errorCalls.length, 0, 'a successful Start/Restart must not log anything through the new error path');
+  assert.equal(instances.length, 0, 'a successful Start/Restart must not show any notification');
+});
+
+// NCOW-55: createTrayActions() must still work when called the OLD way (no
+// second argument at all) — this is exactly the shape index.js's real
+// createTray({...}) call site uses (and must keep using verbatim, per the
+// mechanism-choice rationale in tray.js), and the shape every pre-existing
+// test above this block in this file already exercises. Not calling
+// notifyDeps at all must not throw, even on a wedged call — Notification
+// falls back to whatever the lazily-required real `electron` module (or its
+// absence) provides.
+test('createTrayActions: NCOW-55 — omitting the second (notifyDeps) argument entirely still resolves cleanly on a wedged call (no Electron process required)', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const handlers = { proxy: { stop: async () => { throw new Error('wedged'); } } };
+
+  const actions = createTrayActions({ mutexes, handlers });
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await assert.doesNotReject(() => actions.onStop());
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
