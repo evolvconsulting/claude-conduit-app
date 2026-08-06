@@ -3,10 +3,10 @@ id: NCOW-49
 title: >-
   Close NCOW-46's three residual multi-lock gaps: chain-sharing dedupe,
   unchecked order, unfrozen exports
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-05 23:48'
+updated_date: '2026-08-06 00:27'
 labels: []
 dependencies:
   - NCOW-46
