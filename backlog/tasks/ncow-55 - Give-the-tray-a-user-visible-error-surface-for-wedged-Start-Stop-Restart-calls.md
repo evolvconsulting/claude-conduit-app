@@ -4,7 +4,7 @@ title: Give the tray a user-visible error surface for wedged Start/Stop/Restart 
 status: In Progress
 assignee: []
 created_date: '2026-08-06 16:27'
-updated_date: '2026-08-06 17:08'
+updated_date: '2026-08-06 17:14'
 labels: []
 dependencies:
   - NCOW-53
@@ -75,4 +75,25 @@ actual differentiated failure mode rather than an assumed uniform one.
 AC#5/#6: npm test 461 -> 467 (6 new tests), full suite green, all pre-existing tests unmodified —
 git diff confirms index.js/ipc-channels.js/app.js untouched (the abandoned IPC-broadcast attempt
 was fully reverted before committing).
+
+Task-level review (opus), pass 1: request_changes on 2 minor comment-only findings, all 6 ACs
+otherwise independently confirmed. Reviewer verified the mechanism pivot (IPC-broadcast tried
+and abandoned due to a real conflict with 2 pre-existing identity-guard tests in
+engine-context-config-regen.test.js, empirically reproduced by injecting a 3rd property and
+observing exactly 2 failures) and reproduced AC#4's non-vacuity personally (reverted tray.js to
+HEAD~1, ran tray-actions.test.js, observed 3/12 failures in the exact differentiated pattern
+claimed: onStart/onRestart fail at doesNotReject, onStop fails at the notification-count
+assertion). Also ran a throwaway live Electron script confirming all 3 real Notifications
+construct and .show() with correct bodies against the real, unwrapped call site. npm test
+467/467 confirmed.
+
+Blocking findings (both comment-only, no behavior change):
+1. tray-actions.test.js's non-vacuity reproduction recipe said `git show HEAD:src/main/tray.js`
+   — true when written pre-commit, false the moment it was committed (HEAD is now the fix
+   itself). Should reference the pre-fix commit (HEAD~1/dev).
+2. tray.js's own prose described the new 2nd constructor argument as "deps" (`deps.Notification`)
+   when the actual parameter name is `notifyDeps` — `deps` is already the JSDoc name of the
+   *first* argument elsewhere in the file (createTray()'s own deps).
+
+Dispatched a fresh worker fix pass into the same worktree with both findings verbatim.
 <!-- SECTION:NOTES:END -->
