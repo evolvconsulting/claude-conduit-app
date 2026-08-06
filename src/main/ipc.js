@@ -188,6 +188,22 @@ const UNSERIALIZED_METHODS = {
  * regenerateStaleConfig/runProxyOperation from inside an IPC handler (or
  * moves registerIpcHandlers() earlier), it would need its own entry here —
  * this comment exists so that scan isn't silently forgotten if that changes.
+ *
+ * Scope of assertUnserializedMethodsCoverSelfAcquirers()'s guarantee: it is a
+ * tripwire against ONE specific regression direction — `validateAndSave`
+ * dropped from UNSERIALIZED_METHODS while staying listed here, i.e. this
+ * registry and reality (the method still self-acquires in engine-context.js)
+ * disagreeing with UNSERIALIZED_METHODS. It does NOT, and structurally
+ * cannot, catch the other direction: removing `validateAndSave` from BOTH
+ * UNSERIALIZED_METHODS and this registry together while its self-acquisition
+ * stays in engine-context.js — from this registry's own point of view that
+ * looks like a deliberate, coordinated removal of a self-acquirer, not a
+ * regression. That second direction is still caught, just by a different
+ * layer: the existing behavioral test suite (ipc-mutex.test.js) drives
+ * `apiKey:validateAndSave` through the real registered handler, so stacking
+ * IPC-level locking back on top of the still-present inner
+ * `mutexes.config.run()` call hangs one of those tests rather than passing
+ * silently.
  */
 const SELF_ACQUIRING_HANDLERS = {
   apiKey: { validateAndSave: 'config' },
@@ -396,12 +412,20 @@ const DOMAIN_MUTEX_ALIASES = {
  */
 const LOCK_ACQUISITION_ORDER = ['claudeCode', 'claudeDesktop', 'config', 'proxy'];
 
-// NCOW-49 AC#5: both tables are deep-frozen from here on — see deepFreeze()'s
-// doc comment further up this file for exactly what a SHALLOW freeze would
-// have missed (DOMAIN_MUTEX_ALIASES.uninstall's own nested array) and why
-// that matters (membership changes to it, not just harmless reordering).
+// NCOW-49 AC#5: all three of this file's hand-maintained lock-resolution
+// registries are deep-frozen from here on — see deepFreeze()'s doc comment
+// further up this file for exactly what a SHALLOW freeze would have missed
+// (DOMAIN_MUTEX_ALIASES.uninstall's own nested array) and why that matters
+// (membership changes to it, not just harmless reordering). SELF_ACQUIRING_
+// HANDLERS is included here too (fix pass 2) for the same reason, even though
+// it is declared earlier in the file: deepFreeze() only needs the object to
+// already exist, not to be declared textually after this point, and freezing
+// it here — alongside the other two, after deepFreeze() itself is defined —
+// keeps every "freeze the lock-resolution registries" call in one place
+// instead of splitting it across the file.
 deepFreeze(DOMAIN_MUTEX_ALIASES);
 deepFreeze(LOCK_ACQUISITION_ORDER);
+deepFreeze(SELF_ACQUIRING_HANDLERS);
 
 /**
  * NCOW-46/49: throws if `order` is not exactly a permutation of `domains`, if

@@ -2298,6 +2298,36 @@ test('ipc: NCOW-49 AC#5 — DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER are 
   );
 });
 
+// AC#5 (fix pass 2, non-blocking finding): SELF_ACQUIRING_HANDLERS was
+// exported unfrozen while DOMAIN_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER were
+// deep-frozen in the same commit — inconsistent with AC#5's own spirit even
+// though nothing in this file currently mutates it. Closed for consistency,
+// using the same deepFreeze() helper as the other two registries.
+
+test('ipc: NCOW-49 AC#5 (fix pass 2) — SELF_ACQUIRING_HANDLERS is deep-frozen too, for the same reason and by the same mechanism as DOMAIN_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER', () => {
+  assert.ok(Object.isFrozen(SELF_ACQUIRING_HANDLERS), 'SELF_ACQUIRING_HANDLERS itself must be frozen');
+  assert.ok(
+    Object.isFrozen(SELF_ACQUIRING_HANDLERS.apiKey),
+    'the nested apiKey object must ALSO be frozen — a shallow freeze would not do this'
+  );
+
+  assert.throws(() => {
+    SELF_ACQUIRING_HANDLERS.apiKey = { validateAndSave: 'proxy' };
+  }, TypeError, 'reassigning an existing domain entry must be rejected');
+
+  assert.throws(() => {
+    delete SELF_ACQUIRING_HANDLERS.apiKey;
+  }, TypeError, 'deleting a domain entry must be rejected');
+
+  assert.throws(() => {
+    SELF_ACQUIRING_HANDLERS.apiKey.validateAndSave = 'proxy';
+  }, TypeError, 'a SHALLOW freeze would not have caught this — the nested apiKey object must be frozen too');
+
+  assert.throws(() => {
+    SELF_ACQUIRING_HANDLERS.apiKey.clear = 'config';
+  }, TypeError, 'adding a new method entry to the nested object must be rejected');
+});
+
 // AC#6: an empty alias array, and a DOMAIN_MUTEX_ALIASES key naming no real
 // CHANNELS domain, are each explicitly handled rather than left implicit.
 // (implementation-note #4's third named shape — an alias TARGET missing from
@@ -2342,7 +2372,18 @@ test('ipc: NCOW-49 AC#6 — the module-load call site actually wires assertAlias
 // without a guard against re-introducing IPC-level locking on top of it.
 // Delivered entirely inside ipc.js (SELF_ACQUIRING_HANDLERS +
 // assertUnserializedMethodsCoverSelfAcquirers), deliberately NOT as a
-// mutex.js reentrancy change — see this task's own evidence for why.
+// mutex.js reentrancy change: mutex.js's own header comment explains why it
+// imports nothing and stays a bare FIFO primitive — both ipc.js and
+// engine-context.js construct/share it, including under plain `node --test`
+// with no Electron runtime, so threading reentrancy-tracking state through
+// that shared primitive would add complexity both consumers carry forever.
+// The actual hazard here is narrow and fully known statically today — exactly
+// one self-acquiring handler (apiKey.validateAndSave), self-acquiring exactly
+// one mutex (config), opted out of exactly one table (UNSERIALIZED_METHODS)
+// — so a hand-maintained allowlist plus a module-load assertion in ipc.js
+// (the same trade this file already makes for LOCK_ACQUISITION_ORDER via
+// assertLockOrderIsConsistent()) closes it exactly as reliably as a change to
+// the shared primitive would, without that added complexity.
 
 test('ipc: NCOW-49 AC#8 — removing apiKey.validateAndSave from UNSERIALIZED_METHODS (re-introducing IPC-level locking on top of its self-acquired config lock) is caught at module load, not left to silently deadlock', () => {
   const brokenUnserializedMethods = {
