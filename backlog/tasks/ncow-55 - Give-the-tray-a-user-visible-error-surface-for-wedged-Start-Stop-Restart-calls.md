@@ -4,7 +4,7 @@ title: Give the tray a user-visible error surface for wedged Start/Stop/Restart 
 status: In Progress
 assignee: []
 created_date: '2026-08-06 16:27'
-updated_date: '2026-08-06 17:24'
+updated_date: '2026-08-06 17:28'
 labels: []
 dependencies:
   - NCOW-53
@@ -115,4 +115,14 @@ one. Verify-then-commit order followed correctly this time (verification ran bef
 that could invalidate it, and nothing touched the file afterward). Re-verified: 9 pass/3 fail
 against e9f0c4f's tray.js (same differentiated pattern), 467/467 on the real restored file.
 Pushed as a2cdfaa. Awaiting review pass 3 (final, capped).
+
+Task-level review pass 3 (opus, final/capped): approve. All 6 ACs re-confirmed independently.
+Verified e9f0c4f is genuinely absolute/immutable (git merge-base confirms it as this branch's
+actual base on dev, reachable from origin/dev, so it survives a fresh clone and the eventual
+merge). Independently reproduced the non-vacuity recipe exactly as committed: 9 pass/3 fail
+against e9f0c4f's tray.js, same differentiated pattern (onStart/onRestart fail at
+doesNotReject, onStop fails at the notification-count assertion). Scope check: this pass
+touched only test/main/tray-actions.test.js (pure addition, no lines removed), notifyDeps fix
+from pass 1 confirmed still intact and unregressed. npm test 467/467. Two cosmetic prose notes
+raised but explicitly not blocking. Clean to merge.
 <!-- SECTION:NOTES:END -->
