@@ -3,10 +3,10 @@ id: NCOW-49
 title: >-
   Close NCOW-46's three residual multi-lock gaps: chain-sharing dedupe,
   unchecked order, unfrozen exports
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-05 15:28'
-updated_date: '2026-08-06 02:09'
+updated_date: '2026-08-06 02:29'
 labels: []
 dependencies:
   - NCOW-46
@@ -21,14 +21,14 @@ NCOW-46's wave-7 integration review confirmed the merged fix is sound but found 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolveDomainLocks() no longer returns two locks that share one underlying queue chain, or the limitation is deliberately documented as accepted with the reasoning recorded — an explicit decision either way, not silence
-- [ ] #2 If a fix is chosen, a test reproduces the wrapper-function chain-sharing deadlock and demonstrates it is closed, failing against current merged source (non-vacuity reported)
-- [ ] #3 LOCK_ACQUISITION_ORDER's actual order is protected by something that fails loudly on reordering, so ipc.js:117-121's stated guarantee is delivered by the guard it describes rather than by an incidental deepEqual in one test
-- [ ] #4 A test demonstrates that moving a domain within LOCK_ACQUISITION_ORDER (including a domain no alias currently references, such as claudeDesktop) is caught — this currently leaves the whole suite green
-- [ ] #5 DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER can no longer be mutated by a consumer after module load in a way that changes real lock resolution, with a test proving the mutation now fails or is inert
-- [ ] #6 An empty alias array and an alias key not present in CHANNELS are each either rejected by assertLockOrderIsConsistent() or explicitly documented as out of its contract, with the choice reasoned rather than left implicit
-- [ ] #7 All pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified and npm test passes
-- [ ] #8 No domain in UNSERIALIZED_METHODS may be one whose corresponding engine-side handler self-acquires the SAME mutex it's opting out of IPC-level locking for (the NCOW-50 apiKey.validateAndSave pattern) without a guard against re-introducing IPC-level locking on top of it -- since createDomainMutex's FIFO chain is non-reentrant (chain = run.catch(() => {}), mutex.js:53), stacking both locking layers on the same call self-deadlocks permanently rather than merely slowing down, wedging every domain that transitively waits on that lock (e.g. uninstall's claudeCode+config+proxy via the alias). Deliver via an explicit mechanism (a module-load assertion in the assertLockOrderIsConsistent mould, a reentrancy-detecting change to mutex.js, or an equivalently reasoned guard) plus a test that fails against source lacking the guard -- not a comment alone. A second existing instance of the same self-acquisition SHAPE (engine-context.js:234's runProxyOperation) is confirmed not currently reachable from a locked handler; document this scan so it isn't silently missed if that changes.
+- [x] #1 resolveDomainLocks() no longer returns two locks that share one underlying queue chain, or the limitation is deliberately documented as accepted with the reasoning recorded — an explicit decision either way, not silence
+- [x] #2 If a fix is chosen, a test reproduces the wrapper-function chain-sharing deadlock and demonstrates it is closed, failing against current merged source (non-vacuity reported)
+- [x] #3 LOCK_ACQUISITION_ORDER's actual order is protected by something that fails loudly on reordering, so ipc.js:117-121's stated guarantee is delivered by the guard it describes rather than by an incidental deepEqual in one test
+- [x] #4 A test demonstrates that moving a domain within LOCK_ACQUISITION_ORDER (including a domain no alias currently references, such as claudeDesktop) is caught — this currently leaves the whole suite green
+- [x] #5 DOMAIN_MUTEX_ALIASES and LOCK_ACQUISITION_ORDER can no longer be mutated by a consumer after module load in a way that changes real lock resolution, with a test proving the mutation now fails or is inert
+- [x] #6 An empty alias array and an alias key not present in CHANNELS are each either rejected by assertLockOrderIsConsistent() or explicitly documented as out of its contract, with the choice reasoned rather than left implicit
+- [x] #7 All pre-existing tests in test/main/ipc-mutex.test.js continue to pass unmodified and npm test passes
+- [x] #8 No domain in UNSERIALIZED_METHODS may be one whose corresponding engine-side handler self-acquires the SAME mutex it's opting out of IPC-level locking for (the NCOW-50 apiKey.validateAndSave pattern) without a guard against re-introducing IPC-level locking on top of it -- since createDomainMutex's FIFO chain is non-reentrant (chain = run.catch(() => {}), mutex.js:53), stacking both locking layers on the same call self-deadlocks permanently rather than merely slowing down, wedging every domain that transitively waits on that lock (e.g. uninstall's claudeCode+config+proxy via the alias). Deliver via an explicit mechanism (a module-load assertion in the assertLockOrderIsConsistent mould, a reentrancy-detecting change to mutex.js, or an equivalently reasoned guard) plus a test that fails against source lacking the guard -- not a comment alone. A second existing instance of the same self-acquisition SHAPE (engine-context.js:234's runProxyOperation) is confirmed not currently reachable from a locked handler; document this scan so it isn't silently missed if that changes.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -89,3 +89,20 @@ Re-review (pass 2) APPROVED, all 8 ACs independently reconfirmed. Reproduced the
 
 npm test: 440 -> 454 (initial implementation) -> 457 (fix pass 1, +3 tests: 2 Proxy-wrapper regression tests + 1 SELF_ACQUIRING_HANDLERS freeze test). Both the initial 454 and final 457 counts independently reproduced by the orchestrator and by both review passes, not merely trusted from worker/fix-pass self-reports.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed all three of NCOW-46's wave-7-flagged residual multi-lock gaps plus wave-11's new AC#8, in 2 review passes (1 fix cycle, on AC#1 alone) plus a wave-level integration-review cleanup:
+
+- AC#1/#2: resolveDomainLocks() now dedupes/rejects locks by .run function identity (not object identity), closing every wrapper-forwarding evasion (naive wrapper, Proxy, Object.assign, copied .run reference) that could share an underlying FIFO chain without being caught by the old identity-based dedupe. One residual is honestly documented as accepted: a wrapper that invents an entirely new, non-forwarded .run function.
+- AC#3/#4: assertLockOrderIsConsistent() now verifies LOCK_ACQUISITION_ORDER equals the alphabetical sort of MUTEX_DOMAINS exactly, catching any reorder including one preserving membership.
+- AC#5: DOMAIN_MUTEX_ALIASES, LOCK_ACQUISITION_ORDER, and SELF_ACQUIRING_HANDLERS are all deep-frozen (a shallow freeze was proven insufficient against nested arrays).
+- AC#6: empty alias arrays and unknown alias keys (not in CHANNELS) are both rejected loudly and reasoned explicitly; an alias target missing from the injected mutex set now throws instead of silently degrading (a pre-existing NCOW-45 gap this task's own notes flagged).
+- AC#7: all 440 pre-existing tests pass unmodified.
+- AC#8: a hand-maintained SELF_ACQUIRING_HANDLERS registry + module-load assertUnserializedMethodsCoverSelfAcquirers(), implemented entirely inside ipc.js (deliberately avoiding a same-file collision with NCOW-53's deferred mutex.js:53 work), guards against ever removing a self-acquiring handler from UNSERIALIZED_METHODS without also removing its self-acquisition. The second self-acquisition instance (engine-context.js's runProxyOperation) was scanned and confirmed not reachable from a locked handler today.
+
+Verified: 2 independent review passes (opus), each with fresh reproduction (not just re-reading tests/diffs) of every AC, including the src/main/mutex.js-untouched and engine-context.js-comment-only claims. npm test 440 -> 454 -> 457 across the two passes, independently reproduced by the orchestrator and both reviewers. A wave-level integration review after merge found and fixed 3 narrow follow-ups directly (stale test counts in CLAUDE.md/README.md, and a factually-mischaracterized regression-mode claim added in the fix pass — the campaign's 4th instance of "a correction introduces a new false claim," caught pre-merge this time) via a separate cleanup PR (#55).
+
+Merged as PR #54 (d49f86f) plus cleanup PR #55 (b148f4b). Final npm test: 457/457.
+<!-- SECTION:FINAL_SUMMARY:END -->
