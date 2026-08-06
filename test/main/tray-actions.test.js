@@ -376,7 +376,7 @@ test('createTrayActions: regression — mutating `mutexes.proxy` to a fresh lock
 // driveable under plain `node --test` with no real Electron process.
 //
 // Non-vacuity, confirmed by hand: with tray.js's createTrayActions()
-// temporarily reverted to its pre-NCOW-55 shape (`git show HEAD:src/main/tray.js`
+// temporarily reverted to its pre-NCOW-55 shape (`git show HEAD~1:src/main/tray.js`
 // — the single-argument `function createTrayActions({ mutexes, handlers })`
 // with no `notifyDeps` parameter and no `notifyFailure` at all — i.e.
 // exactly what NCOW-53 left behind) and this file run directly under

@@ -162,13 +162,14 @@ function createTray(opts, deps = {}) {
  * adding a third property to that object literal (e.g. `broadcast`) breaks
  * both checks' pattern, and per this task's own AC#6 those pre-existing
  * tests must keep passing UNMODIFIED. The IPC-broadcast route was tried
- * first and hit exactly that conflict — the second (`deps`) parameter added
- * below sidesteps it entirely, since it's new and nothing pre-existing
+ * first and hit exactly that conflict — the second (`notifyDeps`) parameter
+ * added below sidesteps it entirely, since it's new and nothing pre-existing
  * regexes on it. Notification itself is obtained the same lazy,
  * defensively-required way `electron` already is at the top of this module
- * (so this file still loads under plain `node --test`), and `deps.Notification`
- * lets tests inject a fake without needing a real Electron process — mirroring
- * createTray()'s own `deps` (Tray/Menu/nativeImage) pattern immediately above.
+ * (so this file still loads under plain `node --test`), and
+ * `notifyDeps.Notification` lets tests inject a fake without needing a real
+ * Electron process — mirroring createTray()'s own `deps` (Tray/Menu/
+ * nativeImage) pattern immediately above.
  * `Notification.isSupported()` is checked before construction per Electron's
  * own guidance; a platform/session where it's unsupported just falls back to
  * the console.error trail alone, same as before this task.
