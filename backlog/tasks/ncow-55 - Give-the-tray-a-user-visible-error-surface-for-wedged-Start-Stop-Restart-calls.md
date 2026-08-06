@@ -4,7 +4,7 @@ title: Give the tray a user-visible error surface for wedged Start/Stop/Restart 
 status: In Progress
 assignee: []
 created_date: '2026-08-06 16:27'
-updated_date: '2026-08-06 17:21'
+updated_date: '2026-08-06 17:24'
 labels: []
 dependencies:
   - NCOW-53
@@ -108,4 +108,11 @@ for genuinely pre-fix content). Root cause: any HEAD~n reference in a committed 
 self-invalidates on the next commit that touches the same file. Reviewer's explicit
 recommendation: use an immutable ref instead — e9f0c4f (this branch's base on dev) — not another
 relative offset.
+
+Fix pass 2 (worker): replaced HEAD~1 with the absolute SHA e9f0c4f (this branch's actual base
+commit on dev), with a parenthetical explaining why an absolute ref was chosen over a relative
+one. Verify-then-commit order followed correctly this time (verification ran before the commit
+that could invalidate it, and nothing touched the file afterward). Re-verified: 9 pass/3 fail
+against e9f0c4f's tray.js (same differentiated pattern), 467/467 on the real restored file.
+Pushed as a2cdfaa. Awaiting review pass 3 (final, capped).
 <!-- SECTION:NOTES:END -->
