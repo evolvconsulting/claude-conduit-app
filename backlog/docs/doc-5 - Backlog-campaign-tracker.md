@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-06 16:49'
+updated_date: '2026-08-06 16:55'
 ---
 # Backlog campaign tracker
 
@@ -74,7 +74,25 @@ justification.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 13 SETTLEMENT (2026-08-06)**: **23 resolved** (waves 1-13, all Done), **1 queued**
+**As of wave 14 DISPATCH (2026-08-06)**: ground-truth drift check found `dev` in sync with
+`origin/dev` at `2026828` (before this restore's own NCOW-55 status-flip commit `22af11d`),
+clean, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
+matched the wave-13 handover exactly, no drift. **23 resolved** (waves 1-13), **1 queued**
+(NCOW-55, on NCOW-53 Done — the only item in the ready set, so no conflict-graph computation
+was needed to make it solo), 0 genuinely blocked, 5 excluded pending human decomposition
+(re-checked fresh — see Not queued; all five still last-updated 2026-07-31, nothing changed).
+**Wave 14 = {NCOW-55}, solo, by construction of the queue itself.** Wave base pinned at
+`22af11d` (the commit that flipped NCOW-55 to In Progress; no code changed by that commit).
+NCOW-55's own ACs deliberately leave the error-surface mechanism (native OS notification vs.
+IPC broadcast) undecided — this is intentional per the task-creation guide's rule against
+speculative implementation at filing time, not an oversight to escalate before dispatch; the
+worker decides and documents, the reviewer is the checkpoint on whether that call was
+reasonable (Escalation Policy's decide-vs-defer framing — narrow, reversible, and the task
+text itself authorizes either option, so no separate human sign-off needed here). Task
+requires no live-verification of the running proxy/UI — all ACs are satisfiable via direct
+function/harness tests, matching the `createTrayActions()` test precedent from waves 8/13.
+
+Prior note, as of wave 13 SETTLEMENT (2026-08-06): **23 resolved** (waves 1-13, all Done), **1 queued**
 — NCOW-55 (on NCOW-53, Done — filed this settlement, user-approved, not yet conflict-checked
 since it's the only queued item), 0 genuinely blocked, 5 excluded pending human decomposition
 (see Not queued). NCOW-53 merged (PR #56, `f20eb5d`) approved on the task-level reviewer's first
@@ -516,7 +534,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-55 | proxy-mutex | NCOW-53 (Done) | To Do | | Give the tray a user-visible error surface for wedged Start/Stop/Restart calls — filed from wave-13 integration review, user-approved. NCOW-53 gave tray Stop a `console.error` diagnostic, but that's invisible in a packaged build (stderr nobody reads), and tray Start/Restart never got any error handling at all (out of NCOW-53's AC scope). Needs a real user-visible mechanism (native OS notification, or an IPC broadcast the renderer can show regardless of which view is mounted) for all three tray actions. Ready by dependency (NCOW-53 Done); not yet conflict-checked against anything else since it's the only queued item as of wave-13 settlement. |
+| 1 | NCOW-55 | proxy-mutex | NCOW-53 (Done) | Dispatched | 14 | Give the tray a user-visible error surface for wedged Start/Stop/Restart calls — filed from wave-13 integration review, user-approved. NCOW-53 gave tray Stop a `console.error` diagnostic, but that's invisible in a packaged build (stderr nobody reads), and tray Start/Restart never got any error handling at all (out of NCOW-53's AC scope). Needs a real user-visible mechanism (native OS notification, or an IPC broadcast the renderer can show regardless of which view is mounted) for all three tray actions — deliberately left undecided at filing time, per the task-creation guide's rule against speculative implementation; the worker decides and documents, the reviewer is the checkpoint on that call, no separate human sign-off needed since the task text itself authorizes either mechanism. Solo wave (only queued item, dispatched wave 14) — no conflict-graph computation needed. |
 
 ## Resolved
 
