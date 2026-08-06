@@ -75,6 +75,41 @@ function createTray(opts, deps = {}) {
       const menu = Menu.buildFromTemplate([
         { label, enabled: false },
         { type: 'separator' },
+        // NCOW-56 (AC#2): Start's `enabled` here is NOT gated on whether a
+        // manifest exists, unlike the dashboard's `#start-btn`
+        // (dashboard-view.js: `disabled = status === 'running' || !manifest`).
+        // Investigated rather than assumed: `setStatus()`'s only input is
+        // whatever `pm2Control.getStatus()` returns — `{status, pid, uptime,
+        // restarts}` — passed straight through from status-poller.js's
+        // `onStatus(status)` callback with nothing about the manifest mixed
+        // in (see index.js's `startStatusPoller({ pm2Control, onStatus: ...
+        // tray.setStatus(status) })`). The `not-installed` status this label
+        // renders as "Not configured" (above) is verified to mean something
+        // narrower than "no manifest": pm2Control.js's `getStatus()` reports
+        // it purely from `findApp()` returning nothing — i.e. the
+        // `litellm-nim` pm2 app has never been started — which is orthogonal
+        // to whether `manifest.json` exists. A completed setup that has
+        // simply never been started (the ordinary case right after Setup
+        // finishes) is `not-installed` with a manifest already on disk;
+        // conversely nothing here rules out `stopped`/`errored`/`running`
+        // with no manifest either (e.g. a manifest deleted out-of-band after
+        // the proxy was once started). So gating `enabled` on manifest
+        // presence would need `setStatus()` to receive manifest state too —
+        // threading that through means changing this call's shape at its one
+        // call site (index.js) and status-poller.js's `onStatus` payload,
+        // both of which are out of scope for this task (index.js belongs to
+        // a sibling task, NCOW-57). Given that, the chosen fix is the
+        // alternative the task explicitly allows: leave Start always enabled
+        // while not running, and make a click that resolves `{ok:false,
+        // error:{code:'NOT_CONFIGURED', ...}}` (the real, verified shape
+        // engine-context.js's `proxy.start` returns when `getManifest()` is
+        // null) surface a clear, immediate native notification — see
+        // `createTrayActions()`'s NCOW-56 doc comment above and its
+        // `runAction()`. Trade-off accepted: a click on an unconfigured
+        // install still round-trips through the mutex/IPC-style handler
+        // before the user learns anything, instead of the button being inert
+        // from the start — but it is no longer silent, which is what this
+        // task exists to fix, and it needs no change outside this file.
         { label: 'Start', enabled: status.status !== 'running', click: () => opts.onStart?.() },
         { label: 'Stop', enabled: status.status === 'running', click: () => opts.onStop?.() },
         { label: 'Restart', enabled: status.status === 'running', click: () => opts.onRestart?.() },
@@ -174,6 +209,40 @@ function createTray(opts, deps = {}) {
  * own guidance; a platform/session where it's unsupported just falls back to
  * the console.error trail alone, same as before this task.
  *
+ * NCOW-56: NCOW-55 above only covers a THROWN/REJECTED handlers.proxy.*()
+ * call (a genuine pm2-level wedge, e.g. PM2_START_TIMEOUT/PM2_STOP_TIMEOUT).
+ * The wave-14 integration review found a second, actually more common
+ * failure mode it left completely uncovered: engine-context.js's
+ * proxy.start/stop/restart handlers can RESOLVE with
+ * `{ok:false, error:{code, message}}` instead of throwing — confirmed in
+ * source (engine-context.js): `start` returns
+ * `{ok:false, error:{code:'NOT_CONFIGURED', message:'Run setup first.'}}`
+ * when `getManifest()` is null (i.e. setup was never run), and
+ * `{ok:false, error:result.error, ...}` — carrying pm2Control.js's
+ * `startOrRestart()`'s own `{code:'HEALTH_CHECK_TIMEOUT', message:'litellm
+ * did not become healthy in time.'}` — when pm2 starts the process but
+ * litellm never reports healthy inside its window. `restart` is
+ * `async () => handlers.proxy.start()`, so it inherits both. `stop`, by
+ * contrast, is verified to never itself resolve `{ok:false}` in production
+ * today (`pm2Control.stop()` only rejects on a timeout or resolves with
+ * nothing to report as an error) — `runAction()` below still checks every
+ * action generically, both because that costs nothing and because it is the
+ * honest, non-brittle contract for a shared helper (a future change to
+ * `stop` that starts returning `{ok:false}` — e.g. to surface a
+ * `pm2Control.getStatus()` failure after stopping — is covered for free
+ * rather than silently falling back through the old gap again). Before this
+ * fix, this whole class resolved in total silence: no console.error, no
+ * notification, nothing — the exact "invisible to the user" gap NCOW-55 was
+ * filed to close, just for the resolve path instead of the reject path. The
+ * fix reuses NCOW-55's own `notifyFailure()` unchanged: `runAction()` now
+ * inspects the resolved value before handing it back, and — for a resolved
+ * `{ok:false}` — logs and notifies exactly the way the `.catch()` branch
+ * below already does for a thrown one, then still returns that `{ok:false,
+ * error}` value to the caller unchanged (unlike the reject path, which has
+ * always resolved to `undefined` — there is no meaningful value to invent
+ * for a genuine exception, but a resolved `{ok:false}` result already IS a
+ * meaningful value, so it is passed through rather than discarded).
+ *
  * @param {{mutexes: {proxy: {run: (fn: () => any) => Promise<any>}}, handlers: {proxy: {start: () => any, stop: () => any, restart: () => any}}}} deps
  * @param {{Notification?: Function}} [notifyDeps] injection point for
  *   Electron's Notification class — defaults to the real one when running
@@ -182,8 +251,10 @@ function createTray(opts, deps = {}) {
  *   none of the three ever reject (NCOW-53/NCOW-55): each `.catch()`
  *   swallows a wedged/failed handlers.proxy.*() call after logging it via
  *   console.error and (when supported) showing a native notification, so
- *   each always resolves — to `undefined` on that failure path, or to
- *   whatever the underlying handler resolved with otherwise.
+ *   each always resolves — to `undefined` on that (thrown/rejected) failure
+ *   path, or to whatever the underlying handler resolved with otherwise
+ *   (including a resolved `{ok:false, error}` — NCOW-56 — which is now
+ *   logged/notified the same way but still handed back to the caller as-is).
  */
 function createTrayActions({ mutexes, handlers }, notifyDeps = {}) {
   const Notification = notifyDeps.Notification ?? electron?.Notification;
@@ -203,10 +274,26 @@ function createTrayActions({ mutexes, handlers }, notifyDeps = {}) {
   }
 
   function runAction(label, fn) {
-    return mutexes.proxy.run(fn).catch((err) => {
-      console.error(`[tray] ${label} failed:`, err?.code ?? '', err?.message ?? err);
-      notifyFailure(label, err);
-    });
+    return mutexes.proxy
+      .run(fn)
+      .then((result) => {
+        // NCOW-56: a resolved `{ok:false}` is a reported failure, not an
+        // exception — mutexes.proxy.run()'s promise still fulfills, so the
+        // `.catch()` below never sees it. Surface it through the exact same
+        // notifyFailure() the reject path uses, then hand the result back
+        // unchanged so callers (currently none inspect it, but nothing
+        // should have to change if one starts) keep seeing the real value.
+        if (result && result.ok === false) {
+          const err = result.error ?? {};
+          console.error(`[tray] ${label} failed:`, err.code ?? '', err.message ?? '');
+          notifyFailure(label, err);
+        }
+        return result;
+      })
+      .catch((err) => {
+        console.error(`[tray] ${label} failed:`, err?.code ?? '', err?.message ?? err);
+        notifyFailure(label, err);
+      });
   }
 
   return {
