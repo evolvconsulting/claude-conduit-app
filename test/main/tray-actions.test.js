@@ -194,6 +194,77 @@ test('createTrayActions: negative control — a DIFFERENT (shadowed) mutex set f
   await ipcRestart;
 });
 
+// NCOW-53 (AC#2/AC#4): before this fix, a wedged handlers.proxy.stop() (e.g.
+// pm2Control.stop()'s PM2_STOP_TIMEOUT rejection, NCOW-52) propagated as a
+// rejection of the promise mutexes.proxy.run() hands back — mutex.js's
+// `chain = run.catch(() => {})` only protects its OWN internal chain, not
+// that returned promise — and nothing in tray.js awaited or caught it, so it
+// vanished with no console output and no other trace at all. Reproduced here
+// against the actual createTrayActions() from source: this test fails on the
+// pre-fix `onStop: () => mutexes.proxy.run(() => handlers.proxy.stop())`
+// because that expression has no `.catch()`, so the rejection surfaces as an
+// unhandled promise rejection instead of a caught, logged one — `await
+// actions.onStop()` below would throw instead of resolving, and
+// console.error would never run.
+test('createTrayActions: NCOW-53 — a wedged (rejecting) proxy.stop surfaces via console.error instead of vanishing silently', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const wedgeError = Object.assign(new Error('pm2 stop timed out after 15000ms'), { code: 'PM2_STOP_TIMEOUT' });
+  const handlers = {
+    proxy: {
+      stop: async () => {
+        throw wedgeError;
+      },
+    },
+  };
+
+  const actions = createTrayActions({ mutexes, handlers });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  try {
+    // Must not throw / reject — the whole point is that the tray now
+    // contains the failure instead of leaking an unhandled rejection.
+    await assert.doesNotReject(() => actions.onStop());
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(errorCalls.length, 1, 'expected exactly one console.error call diagnosing the wedged Stop');
+  const loggedText = errorCalls[0].join(' ');
+  assert.match(loggedText, /Stop failed/i);
+  assert.match(loggedText, /PM2_STOP_TIMEOUT/);
+  assert.match(loggedText, /pm2 stop timed out/);
+});
+
+// NCOW-53 (AC#5): the fix above must not change ordinary, non-wedged
+// behavior — no console.error, and the resolved value is unchanged.
+test('createTrayActions: NCOW-53 — a normal (non-wedged) proxy.stop still resolves cleanly with no console.error', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const handlers = {
+    proxy: {
+      stop: async () => ({ ok: true }),
+    },
+  };
+
+  const actions = createTrayActions({ mutexes, handlers });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  let result;
+  try {
+    result = await actions.onStop();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(errorCalls.length, 0, 'a successful Stop must not log anything through the new error path');
+});
+
 // NCOW-41 (AC#2): the negative control above reproduces a `mutexes`
 // identifier that is shadowed with an entirely different object — the same
 // class of bug the index.js identifier-binding checks in
