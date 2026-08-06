@@ -536,29 +536,40 @@ function assertAliasKeysAreKnownChannelDomains(aliases, channelDomains) {
 assertAliasKeysAreKnownChannelDomains(DOMAIN_MUTEX_ALIASES, Object.keys(CHANNELS));
 
 /**
- * NCOW-49 AC#1: true only for a genuine lock produced by
+ * NCOW-49 AC#1: true for anything that at least LOOKS like a lock produced by
  * createDomainMutex()/createDomainMutexes() (mutex.js) — duck-typed on the
  * `.run` property that constructor unconditionally attaches (see mutex.js's
- * own JSDoc: `{((fn) => Function) & {run: (fn) => Promise<any>}}`). An opaque
- * WRAPPER around a real mutex, e.g. `(fn) => realMutex(fn)`, does NOT carry
- * `.run` — only the thing it forwards to does — so this reliably tells the
- * two apart without needing any change to mutex.js itself.
+ * own JSDoc: `{((fn) => Function) & {run: (fn) => Promise<any>}}`). A bare,
+ * hand-rolled wrapper with no `.run` of its own at all, e.g.
+ * `(fn) => realMutex(fn)` or `realMutex.bind(null)`, does NOT carry `.run` —
+ * only the thing it forwards to does — so this rejects those outright.
+ *
+ * This check is deliberately NARROWER than its name might suggest: it does
+ * NOT prove `lock` is the exact object createDomainMutex() returned, only
+ * that it exposes a `.run` function. A transparent forwarding wrapper around
+ * a real mutex — `new Proxy(realMutex, {})`, `Object.assign(w, realMutex)`,
+ * or `w.run = realMutex.run` — carries a `.run` too (the Proxy forwards
+ * property access, and the other two copy the reference), so it passes THIS
+ * check while still being a distinct object from `realMutex`. Closing that
+ * gap is not this function's job: see resolveDomainLocks()'s dedupe step
+ * below, which keys on `lock.run` identity rather than `lock` identity for
+ * exactly this reason. A wrapper that invents an entirely NEW `.run` function
+ * of its own (one that internally calls through to the real chain rather
+ * than forwarding/copying the existing `.run` reference) would still evade
+ * both this check's spirit and that dedupe — but doing so requires writing
+ * new indirection code, unlike the three forwarding shapes above, which are
+ * the idiomatic way to transparently wrap an existing object in JS.
  *
  * Why this matters: the wave-7 integration review found that two DISTINCT
  * functions can silently forward onto the SAME underlying FIFO chain without
- * resolveDomainLocks()'s identity-based dedupe (`seen.has(lock)`) ever seeing
- * them as equal — e.g. `{ claudeCode: (fn) => s(fn), config: s, proxy: p }`
- * resolves `uninstall` to what LOOKS like 3 distinct locks, but two of them
- * share one chain, so withLocks() reserves that chain twice and the second
- * reservation can never get its turn: a permanent deadlock, reintroducing
- * NCOW-46's hazard through indirection instead of literal reuse. Detecting
- * "do these two functions serialize through the same chain" in general is
- * impossible in JS (closures are opaque) — so instead of trying to detect
- * sharing after the fact, this rejects the INJECTION of anything that isn't
- * a genuine, canonical mutex in the first place. Every real caller
- * (createDomainMutexes()) and every existing test fixture already only ever
- * hands resolveDomainLocks() unwrapped createDomainMutex() outputs, so this
- * only rejects the exact contrived indirection shape above.
+ * resolveDomainLocks()'s (then identity-based) dedupe (`seen.has(lock)`) ever
+ * seeing them as equal — e.g. `{ claudeCode: (fn) => s(fn), config: s, proxy:
+ * p }` resolves `uninstall` to what LOOKS like 3 distinct locks, but two of
+ * them share one chain, so withLocks() reserves that chain twice and the
+ * second reservation can never get its turn: a permanent deadlock,
+ * reintroducing NCOW-46's hazard through indirection instead of literal
+ * reuse. This check alone stops the no-`.run`-at-all shape; it takes the
+ * `.run`-identity dedupe below to also stop the three forwarding shapes.
  */
 function isDomainMutex(value) {
   return typeof value === 'function' && typeof value.run === 'function';
@@ -583,7 +594,9 @@ function assertGenuineMutex(lock, domain) {
  *  table lists one domain or several, sorted into LOCK_ACQUISITION_ORDER
  *  regardless of the order the table happens to list them in — so a future
  *  edit to that table can't silently invert the acquisition order — and
- *  deduplicated by resolved lock identity), else an empty array.
+ *  deduplicated by resolved lock's `.run` identity, NOT the lock object's own
+ *  identity — see the NCOW-49 fix-pass-2 paragraph below for why), else an
+ *  empty array.
  *
  *  NCOW-46: the dedupe step matters even though no current
  *  DOMAIN_MUTEX_ALIASES entry resolves two of its aliased domains to the same
@@ -597,17 +610,39 @@ function assertGenuineMutex(lock, domain) {
  *  blocking, a permanent deadlock. Deduping degrades that case to holding the
  *  shared mutex once instead.
  *
- *  NCOW-49: every lock this function is about to return (own-domain or
- *  aliased) is now validated by assertGenuineMutex() — see its doc comment
- *  above for why identity-based dedupe alone doesn't close the hazard when
- *  the duplicate arrives via an opaque wrapper rather than literal reuse.
- *  Also (implementation-note #4 from this task): an alias target whose
- *  mutex is entirely ABSENT from the injected `mutexes` set used to be
- *  silently dropped here (`if (!lock || seen.has(lock)) continue`) —
- *  pre-existing from NCOW-45, and worse after NCOW-47/50 since it could
- *  degrade `apiKey` all the way to zero locks, indistinguishable from a
- *  domain deliberately left unlocked. That is now a loud throw instead of a
- *  silent degrade. */
+ *  NCOW-49 fix pass 1: every lock this function is about to return
+ *  (own-domain or aliased) is validated by assertGenuineMutex() — this
+ *  rejects a bare wrapper with no `.run` of its own at all (e.g.
+ *  `(fn) => s(fn)`), which was the wave-7 review's original probe.
+ *
+ *  NCOW-49 fix pass 2 (this fix): fix pass 1's dedupe still keyed on the lock
+ *  OBJECT's own identity (`seen.has(lock)`), which a follow-up review then
+ *  showed is not enough on its own — a TRANSPARENT forwarding wrapper around
+ *  a genuine mutex (`new Proxy(realMutex, {})`, `Object.assign(w,
+ *  realMutex)`, or `w.run = realMutex.run`) is a distinct object from
+ *  `realMutex`, so it survives assertGenuineMutex() (it does carry a `.run`)
+ *  AND survives object-identity dedupe (it isn't `===` to `realMutex`), while
+ *  still sharing `realMutex`'s exact underlying FIFO chain — reintroducing
+ *  NCOW-46's deadlock through a second layer of indirection. All three of
+ *  those forwarding shapes copy or forward the ORIGINAL `.run` function by
+ *  reference rather than creating a new one, so `wrapper.run ===
+ *  realMutex.run` holds for all three even though `wrapper === realMutex`
+ *  does not. Keying dedupe on `lock.run` instead of `lock` itself catches all
+ *  three, and still catches literal same-object reuse too (if `wrapper ===
+ *  realMutex`, then trivially `wrapper.run === realMutex.run`), so this is a
+ *  strict widening of fix pass 1's dedupe, not a replacement of a different
+ *  kind. It does NOT catch a wrapper that defines a brand-new `.run` function
+ *  which merely calls through to the real chain internally (`w.run = (fn) =>
+ *  realMutex.run(fn)`) — that requires deliberately writing new indirection
+ *  code, unlike the three idiomatic "wrap an existing object" shapes above,
+ *  and remains an accepted, deliberately-scoped-out residual limitation.
+ *
+ *  Also (implementation-note #4 from NCOW-49): an alias target whose mutex is
+ *  entirely ABSENT from the injected `mutexes` set used to be silently
+ *  dropped here (`if (!lock || seen.has(lock)) continue`) — pre-existing from
+ *  NCOW-45, and worse after NCOW-47/50 since it could degrade `apiKey` all
+ *  the way to zero locks, indistinguishable from a domain deliberately left
+ *  unlocked. That is now a loud throw instead of a silent degrade. */
 function resolveDomainLocks(mutexes, domain) {
   if (mutexes[domain]) return [assertGenuineMutex(mutexes[domain], domain)];
   const alias = DOMAIN_MUTEX_ALIASES[domain];
@@ -616,7 +651,11 @@ function resolveDomainLocks(mutexes, domain) {
   const sorted = [...aliasDomains].sort(
     (a, b) => LOCK_ACQUISITION_ORDER.indexOf(a) - LOCK_ACQUISITION_ORDER.indexOf(b)
   );
-  const seen = new Set();
+  // Keyed on `lock.run` identity, not `lock` identity — see this function's
+  // own doc comment (NCOW-49 fix pass 2) for why a wrapper object can be
+  // `!==` its underlying mutex while still forwarding/copying the exact same
+  // `.run` reference, and so must dedupe as "the same lock" anyway.
+  const seenRuns = new Set();
   const locks = [];
   for (const d of sorted) {
     const lock = mutexes[d];
@@ -629,8 +668,8 @@ function resolveDomainLocks(mutexes, domain) {
       );
     }
     assertGenuineMutex(lock, d);
-    if (seen.has(lock)) continue;
-    seen.add(lock);
+    if (seenRuns.has(lock.run)) continue;
+    seenRuns.add(lock.run);
     locks.push(lock);
   }
   return locks;

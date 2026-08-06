@@ -2125,6 +2125,85 @@ test('ipc: NCOW-49 — a genuine, unwrapped mutex reused across two aliased doma
   assert.equal(locks.length, 2, 'literal reuse of the same genuine mutex must still dedupe to one entry, not throw');
 });
 
+// NCOW-49 fix pass 2: a follow-up review of fix pass 1 (the two tests above)
+// proved that assertGenuineMutex()'s `.run`-presence check plus fix pass 1's
+// OBJECT-identity dedupe (`seen.has(lock)`) still let a TRANSPARENT
+// forwarding wrapper around a genuine mutex through as if it were a third,
+// distinct lock — `new Proxy(realMutex, {})` carries a `.run` (the Proxy
+// forwards property reads) and is `!==` `realMutex`, so it passed both
+// checks in fix pass 1's source while silently sharing `realMutex`'s exact
+// FIFO chain. `Object.assign(w, realMutex)` and `w.run = realMutex.run`
+// evade the same way. The fix: dedupe on `lock.run` identity instead of
+// `lock` identity — every one of these wrappers forwards/copies the
+// ORIGINAL `.run` function by reference, so `wrapper.run === realMutex.run`
+// even though `wrapper !== realMutex`.
+//
+// Non-vacuity: this exact test, run against fix-pass-1's source (commits
+// 6e72fdf/94238a9, before the `.run`-identity dedupe below existed), FAILS —
+// resolveDomainLocks() returns 3 locks (not 2) and the end-to-end handler
+// test right after this one never enters its handler body (permanent
+// deadlock), reproducing the reviewer's own probe output exactly:
+// `Proxy new Proxy(s,{}) -> ACCEPTED, 3 locks; handler entered? false`. Both
+// assertions below pass against the current (fixed) source.
+test('ipc: NCOW-49 fix pass 2 — resolveDomainLocks() dedupes a transparent Proxy wrapper around a genuine mutex onto the SAME underlying chain, instead of accepting it as a third, undeduped lock (reviewer-proven evasion of fix pass 1\'s object-identity dedupe)', () => {
+  const shared = createDomainMutex();
+  const proxied = new Proxy(shared, {});
+  // The reviewer's exact contrived-injection shape, with a Proxy standing in
+  // for the plain arrow-function wrapper fix pass 1 already rejected.
+  const mutexes = { claudeCode: proxied, config: shared, proxy: createDomainMutex() };
+
+  assert.notEqual(proxied, shared, 'the Proxy must be a genuinely distinct object from the real mutex it wraps');
+  assert.equal(proxied.run, shared.run, 'the Proxy must forward .run by reference — this is what fix-pass-1\'s object-identity dedupe missed');
+
+  const locks = resolveDomainLocks(mutexes, 'uninstall');
+
+  assert.equal(
+    locks.length,
+    2,
+    'the Proxy-wrapped chain and its unwrapped counterpart must collapse to one entry, not be reserved as two separate locks'
+  );
+  assert.equal(
+    locks.filter((l) => l === shared || l === proxied).length,
+    1,
+    'exactly one of {shared, proxied} may appear in the resolved locks — never both'
+  );
+});
+
+test('ipc: NCOW-49 fix pass 2 — end to end, a Proxy-wrapped alias target no longer deadlocks uninstall:run (reviewer-proven "handler entered? false" case now enters and settles)', async () => {
+  reset();
+  const shared = createDomainMutex();
+  const proxied = new Proxy(shared, {});
+  const mutexes = { claudeCode: proxied, config: shared, proxy: createDomainMutex() };
+  const order = [];
+
+  registerIpcHandlers(
+    {
+      uninstall: {
+        run: async () => {
+          order.push('uninstall:enter');
+          return { ok: true, data: { removed: [], kept: [] } };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const uninstallRun = invoke('uninstall:run', { purge: true });
+
+  // Same fixed-point-microtask-cycle argument as the NCOW-46 AC#2 test above:
+  // this mutex chain has no macrotask anywhere in it, so if the handler
+  // hasn't entered after many synchronous ticks, it never will — this can
+  // fail fast against a reintroduced regression instead of hanging the suite.
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+
+  assert.deepEqual(
+    order,
+    ['uninstall:enter'],
+    'a Proxy-wrapped alias target sharing another alias target\'s chain must still let the handler body run, not deadlock forever'
+  );
+  assert.deepEqual(await uninstallRun, { ok: true, data: { removed: [], kept: [] } });
+});
+
 test('ipc: NCOW-49 (implementation-note #4) — an alias target whose mutex is entirely missing from the injected set is now rejected instead of silently degrading serialization', () => {
   // Before this fix: resolveDomainLocks({ proxy: createDomainMutex() }, 'apiKey')
   // silently returned []  (apiKey aliases onto `config`, which isn't in this
