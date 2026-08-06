@@ -91,19 +91,39 @@ const UNSERIALIZED_METHODS = {
   // validateAndSave now acquires mutexes.config itself, directly, inside
   // engine-context.js — but only around the actual secretStore.save() call,
   // after validateApiKey() has already settled. That is a synchronous,
-  // microseconds-long critical section, matching the standard every other
-  // entry in this table already applies; the network wait ahead of it now
-  // holds no lock at all. See engine-context.js's apiKey.validateAndSave for
-  // the actual critical section, and configGen.regenerateStaleConfig's
-  // injected runProxyOperation (engine-context.js) for the established
-  // precedent of an engine-side critical section acquired against this same
-  // shared `mutexes` object rather than through this file's automatic
-  // per-method wrapping.
+  // milliseconds-long critical section (secretStore.save() calls
+  // safeStorage.encryptString — a platform keychain/DPAPI/libsecret round
+  // trip — plus a synchronous fs write, so "instant" is optimistic, but it
+  // is nowhere near the up-to-two sequential 10s network round trips ahead
+  // of it), matching the standard every other entry in this table already
+  // applies; the network wait ahead of it now holds no lock at all. See
+  // engine-context.js's apiKey.validateAndSave for the actual critical
+  // section, and configGen.regenerateStaleConfig's injected
+  // runProxyOperation (engine-context.js) for the established precedent of
+  // an engine-side critical section acquired against this same shared
+  // `mutexes` object rather than through this file's automatic per-method
+  // wrapping.
   //
   // This is why validateAndSave is opted out HERE rather than removed from
   // DOMAIN_MUTEX_ALIASES's `apiKey: 'config'` entry below: that alias is
   // still exactly right for `clear`, which has no network component and is
   // correctly locked for its whole (trivial) body.
+  //
+  // NCOW-49 (queued): keeping `validateAndSave` in this array is
+  // load-bearing for CORRECTNESS, not just lock scope. createDomainMutex()
+  // (mutex.js) is non-reentrant — chaining `chain = run.catch(() => {})`
+  // assumes each acquisition is a fresh call into the chain, not a call
+  // already running inside a held lock. If IPC-level locking were ever
+  // re-added on top of engine-context.js's inner mutexes.config.run()
+  // (e.g. by moving `validateAndSave` back out of this array without also
+  // removing its self-acquisition), the outer acquisition would await a
+  // chain that can only resolve after the inner one it's blocking — the two
+  // never resolve, and `mutexes.config` becomes permanently unacquirable:
+  // every other caller of that lock (including uninstall's
+  // claudeCode+config+proxy via DOMAIN_MUTEX_ALIASES) wedges forever, not
+  // just for the ~20s this fix was scoped to bound. This comment is an
+  // interim, documentation-only mitigation; NCOW-49 will add a real
+  // structural guard against re-nesting the two.
   apiKey: ['getMasked', 'validateAndSave'],
   // NCOW-50 AC#5: config.getManifest is an equally pure read of the same
   // manifest.json config.generate writes — manifestStore.readManifest()
@@ -179,9 +199,10 @@ const UNSERIALIZED_METHODS = {
  * `window.nimProxy.apiKey.*` call sites in the app (`getMasked` and
  * `validateAndSave` — never `clear`) — so today this alias is defence-in-
  * depth against a reachable IPC race, not a click a user can actually
- * trigger; `validateAndSave` DOES
- * have a real UI caller, the Setup wizard's "Validate & Save" button, so the
- * alias is load-bearing for that half regardless.) apiKey has no
+ * trigger. As of NCOW-50 below, `validateAndSave` no longer resolves its
+ * lock through this alias at all, so the alias is load-bearing only for
+ * `clear` — which, per the point just made above, is the one of apiKey's
+ * two mutating methods with no UI caller of its own.) apiKey has no
  * mutating concern of its own beyond this one, so — like uninstall/update —
  * it gets no dedicated entry in MUTEX_DOMAINS (mutex.js), only this alias.
  * apiKey.getMasked is a pure read and stays exempt via UNSERIALIZED_METHODS
@@ -465,9 +486,11 @@ const builtinAppHandlers = {
  *   `mutexes.{proxy,config,claudeCode}` via DOMAIN_MUTEX_ALIASES above
  *   instead. `uninstall` resolves to all three (acquired in
  *   LOCK_ACQUISITION_ORDER via withLocks(), see both above); `update` still
- *   resolves to `proxy` alone; `apiKey` resolves to `config` alone
- *   (validateAndSave/clear only — getMasked opts out via
- *   UNSERIALIZED_METHODS above).
+ *   resolves to `proxy` alone; `apiKey` resolves to `config`, but only for
+ *   `clear` — `getMasked` and, as of NCOW-50, `validateAndSave` both opt out
+ *   via UNSERIALIZED_METHODS above, with `validateAndSave` instead acquiring
+ *   `mutexes.config` directly inside engine-context.js, scoped to just its
+ *   secretStore.save() call.
  */
 function registerIpcHandlers(handlers = {}, opts = {}) {
   const mergedHandlers = { ...handlers, app: { ...builtinAppHandlers, ...handlers.app } };

@@ -432,7 +432,8 @@ paths are serialized. See `engine-context.js`'s own comment at the mutex's const
 for the full reasoning, including the pre-existing, out-of-scope edge case it leaves behind (a
 quit landing in `startOrRestart()`'s `deleteAppIfPresent()` → `pm2.start()` gap). (As
 of NCOW-47, the `config` lock also covers the encrypted NVIDIA key, so `apiKey`'s
-validateAndSave/clear now alias onto it too.)
+`clear` aliases onto it too; as of NCOW-50, `validateAndSave` no longer does — it
+acquires that same lock directly, scoped to just its secretStore.save() step.)
 
 **The daemon itself can still be running after quit — corrected by NCOW-24.** If
 `ensureConnected()` (`pm2Control.js`) had to bootstrap a pm2 daemon itself (`spawnDaemon()`,

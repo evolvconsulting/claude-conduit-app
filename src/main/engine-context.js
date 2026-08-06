@@ -286,7 +286,10 @@ function createEngineContext(deps) {
       // NCOW-47's guarantee in full (this write still cannot interleave
       // with config.generate's secretStore.load(), which runs inside the
       // very same mutexes.config) while collapsing the hold from up to ~20s
-      // to microseconds. `clear` needs no equivalent change — it has no
+      // to milliseconds — secretStore.save() calls safeStorage.encryptString
+      // (a platform keychain/DPAPI/libsecret round trip) plus a synchronous
+      // fs write, so it is not instant, but it is nowhere near the network
+      // wait it replaces. `clear` needs no equivalent change — it has no
       // network component, so ipc.js's whole-handler lock (via
       // DOMAIN_MUTEX_ALIASES's apiKey->config alias) already scopes
       // correctly for it.
@@ -299,6 +302,22 @@ function createEngineContext(deps) {
         // keyring). That failure must be surfaced to the caller instead of
         // discarded, or the renderer reports success while the key was
         // never actually persisted.
+        //
+        // NCOW-49 (queued): this self-acquisition only works because
+        // `validateAndSave` is listed in ipc.js's UNSERIALIZED_METHODS, so
+        // no lock is already held when this line runs. createDomainMutex()
+        // (mutex.js) is non-reentrant: if IPC-level locking were ever
+        // re-added on top of this call (e.g. removing `validateAndSave`
+        // from that array without also removing this line), the outer
+        // acquisition's chain could only resolve after this inner one does
+        // — and this inner one can't even start until the outer one
+        // resolves, since they share the same `mutexes.config` chain. That
+        // is a self-deadlock, not a slow path: `mutexes.config` becomes
+        // permanently unacquirable, wedging every other caller of it
+        // (including uninstall's claudeCode+config+proxy via
+        // DOMAIN_MUTEX_ALIASES) forever, not just for ~20s. This comment is
+        // an interim, documentation-only mitigation; NCOW-49 will add a
+        // real structural guard.
         const saveResult = await mutexes.config.run(() => secretStore.save(key));
         if (!saveResult.ok) {
           // Reworded (rather than passed through verbatim) so the setup
@@ -536,7 +555,8 @@ function createEngineContext(deps) {
         // claudeCode each have their own domain mutex, and NCOW-32 aliases
         // update onto proxy's (as of NCOW-45, uninstall aliases onto
         // claudeCode+config+proxy instead of proxy alone; as of NCOW-47,
-        // apiKey's validateAndSave/clear alias onto config's), but
+        // apiKey's `clear` aliases onto config's, and `validateAndSave`
+        // acquires it directly (NCOW-50)), but
         // diagnostics has no lock and no alias at all), so overlapping runs
         // aren't actually prevented at this layer; the renderer's own button
         // disable-while-running is what stops that in practice. Clearing
