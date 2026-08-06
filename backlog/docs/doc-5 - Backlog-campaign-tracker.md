@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-06 18:26'
+updated_date: '2026-08-06 23:32'
 ---
 # Backlog campaign tracker
 
@@ -74,7 +74,27 @@ justification.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 14 SETTLEMENT (2026-08-06)**: **24 resolved** (waves 1-14, all Done), **3 queued**
+**As of wave 15 DISPATCH (2026-08-06)**: ground-truth drift check found `dev` in sync with
+`origin/dev` at `0748b1b`, clean, no leftover branches/worktrees/PRs, all 4 treehouse trees
+available (none leased) — zero drift from the wave-14 handover, nothing to reconcile.
+**The wave-15 conflict graph was computed fresh via the file-citation method, and it is
+pairwise-complete across all 3 queued tasks — so wave 15 is solo (NCOW-56), by real computation
+this time rather than by construction.** Findings, all grounded in the tasks' own text and the
+current source rather than the provisional guesses recorded at wave-14 settlement:
+NCOW-56 → `src/main/tray.js` (`runAction`/`notifyFailure` at lines 191-216, plus the Start-item
+`enabled` logic inside `createTray` at line 78) and `test/main/tray-actions.test.js`;
+NCOW-57 → `src/main/index.js` (a `setAppUserModelId` call site, currently absent app-wide),
+`electron-builder.yml`, **and `src/main/tray.js` lines 173-175** — NCOW-57's description names
+that exact `isSupported()` docstring claim as too narrow, so the tray.js overlap with NCOW-56 is
+real, not hypothetical; NCOW-58 → `README.md`/`DESIGN.md`, disjoint by file but ordered last on
+two independent grounds — its AC#3 asks it to reflect NCOW-57's resolution, and its AC#1 wording
+("a wedged tray action raises a notification") would be stale-on-arrival the moment NCOW-56
+widens the surface to resolved `{ok:false}` failures. Documenting a behavior one wave before it
+changes is precisely the stale-claim failure class this campaign's integration review has caught
+in all 14 waves so far. Expected sequencing: wave 15 = NCOW-56, wave 16 = NCOW-57 (the sole
+live-app-verification item), wave 17 = NCOW-58 (docs last, reflecting both).
+
+Prior note, as of wave 14 SETTLEMENT (2026-08-06): **24 resolved** (waves 1-14, all Done), **3 queued**
 — NCOW-56, NCOW-57, NCOW-58 (all on NCOW-55, Done — filed this settlement, user-approved, not
 yet conflict-checked against each other), 0 genuinely blocked, 5 excluded pending human
 decomposition (see Not queued). NCOW-55 merged (PR #58, `76a7c3c`) after 2 fix cycles on the
@@ -550,7 +570,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-56 | tray-notify | NCOW-55 (Done) | To Do | | Tray Start/Restart still silent on a resolved `{ok:false}` failure (NOT_CONFIGURED, HEALTH_CHECK_TIMEOUT) — NCOW-55 only covers thrown/rejected calls via `.catch()`; the renderer's own toast already covers this failure mode, the tray doesn't. Filed from wave-14 integration review, user-approved. Primary file: `src/main/tray.js` (extending `runAction`/`notifyFailure` to also inspect a resolved `{ok:false}` value, not just a caught rejection) — likely overlaps NCOW-57's file footprint if NCOW-57 also touches tray.js's `isSupported()` guard; re-verify fresh at dispatch, don't assume disjoint from the cluster label alone. |
+| 1 | NCOW-56 | tray-notify | NCOW-55 (Done) | Dispatched | 15 | **Wave 15, dispatched solo.** The wave-14 provisional guess that all 3 queued items might overlap was CONFIRMED for the NCOW-56/NCOW-57 pair specifically (both land in `src/main/tray.js`), and NCOW-58 was ordered last on content-staleness grounds rather than file overlap — see the Frontier note for the full derivation. Tray Start/Restart still silent on a resolved `{ok:false}` failure (NOT_CONFIGURED, HEALTH_CHECK_TIMEOUT) — NCOW-55 only covers thrown/rejected calls via `.catch()`; the renderer's own toast already covers this failure mode, the tray doesn't. Filed from wave-14 integration review, user-approved. Primary file: `src/main/tray.js` (extending `runAction`/`notifyFailure` to also inspect a resolved `{ok:false}` value, not just a caught rejection) — likely overlaps NCOW-57's file footprint if NCOW-57 also touches tray.js's `isSupported()` guard; re-verify fresh at dispatch, don't assume disjoint from the cluster label alone. |
 | 2 | NCOW-57 | tray-notify | NCOW-55 (Done) | To Do | | Verify and fix tray notification deliverability on Windows and Linux — no `app.setAppUserModelId()` call anywhere in the app; `electron-builder.yml`'s `win.target` includes `portable`, which installs no AUMID-bearing Start Menu shortcut; `Notification.isSupported()` doesn't detect either gap or macOS DND/permission-denied. Filed from wave-14 integration review, user-approved. Needs live verification on winvm and a Linux desktop — this is the wave's live-app-verification candidate if dispatched alongside NCOW-56/58 (Shared Machine State rule: at most one wave member verifying the live app at a time). Primary files: likely `src/main/index.js` (app.setAppUserModelId call site) and `electron-builder.yml`; possibly `src/main/tray.js` if `isSupported()`'s framing needs softening — re-verify fresh, same caution as NCOW-56's row above. |
 | 3 | NCOW-58 | tray-notify | NCOW-55 (Done) | To Do | | Document the tray's native notification behavior in README/DESIGN.md — this is the app's first-ever OS notification and it's currently undocumented anywhere. Filed from wave-14 integration review, user-approved. Primary files: `README.md`, `DESIGN.md` — pure docs, no code; likely disjoint from NCOW-56/57's code changes, but should wait on NCOW-57's actual resolution if dispatched in the same wave (its own AC#3 says to link to NCOW-57's resolution "whichever is accurate at the time this task is done") — consider sequencing after NCOW-57 rather than true-parallel, or brief its worker to write the caveat provisionally and let review catch any mismatch. |
 

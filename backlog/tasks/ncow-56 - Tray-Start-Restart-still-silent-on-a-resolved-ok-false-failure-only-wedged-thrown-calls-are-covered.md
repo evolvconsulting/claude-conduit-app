@@ -3,9 +3,10 @@ id: NCOW-56
 title: >-
   Tray Start/Restart still silent on a resolved {ok:false} failure (only
   wedged/thrown calls are covered)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
+updated_date: '2026-08-06 23:32'
 labels: []
 dependencies:
   - NCOW-55
