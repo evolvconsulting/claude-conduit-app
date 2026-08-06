@@ -1,10 +1,10 @@
 ---
 id: NCOW-53
 title: Surface pm2 stop/start/log-tail timeout errors on the renderer and tray
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-05 22:02'
-updated_date: '2026-08-05 22:03'
+updated_date: '2026-08-06 16:00'
 labels: []
 dependencies:
   - NCOW-52
