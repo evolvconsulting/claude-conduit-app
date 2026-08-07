@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 11:48'
+updated_date: '2026-08-07 11:59'
 labels: []
 dependencies:
   - NCOW-55
@@ -403,4 +403,46 @@ account:** `createEngineContext()` DOES thread the overrides correctly via `engi
 calls. Recommended follow-up scope is narrow: thread `paths.resolveWindowsAppDataOverrides(homeDir)`
 into both call sites (lines 90, 256); the reviewer's sweep found NO other offenders suite-wide, and
 it suggests a cheap suite-wide guard since CLAUDE.md documents this class as recurring.
+
+## Wave-16 fix pass 2 — implemented, commit `780cb94122ac5d1c3acf7bbff9eefac5564e9b65`
+
+Closes review pass 2's one blocking and one non-blocking finding. No remote host was needed.
+
+**Blocking (the recurrence of the B1 elision class).** `src/main/appUserModelId.js`'s dev-recipe
+text was rewritten. The worker re-fetched the source itself rather than restating the reviewer's
+rendering — `https://raw.githubusercontent.com/electron/electron/v43.2.0/docs/tutorial/notifications.md`,
+HTTP 200 with no redirect (confirmed via `curl -w`), **lines 111-118** (note: the "Notifications in
+development" callout, distinct from the Squirrel sentence at 107-109 that pass 1 cited). Full text
+as fetched: *"To quickly bootstrap notifications during development, adding
+`node_modules\electron\dist\electron.exe` to your Start Menu also does the trick. Navigate to the
+file in Explorer, right-click and 'Pin to Start Menu'. Then, call
+`app.setAppUserModelId(process.execPath)` in the main process to see notifications."*
+The comment now quotes that in full including the argument, states plainly that this branch
+DELIBERATELY DEVIATES by passing the appId rather than `process.execPath` (so the runtime AUMID
+matches what NSIS stamps on the installed shortcut, which `process.execPath` would not), documents
+the prerequisite review pass 2 discovered live — a bare "Pin to Start Menu" does NOT give the
+pinned shortcut a matching `System.AppUserModel.ID`, so a developer must stamp that property
+manually, with no in-repo automation possible since `WinShell::SetLnkAUMI` is an NSIS-plugin call
+not available outside a build — and drops the false "second half only" framing entirely.
+
+**Non-blocking (drift-guard regex).** `/^appId:\s*(\S+)\s*$/m` became
+`/^appId:\s*(['"]?)(\S+?)\1\s*(?:#.*)?$/m`, stripping matching quotes and tolerating a trailing
+comment.
+
+**Claim sweep.** Swept `src/`, `test/`, README, DESIGN, CLAUDE and `electron-builder.yml` for
+"second half"/"two halves" — ZERO hits. Also swept "only half"/"half only" and for the pass-1
+B1-class elision ("will also automatically call" / "detect that Squirrel was used") — the only hits
+are the already-correct full quote at lines 41-45. Nothing further found.
+
+**Evidence.** npm test 485/485 before and after (count unchanged — no new test, an existing regex
+hardened). Four drift-guard experiments, each reverted: quoted appId + new regex -> PASS; quoted
+appId + OLD regex -> FAIL (reproducing the reported bug, i.e. non-vacuity of the fix); yml-side
+value drifted + new regex -> FAIL; production-constant drifted + new regex -> FAIL.
+`electron-builder.yml` confirmed untouched. Self-reported snag: an experiment's
+`git checkout -- src/main/appUserModelId.js` briefly reverted the blocking fix too; caught
+immediately and restored byte-for-byte from a pre-edit backup, verified by `diff`.
+
+Cumulative branch state: 4 commits, 5 files, +416/-0 — `electron-builder.yml`,
+`src/main/appUserModelId.js` (new), `src/main/index.js`, `src/main/tray.js`,
+`test/main/app-user-model-id.test.js` (new).
 <!-- SECTION:NOTES:END -->
