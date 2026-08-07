@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 05:54'
+updated_date: '2026-08-07 11:48'
 labels: []
 dependencies:
   - NCOW-55
@@ -23,10 +23,10 @@ This has never been verified live on Windows or Linux (only informally reasoned 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 app.setAppUserModelId() is called appropriately for dev/source runs (matching Electron's own guidance) so tray notifications actually appear on a Windows dev run
+- [ ] #1 app.setAppUserModelId() is called appropriately for Windows dev/source runs — either matching Electron's own guidance or deliberately deviating from it with the deviation and its reason documented in the code — so that a Windows dev run's tray notification is accepted and recorded by Windows under an AUMID matching the installed Start Menu shortcut. AMENDED 2026-08-07 (user decision, wave 16): the original wording said "so tray notifications actually appear on a Windows dev run"; pixel-level banner capture proved unobtainable on winvm across four capture strategies, so the standard is acceptance-plus-AUMID-correctness, matching the dispensation already granted to AC#4 for Linux.
 - [ ] #2 Decide and implement a mitigation for the portable Windows build target (electron-builder.yml's win.target includes portable, which installs no Start Menu shortcut/AUMID) — either exclude notifications from that target gracefully, or document why it's an accepted gap
-- [ ] #3 Live-verified on winvm: a wedged tray Start/Stop/Restart produces a real, visible Windows toast notification in both the nsis-installed and portable configurations (or the portable gap from AC#2 is confirmed and documented instead)
-- [ ] #4 Live-verified on a Linux desktop environment: a wedged tray action produces a real, visible notification, or the absence is confirmed and documented
+- [ ] #3 Live-verified on winvm that a wedged tray Start/Stop/Restart notification is ACCEPTED AND RECORDED BY WINDOWS under an AUMID matching the installed Start Menu shortcut, in both the nsis-installed and portable configurations, and that the portable target's missing-shortcut gap is documented. AMENDED 2026-08-07 (user decision, wave 16): the original wording required "a real, visible Windows toast notification"; pixel-level banner capture is unobtainable in this VM, so visible-banner proof is replaced by OS-recorded acceptance plus AUMID correctness.
+- [ ] #4 Live-verified on a Linux desktop environment: a wedged tray action produces a real, visible notification, or the absence is confirmed and documented. CLARIFIED 2026-08-07 (user decision, wave 16): a captured org.freedesktop.Notifications.Notify call accepted by gnome-shell — the actual renderer — satisfies "visible" on a host where pixel proof is environmentally impossible (GNOME 50 denies the Shell Screenshot API; no gnome-screenshot/grim installed).
 - [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
