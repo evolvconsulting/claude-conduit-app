@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 00:24'
+updated_date: '2026-08-07 00:37'
 labels: []
 dependencies:
   - NCOW-55
@@ -169,4 +169,26 @@ Files touched: `src/main/tray.js`, `test/main/tray-actions.test.js`, plus numeri
 **Two non-blocking findings, accepted as-is rather than spending a fourth cycle:**
 - cosmetic, `test/main/tray-actions.test.js:580` — fix pass 2's reflow left its own ragged line (~30 chars against ~76-char neighbours), the same class of nit it was fixing in tray.js.
 - info, `test/main/tray-actions.test.js:595` — the non-vacuity note paraphrases the failure as `"0 !== 1"`, which is `assert.strictEqual`'s default form; this is a loose `assert.equal` with a custom message, so Node reports `actual: 0 / expected: 1`. The substantive claim (which assertion, which values, all five tests) is exactly right and was reproduced.
+
+**Wave-15 integration review (opus, post-merge over `5b9e49e...905b8ad`): found real material for the 15th consecutive wave.** Six findings, plus a clean staleness sweep.
+
+**F1 (major, `test/main/tray-actions.test.js:690-692`) — a false claim the reviewer FALSIFIED by experiment rather than by reading.** The comment claims the test "would fail if the `result.ok === false` check above were ever loosened to something like `!result.ok`". The reviewer made that exact edit to `src/main/tray.js:293` and ran the suite: **19/19 passing, `npm test` 474/474**. The test's handlers resolve `{ok:true, which:'start'|'restart'}`, and `!true` is `false`, so the branch stays dormant under either predicate. **Nothing in the entire 474-test suite guards the strictness of `=== false`.** The comment's own parenthetical is right about what `!result.ok` would misfire on (results with no `ok` key, or falsy-but-not-`false` values) — the test just exercises none of them.
+
+**F2 (minor, same file `:686-688`) — the claimed new "control" test adds nothing.** `diff` of the two bodies returns only two differing lines (assertion message strings); it is otherwise byte-identical to the pre-existing NCOW-55 test at `:497`. This also explains something two review passes read as evidence of good test design: it "correctly passes pre-fix" because it is a **copy of a test that already existed pre-fix**, not because it was designed as a control. Review-lens lesson worth recording: "passes pre-fix" was checked; "is not already covered" was not.
+
+**F3 (minor, `src/main/tray.js:101-106`)** — the scope argument's claim that manifest-gating would require changing "status-poller.js's `onStatus` payload" is false, and load-bearing. `index.js:213-216`'s `onStatus` closure is written in index.js and already has `handlers` in scope (destructured at `index.js:74`), and `handlers.config.getManifest` exists at `engine-context.js:406`, backed by the synchronous local `getManifest()` at `:136`. index.js could enrich the call itself with zero change to `status-poller.js`, whose `onStatus(status)` is layer-correctly ignorant of manifests. The decision stays defensible; the stated necessity is wrong.
+
+**F4 (minor, `src/main/tray.js:81-83`)** — "`setStatus()`'s only input is whatever `pm2Control.getStatus()` returns", prefaced "Investigated rather than assumed", is false two ways: `status-poller.js:15-17` synthesizes `onStatus({status:'errored'})` in its `catch` (what a `PM2_LIST_TIMEOUT` rejection renders as), which never came from `getStatus()`; and `tray.js:138` calls `setStatus({status:'stopped'})` itself at construction, before any poll. The conclusion survives; the exhaustiveness claim does not.
+
+**F5 (nit, `src/main/tray.js:87-90`)** — self-contradiction within three lines: `not-installed` called "narrower than 'no manifest'" and then "orthogonal to whether `manifest.json` exists". Incompatible, and the comment's own two examples prove orthogonality.
+
+**F6 (nit, `src/main/tray.js:294`)** — a real user-visible defect: `const err = result.error ?? {}` feeds `notifyFailure`, whose body is `${label} failed: ${err?.message ?? err}`. For an `{ok:false}` with no `error` key, the notification renders literally **"Start failed: [object Object]"**. Unreachable through today's handlers (`engine-context.js:412`/`:420` always populate `error`) — but the surrounding comment explicitly justifies the generic check as future-proofing for handlers that don't exist yet, which is exactly the case that would hit it.
+
+**Staleness sweep came back CLEAN — the first time in this campaign a sweep found nothing to fix.** `grep -rni "tray"` across README/DESIGN/CLAUDE → 9 hits, all checked, all still accurate (quit routes, the shared `mutexes.proxy` claim, `DESIGN.md:409-410`'s reachable-timeout-codes statement — NCOW-56 changes none of them). Tray-related comments elsewhere in `src/` → 14 locations read, none makes a claim about the tray's error/notification surface; `pm2Control.js:711` still exactly true. **No statement anywhere in README/DESIGN/CLAUDE describes what happens when a tray action fails**, so there was nothing to go stale — confirming the *absence* is NCOW-58's scope, not a defect.
+
+**Every cited `file:line` re-verified against the MERGED tree** (rebase/squash can shift citations): `pm2Control.js:703` HEALTH_CHECK_TIMEOUT ✅, `dashboard-view.js:94` verbatim ✅, `engine-context.js:412`/`:420`/`:427` ✅, `pm2Control.js:743-748` and `:725-735` ✅, `index.js:211-216` ✅, `setup-view.js:234/240/246/257` ✅, `DESIGN.md:225` ✅. No fabricated identifiers. Git-reference hygiene confirmed: the only ref is the absolute `5b9e49e...`, verified still an ancestor of HEAD and still yielding the pre-fix `runAction` body, with `git diff 5b9e49e 905b8ad^ -- <the two files>` empty, so the intervening bookkeeping commits did not invalidate it. Non-vacuity re-reproduced a fourth time on the merged head (19 tests, 13 pass, 6 fail).
+
+`npm test` on merged `905b8ad`: **474/474**, matching `CLAUDE.md:51` and `README.md:331`.
+
+**Reviewer note not requiring a fix:** the AC#2 comment's chosen example of "`not-installed` with a manifest on disk" (a `proxy.start()` failing before pm2 registration) is valid but unrepresentative — the ordinary case is any reboot or pm2-daemon restart without `pm2 startup`/`resurrect`, after which `findApp()` returns null with the manifest untouched. That makes the argument stronger, not weaker.
 <!-- SECTION:NOTES:END -->
