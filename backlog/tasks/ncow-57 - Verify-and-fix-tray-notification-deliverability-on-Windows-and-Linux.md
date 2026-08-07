@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 04:08'
+updated_date: '2026-08-07 04:23'
 labels: []
 dependencies:
   - NCOW-55
@@ -135,4 +135,90 @@ than restating the overbroad claim. Nothing further needed correcting.
    FOR THE APP — this was an incidental manual OS-level taskkill during cleanup, not app code.
 4. The NSIS uninstaller (/S) reported success but left the whole app directory behind; cleaned up
    manually. Out of NCOW-57 scope, not investigated.
+
+## Wave-16 review verdict (opus, pass 1): request_changes — confirmed AC #5 only
+
+Reviewer independently re-ran the gate (483/483, matching) and confirmed AC#5. It did NOT confirm
+AC#1-#4. It also independently corroborated that the implementer's remote work was REAL, not
+fabricated (FILETIME 134305482092933723 decodes to 2026-08-07T03:50:09Z; winvm is Central, giving
+2026-08-06 22:50:09 local, exactly as reported; linuxvm's npm debug log and a
+`Started app-electron-2852039.scope` journal entry corroborate the Electron run in the live GNOME
+session). Cleanup on both hosts confirmed complete.
+
+**Blocking findings.**
+
+1. `src/main/appUserModelId.js:7-9` — the Electron quote is truncated in a way that removes its
+   condition. Verified against electron v43.2.0 `docs/tutorial/notifications.md:107-109`, whose
+   real sentence is "In production, Electron will also **detect that Squirrel was used** and will
+   automatically call app.setAppUserModelId()...". This app packages with electron-builder
+   nsis/portable, NOT Squirrel — so the doc does not say the packaged case is handled. This
+   elision is the entire justification for the `!isPackaged` gate at line 44.
+2. `src/main/appUserModelId.js:13-16`, restated at `test/main/app-user-model-id.test.js:11-13` —
+   "so a Windows dev/source run ... had no AUMID at all" is FALSE. Electron's
+   `GetRawAppUserModelID()` (`shell/common/application_info_win.cc:55-70`) always generates
+   `electron.app.<ProductName>` when none was set explicitly. What is actually missing is a
+   MATCHING START MENU SHORTCUT, not an AUMID. Also a false counterfactual: the pre-fix Windows
+   dev state was never run. Note this is a NEW claim introduced by this branch, stated in two
+   places — fixing it requires fixing both.
+3. `electron-builder.yml:57-89` — the documented AC#2 conclusion is not supported by the evidence
+   and is contradicted by its own recorded facts. Reviewer verified in this repo's own
+   `node_modules`: `app-builder-lib/templates/nsis/include/installer.nsh:200` does
+   `WinShell::SetLnkAUMI "$newStartMenuLink" "${APP_ID}"` and
+   `app-builder-lib/out/targets/nsis/NsisTarget.js:160` sets `APP_ID: appInfo.id`, so the nsis
+   Start Menu shortcut carries **com.evolvconsulting.claudeconduit**. The running packaged process
+   used **electron.app.Claude Conduit** — Electron's lazy fallback, which fires only when nothing
+   set an explicit AUMID. **These do not match, on the nsis target too.** Separately,
+   `grep -rn "ToastActivator\|CLSID" node_modules/app-builder-lib/templates/nsis/` returns ZERO
+   hits — electron-builder writes no ToastActivatorCLSID for either target. So "nsis and portable
+   behaved identically, therefore portable needs no mitigation" cannot distinguish "both work"
+   from "both fail identically", and there is now a source-verified mechanism making "both fail" a
+   live hypothesis. The real axis is packaged-vs-Squirrel, affecting BOTH Windows targets — not
+   portable-vs-nsis.
+4. `src/main/index.js:23-25` / AC#1 — the added code path has never executed in ANY live run. The
+   gate is `win32 && !isPackaged`; both winvm runs were `isPackaged: true` and linuxvm was linux.
+   AC#1's wording is specifically about a Windows DEV run.
+
+**Non-blocking.** Electron's dev recipe has two halves — call `setAppUserModelId(process.execPath)`
+AND pin `node_modules\electron\dist\electron.exe` to the Start Menu
+(`notifications.md:111-118`); the branch mentions only the first, so "so tray notifications
+actually appear on a Windows dev run" overstates what the code alone achieves. The corrected
+`src/main/tray.js:224-249` claim is itself accurate and well-scoped, but its Windows recap
+inherits AC#2's unsupported reading. Merge-order risk: NCOW-59 edits the same tray.js docblock
+region. **Nit:** the attributed electron-builder glossary quote at `electron-builder.yml:58-60`
+could not be located in any reachable electron-builder docs source — the substantive claim
+(portable creates no Start Menu shortcut) is true, the attribution is unverified.
+
+**Failure-class check.** Instance-vs-claim: reviewer ran its own sweep, found no surviving
+restatement of the CORRECTED claim (README/DESIGN have zero notification mentions), but the branch
+introduces a NEW false claim in two places. False guards: CLEAN — both guard comments verified by
+experiment and both are real guards. Fabricated specifics: MIXED — most concrete specifics
+verified real, one unverifiable attribution, two false claims. False counterfactuals: HIT (see #2).
+Relative git refs: CLEAN.
+
+**Test verification (reviewer's own).** npm test 483/483. Non-vacuity A: removing the guard block
+and import from index.js gives 4 pass / 3 fail, reproducing the implementer's figures exactly.
+Non-vacuity B: loosening the gate to `return platform === 'win32'` gives 6 pass / 1 fail.
+Guard-by-experiment C: moving the block after `app.whenReady()` fails test 7 only — real guard.
+Guard-by-experiment D: changing the argument to the appId fails tests 6 and 7 — real guard.
+Novelty: the 4 logic tests cover a brand-new module; the 3 static-source tests reuse
+`test/main/index.test.js`'s documented INDEX_SOURCE technique but assert different things, not
+verbatim copies. Worktree confirmed restored to committed state (clean status, empty stash).
+
+**.env exposure (risk #4).** Nothing in the committed diff contains any secret and no .env is
+tracked. Residual-risk probe: linuxvm `find / -name ".env" -newermt "2026-08-05"` -> no hits, and
+the working tree is deleted. winvm recursive search returned exactly one hit,
+`C:\Users\jdnewhouse\AppData\Roaming\claude-conduit\litellm.env`, dated 2026-08-02 — a
+PRE-EXISTING real install from an earlier wave, not from this task. This task's copies are gone.
+Flagged separately for the user: that pre-existing file is a real app config that may hold live
+credentials; it predates NCOW-57 and rotation/removal is the user's call, out of scope here.
+
+**Escalated to the user (decide-vs-defer: product/architecture-level, not the reviewer's to guess).**
+The reviewer states the packaged-Windows AUMID question "needs a human call, not a worker's
+judgement": either call `app.setAppUserModelId(<appId>)` unconditionally so the runtime AUMID
+matches the shortcut electron-builder already writes (changes the gate, requires re-verification),
+or explicitly accept and document that Windows toasts may not render for EITHER packaged target
+with `console.error` as the only guaranteed surface. The current branch silently picks neither
+while documenting that there is no problem. Separately, AC#4 needs a human ruling on whether
+captured D-Bus delivery to gnome-shell satisfies "visible" on a host where pixel proof is
+environmentally impossible.
 <!-- SECTION:NOTES:END -->
