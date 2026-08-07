@@ -681,22 +681,32 @@ test('createTrayActions: NCOW-56 — Notification.isSupported() === false skips 
   assert.equal(instances.length, 0, 'no Notification should be constructed when isSupported() reports false');
 });
 
-// NCOW-56 (AC#4): the fix must not change ordinary, non-failing behavior —
-// no console.error, no notification, and the resolved value passed straight
-// through. onStop's {ok:true} case is already covered above (NCOW-53's
-// normal-path test); this adds the {ok:false}-shaped-but-actually-successful
-// edge explicitly for Start/Restart, distinguishing "resolved with `ok`
-// explicitly true" from "resolved with `ok` explicitly false" so this test
-// would fail if the `result.ok === false` check above were ever loosened to
-// something like `!result.ok` (which would misfire on results with no `ok`
-// key at all, or falsy-but-not-`false` values).
-test('createTrayActions: NCOW-56 — a normal ({ok:true}) Start/Restart is not mistaken for a resolved failure', async () => {
+// NCOW-56 (AC#4), corrected by the wave-15 integration review (findings
+// F1/F2): this used to duplicate the pre-existing NCOW-55 "normal
+// (non-wedged) Start/Restart still resolve cleanly..." test above (F2) with a
+// comment claiming it would fail if tray.js's `result.ok === false` check
+// were ever loosened to `!result.ok` (F1). Neither was true: its body only
+// ever exercised `{ok:true}` results, and `!true` is `false` either way, so
+// it passed under both predicates — verified by hand by making that exact
+// change to tray.js and confirming this file's full suite (19/19) and
+// `npm test` (474/474) still passed unchanged.
+//
+// The input shape that actually distinguishes the two predicates is a
+// resolved value with NO `ok` key at all. Under the real, strict
+// `result.ok === false` check, `undefined === false` is false, so
+// runAction() leaves it alone. Under a loosened `!result.ok`, `!undefined` is
+// true, so it would be misreported as a failure (logged and notified) even
+// though nothing failed. This test exercises exactly that case, so it is a
+// real regression guard for the strictness contract rather than a comment
+// asserting one. The pre-existing `{ok:true}` case stays covered by the
+// NCOW-55 test above; duplicating it a third time is what F2 objected to, so
+// this replaces the duplicate rather than adding another copy of it.
+test('createTrayActions: NCOW-56 — a resolved value with no `ok` key at all is not mistaken for a reported failure', async () => {
   reset();
   const mutexes = { proxy: { run: (fn) => fn() } };
   const handlers = {
     proxy: {
-      start: async () => ({ ok: true, which: 'start' }),
-      restart: async () => ({ ok: true, which: 'restart' }),
+      start: async () => ({ data: {} }),
     },
   };
   const { instances, Notification } = fakeNotificationDeps();
@@ -705,17 +715,81 @@ test('createTrayActions: NCOW-56 — a normal ({ok:true}) Start/Restart is not m
   const originalConsoleError = console.error;
   const errorCalls = [];
   console.error = (...args) => errorCalls.push(args);
-  let startResult;
-  let restartResult;
+  let result;
   try {
-    startResult = await actions.onStart();
-    restartResult = await actions.onRestart();
+    result = await actions.onStart();
   } finally {
     console.error = originalConsoleError;
   }
 
-  assert.deepEqual(startResult, { ok: true, which: 'start' });
-  assert.deepEqual(restartResult, { ok: true, which: 'restart' });
-  assert.equal(errorCalls.length, 0, 'a successful {ok:true} Start/Restart must not log anything through the resolved-failure path');
-  assert.equal(instances.length, 0, 'a successful {ok:true} Start/Restart must not show any notification');
+  assert.deepEqual(result, { data: {} }, 'the resolved value must be handed back to the caller unchanged');
+  assert.equal(
+    errorCalls.length,
+    0,
+    'a resolved value with no `ok` key must not log anything through the resolved-failure path — it is not a reported failure'
+  );
+  assert.equal(instances.length, 0, 'a resolved value with no `ok` key must not show any notification — it is not a reported failure');
+});
+
+// wave-15 integration review (finding F6): a resolved `{ok:false}` with no
+// `error` key at all used to render the notification body as the literal
+// string "[object Object]" — `runAction()`'s `const err = result.error ?? {}`
+// coerces the missing field to `{}`, and the pre-fix body template
+// (`${err?.message ?? err}`) fell all the way back to stringifying that
+// empty object once `.message` came up undefined. No handler shipping today
+// omits `error` on an `{ok:false}` result (engine-context.js always
+// populates it), but this generic check is deliberately kept for handlers
+// that don't exist yet (see the comment above runAction()) — exactly the
+// case that would hit this. Fixed by falling back through `.code`, then a
+// fixed 'unknown error' string, before ever stringifying the object itself.
+test('createTrayActions: NCOW-56 fix pass (F6) — a resolved {ok:false} with no `error` key shows "unknown error", not "[object Object]"', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const handlers = { proxy: { start: async () => ({ ok: false }) } };
+  const { instances, Notification } = fakeNotificationDeps();
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  let result;
+  try {
+    result = await actions.onStart();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(result, { ok: false }, 'the resolved {ok:false} value must still be handed back to the caller unchanged');
+  assert.equal(instances.length, 1, 'expected exactly one Notification for the resolved {ok:false} failure');
+  assert.equal(
+    instances[0].options.body,
+    'Start failed: unknown error',
+    'with no `error` key at all, the body must fall back to a readable "unknown error", never stringify the coerced {} object as "[object Object]"'
+  );
+});
+
+// wave-15 integration review (finding F6): covers the middle fallback rung
+// of the same expression — an `error` object present but with no `message`
+// (only a `code`) must still surface something readable, not "[object
+// Object]" and not silently drop the code either.
+test('createTrayActions: NCOW-56 fix pass (F6) — a resolved {ok:false} error with a `code` but no `message` shows the code', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const handlers = { proxy: { start: async () => ({ ok: false, error: { code: 'NOT_CONFIGURED' } }) } };
+  const { instances, Notification } = fakeNotificationDeps();
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await actions.onStart();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(instances.length, 1);
+  assert.equal(
+    instances[0].options.body,
+    'Start failed: NOT_CONFIGURED',
+    'with a `code` but no `message`, the body must fall back to the code, never stringify the error object as "[object Object]"'
+  );
 });
