@@ -11,9 +11,18 @@ const { createTray, createTrayActions } = require('./tray');
 const { getAppIcon } = require('./app-icon');
 const { createProxyShutdown } = require('./shutdown');
 const { createAutoUpdate } = require('./autoUpdate');
+const { shouldSetAppUserModelId } = require('./appUserModelId');
 const paths = require('../engine/paths');
 const updateCheck = require('../engine/updateCheck');
 const { describeThrownValue } = require('../engine/configGen');
+
+// NCOW-57 (AC#1): must run before the app is ready — Electron's own
+// notifications doc calls this out as needed for a Windows dev/source run
+// (see appUserModelId.js for the full rationale and why packaged builds are
+// deliberately excluded).
+if (shouldSetAppUserModelId({ platform: process.platform, isPackaged: app.isPackaged })) {
+  app.setAppUserModelId(process.execPath);
+}
 
 /**
  * NCOW-12 safety net: Electron's userData directory (which holds the
