@@ -77,14 +77,53 @@ const APP_USER_MODEL_ID = 'com.evolvconsulting.claudeconduit';
  *   pairing for Windows to bind toast *activation* to. This is a real,
  *   named, still-open gap — see electron-builder.yml's `win.target` comment
  *   for what was verified live about it.
- * - It does NOT, by itself, make a dev/source run's notification visible on
- *   a machine where nothing is pinned to the Start Menu. Electron's own
- *   development recipe (docs/tutorial/notifications.md's "Notifications in
- *   development" callout, same fetch as above) has two halves: pin
- *   `node_modules\electron\dist\electron.exe` to the Start Menu, *and* call
- *   `app.setAppUserModelId()` in the main process. This function is the
- *   second half only; the pin is a manual, machine-local step this codebase
- *   cannot perform for the developer.
+ * - It does NOT, by itself, guarantee a dev/source run's notification is
+ *   visible on a machine with nothing pinned to the Start Menu. Electron's
+ *   "Notifications in development" callout (docs/tutorial/notifications.md,
+ *   same v43.2.0 tag fetched fresh for this fix pass, lines 111-118) reads
+ *   in full:
+ *
+ *     To quickly bootstrap notifications during development, adding
+ *     `node_modules\electron\dist\electron.exe` to your Start Menu also
+ *     does the trick. Navigate to the file in Explorer, right-click and
+ *     'Pin to Start Menu'. Then, call
+ *     `app.setAppUserModelId(process.execPath)` in the main process to see
+ *     notifications.
+ *
+ *   This branch deliberately does NOT follow that recipe as written: it
+ *   passes `APP_USER_MODEL_ID` (the `appId`) to `app.setAppUserModelId()`
+ *   here, not `process.execPath` as the doc's own example does. That is an
+ *   intentional deviation, not an incomplete implementation of the doc's
+ *   recipe — the goal is for a dev/source run's AUMID to match the AUMID
+ *   electron-builder's NSIS installer already stamps onto the *installed*
+ *   Start Menu shortcut (`${appId}`, see the citation above), and
+ *   `process.execPath` would not produce that value; it would bind
+ *   dev-run notification identity to the executable's own path string,
+ *   which has no relationship to `appId`.
+ *
+ *   That deviation has a real consequence for the pin half of the recipe,
+ *   found live on winvm for this fix pass: a bare "Pin to Start Menu" of
+ *   `electron.exe`, done exactly as the doc describes with no further step,
+ *   does NOT give the resulting shortcut a `System.AppUserModel.ID`
+ *   property matching `APP_USER_MODEL_ID`. (Control shortcuts that do carry
+ *   their own matching AUMID — `File Explorer.lnk`
+ *   -> `Microsoft.Windows.Explorer`, `OneDrive.lnk` ->
+ *   `Microsoft.SkyDrive.Desktop` — carry it because those apps' own
+ *   installers explicitly stamp it; a plain pin of an arbitrary exe does
+ *   not stamp one on Windows.) So, unlike the doc's own pin-plus-execPath
+ *   pairing, a bare pin of this app's dev `electron.exe` does not by itself
+ *   line up with the `appId`-based AUMID this function now sets at runtime.
+ *   Reproducing a working dev-run notification identity therefore needs one
+ *   more step beyond the pin: that pinned shortcut's own
+ *   `System.AppUserModel.ID` property must itself be set to
+ *   `com.evolvconsulting.claudeconduit` to match. There is no script
+ *   anywhere in this repository that does this — it is a manual,
+ *   machine-local step a developer must perform by hand (the property is
+ *   the same one electron-builder's own NSIS plugin call —
+ *   `WinShell::SetLnkAUMI`, see the citation above — writes onto the
+ *   installed shortcut at install time; there is no equivalent tooling
+ *   here for a manually pinned dev shortcut). Neither the pin nor this
+ *   additional stamp can be performed by this codebase for the developer.
  *
  * Extracted as its own pure function (mirroring paths.js's
  * `resolveWindowsAppDataOverrides` and menu.js's `buildMenuTemplate`)

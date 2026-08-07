@@ -102,11 +102,24 @@ test('main/index.js: the setAppUserModelId call happens before app.whenReady() i
 // installer.nsh:200 and node_modules/app-builder-lib/out/targets/nsis/
 // NsisTarget.js:160, both re-verified directly in this repo's node_modules
 // for this fix pass). A plain regex is used instead of a full YAML parse:
-// `appId` is a single top-level scalar with no nesting or quoting in this
-// file, and js-yaml is only a transitive dependency here (pulled in by
+// `appId` is a single top-level scalar with no nesting in this file, and
+// js-yaml is only a transitive dependency here (pulled in by
 // electron-builder), not one this project declares for itself.
+//
+// NCOW-57 fix pass 2: the regex used to require an unquoted bare scalar
+// (`\S+` up to end-of-line) — a legitimately-quoted YAML value such as
+// `appId: "com.evolvconsulting.claudeconduit"` would match, but capture
+// group 1 would include the quote characters themselves, so the comparison
+// below would then fail even though the two values genuinely agree. That's
+// a false-alarm risk, not a false pass (an unnoticed real drift would still
+// fail this test either way), but it's fixed here so a future harmless
+// style change (adding quotes, or a trailing `# comment`) doesn't trip a
+// spurious failure. The pattern now: strips optional matching single/double
+// quotes off the captured value, and tolerates a trailing `#`-prefixed
+// comment and/or trailing whitespace after the scalar.
 const BUILDER_YML_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'electron-builder.yml'), 'utf8');
-const APP_ID_MATCH = BUILDER_YML_SOURCE.match(/^appId:\s*(\S+)\s*$/m);
+const APP_ID_LINE_MATCH = BUILDER_YML_SOURCE.match(/^appId:\s*(['"]?)(\S+?)\1\s*(?:#.*)?$/m);
+const APP_ID_MATCH = APP_ID_LINE_MATCH && [APP_ID_LINE_MATCH[0], APP_ID_LINE_MATCH[2]];
 
 test('electron-builder.yml has a parseable top-level appId line (sanity check for the drift guard below)', () => {
   assert.ok(APP_ID_MATCH, 'expected to find a top-level "appId: <value>" line in electron-builder.yml');
