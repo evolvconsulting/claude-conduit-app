@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-07 02:33'
+updated_date: '2026-08-07 03:20'
 ---
 # Backlog campaign tracker
 
@@ -74,7 +74,48 @@ justification.
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
-**As of wave 15 SETTLEMENT (2026-08-06)**: **25 resolved** (waves 1-15, all Done), **2 queued**
+**As of wave 16 DISPATCH (2026-08-06)**: ground-truth drift check found `dev` in sync with
+`origin/dev` at `b9ba523` (the wave-15 handover's own archive commit — the only movement since
+that handover's `699dc5f` grounding), clean, no leftover branches/worktrees/PRs, all 4 treehouse
+trees `available` with zero leases. Zero drift; nothing to reconcile.
+
+**The wave-16 conflict graph was computed fresh via the file-citation method and is pairwise-
+complete across the queue-order-first pick, so wave 16 is solo (NCOW-57) by real computation.**
+NCOW-57 -> `src/main/index.js` (a `setAppUserModelId()` call site, still absent app-wide),
+`electron-builder.yml`, `src/main/tray.js` (the `isSupported()` docstring at ~173-175 its own
+description names as too narrow), and README/DESIGN **if** its AC#2 resolves as "documented
+accepted gap" rather than a code mitigation. NCOW-59 -> `src/main/tray.js` +
+`test/main/tray-actions.test.js`, so **57 <-> 59 is a real file conflict**. NCOW-58 ->
+`README.md`/`DESIGN.md`, which **57 may also enter via AC#2** — over-approximated as a conflict
+(cheap: it only costs parallelism), and independently ordered after 57 because NCOW-58's AC#3
+must reflect NCOW-57's resolution. NCOW-57 is also the sole live-app-verification item, which the
+Shared Machine State rule caps at one wave member regardless.
+
+**The wave-15 handover's one UNVERIFIED precondition is now VERIFIED, and it resolves in favor of
+doing the real work rather than taking an escape hatch.** Probed directly by the orchestrator at
+wave-16 dispatch:
+
+- **linuxvm (100.68.142.68)** — `tailscale ping` pong 2ms. It has a genuine **active GNOME 50.1
+  Wayland desktop session** (`loginctl`: session 1, seat0, user `jdnewhouse`, Type=wayland,
+  State=active), and `org.freedesktop.Notifications` is owned by **gnome-shell** itself
+  (`GetServerInformation` -> `('gnome-shell', 'GNOME', '50.1', '1.2')`); `notify-send` from an SSH
+  shell returns rc=0 once `XDG_RUNTIME_DIR=/run/user/1000` and
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus` are exported. **So NCOW-57's AC#4
+  escape hatch ("or the absence is confirmed and documented") does NOT apply on grounds of
+  absence — the daemon is really there and really reachable.** Toolchain present: node v22.23.2,
+  npm 10.9.8, git 2.53.0. **Two real constraints for the worker:** the repo is NOT cloned there,
+  and **GNOME 50 DENIES the `org.gnome.Shell.Screenshot` D-Bus API**
+  (`org.freedesktop.DBus.Error.AccessDenied: Screenshot is not allowed`) with neither
+  `gnome-screenshot` nor `grim` installed — so pixel-level proof is unavailable and evidence must
+  be D-Bus-level (e.g. `dbus-monitor` capturing the app's own
+  `org.freedesktop.Notifications.Notify` call and the daemon's returned notification id).
+- **winvm (100.76.121.102)** — `tailscale ping` pong 3ms; `quser` shows an **active console
+  session** (jdnewhouse, ID 1, State=Active), so a toast has a real desktop to render on. Windows
+  11 Pro, node v24.18.0, git 2.54.0. **Traps:** SSH lands in `cmd.exe`, not a POSIX shell; and
+  `npm.ps1` is blocked by PowerShell's execution policy (`running scripts is disabled on this
+  system`) — use `npm.cmd` from `cmd.exe`. The repo is NOT cloned there either.
+
+Prior note, as of wave 15 SETTLEMENT (2026-08-06): **25 resolved** (waves 1-15, all Done), **2 queued**
 — NCOW-57 and NCOW-58 — plus **NCOW-59**, newly filed this settlement with user approval, 0
 genuinely blocked, 5 excluded pending human decomposition (see Not queued). NCOW-56 merged (PR
 #60, `905b8ad`) after 3 review passes and 2 fix cycles; wave-level integration review then found
@@ -591,7 +632,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-57 | tray-notify | NCOW-55 (Done) | To Do | | **Wave-15 note:** NCOW-56 inserted a 34-line comment block immediately AFTER the `Notification.isSupported()` docstring this task owns — it did not modify those lines, but the adjacency means this task should rebase onto current `dev` rather than cherry-pick. Conflicts with NCOW-59 (both land in `src/main/tray.js`). Verify and fix tray notification deliverability on Windows and Linux — no `app.setAppUserModelId()` call anywhere in the app; `electron-builder.yml`'s `win.target` includes `portable`, which installs no AUMID-bearing Start Menu shortcut; `Notification.isSupported()` doesn't detect either gap or macOS DND/permission-denied. Filed from wave-14 integration review, user-approved. Needs live verification on winvm and a Linux desktop — this is the wave's live-app-verification candidate if dispatched alongside NCOW-56/58 (Shared Machine State rule: at most one wave member verifying the live app at a time). Primary files: likely `src/main/index.js` (app.setAppUserModelId call site) and `electron-builder.yml`; possibly `src/main/tray.js` if `isSupported()`'s framing needs softening — re-verify fresh, same caution as NCOW-56's row above. |
+| 1 | NCOW-57 | tray-notify | NCOW-55 (Done) | Dispatched | 16 | **Wave-15 note:** NCOW-56 inserted a 34-line comment block immediately AFTER the `Notification.isSupported()` docstring this task owns — it did not modify those lines, but the adjacency means this task should rebase onto current `dev` rather than cherry-pick. Conflicts with NCOW-59 (both land in `src/main/tray.js`). Verify and fix tray notification deliverability on Windows and Linux — no `app.setAppUserModelId()` call anywhere in the app; `electron-builder.yml`'s `win.target` includes `portable`, which installs no AUMID-bearing Start Menu shortcut; `Notification.isSupported()` doesn't detect either gap or macOS DND/permission-denied. Filed from wave-14 integration review, user-approved. Needs live verification on winvm and a Linux desktop — this is the wave's live-app-verification candidate if dispatched alongside NCOW-56/58 (Shared Machine State rule: at most one wave member verifying the live app at a time). Primary files: likely `src/main/index.js` (app.setAppUserModelId call site) and `electron-builder.yml`; possibly `src/main/tray.js` if `isSupported()`'s framing needs softening — re-verify fresh, same caution as NCOW-56's row above. |
 | 2 | NCOW-58 | tray-notify | NCOW-55 + NCOW-56 (both Done) | To Do | | **Scope EXTENDED at wave-15 settlement, user-approved**: 2 new ACs — document BOTH failure classes the tray now surfaces (wedged/thrown AND resolved `{ok:false}`, the latter being the more common case), and document the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry from NCOW-56's AC#2 decision, which currently exists ONLY as a code comment. The wave-15 staleness sweep confirmed NOTHING in README/DESIGN/CLAUDE currently describes tray failure behavior, so this task adds prose rather than correcting it. Document the tray's native notification behavior in README/DESIGN.md — this is the app's first-ever OS notification and it's currently undocumented anywhere. Filed from wave-14 integration review, user-approved. Primary files: `README.md`, `DESIGN.md` — pure docs, no code; likely disjoint from NCOW-56/57's code changes, but should wait on NCOW-57's actual resolution if dispatched in the same wave (its own AC#3 says to link to NCOW-57's resolution "whichever is accurate at the time this task is done") — consider sequencing after NCOW-57 rather than true-parallel, or brief its worker to write the caveat provisionally and let review catch any mismatch. |
 | 3 | NCOW-59 | tray-notify | NCOW-56 (Done) | To Do | | Filed at wave-15 settlement from the integration review, user-approved. Contain a throwing `Notification.isSupported()`: it is called in `notifyFailure()`'s guard OUTSIDE that function's own `try`, so a throw escapes into `runAction()`'s trailing `.catch()` — producing a SECOND, misattributed `console.error` (as though the tray action itself failed, when it may have succeeded) and a promise REJECTION contradicting the module's own "none of the three ever reject" JSDoc. **Pre-existing in class** — three review passes independently confirmed the pre-NCOW-56 code rejects identically under the same throwing fake — and unreachable with real Electron, whose `isSupported()` does not throw. But NCOW-56 added a SECOND entry point into it (a resolved `{ok:false}` now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`). Deliberately deferred from NCOW-56 as outside its ACs rather than folded in silently. Primary files: `src/main/tray.js`, `test/main/tray-actions.test.js` — **conflicts with NCOW-57**. |
 

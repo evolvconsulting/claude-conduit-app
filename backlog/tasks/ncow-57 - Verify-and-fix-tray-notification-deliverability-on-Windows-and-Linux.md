@@ -1,9 +1,10 @@
 ---
 id: NCOW-57
 title: Verify and fix tray notification deliverability on Windows and Linux
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
+updated_date: '2026-08-07 03:19'
 labels: []
 dependencies:
   - NCOW-55
