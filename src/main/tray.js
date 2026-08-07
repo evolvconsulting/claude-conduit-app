@@ -78,17 +78,20 @@ function createTray(opts, deps = {}) {
         // NCOW-56 (AC#2): Start's `enabled` here is NOT gated on whether a
         // manifest exists, unlike the dashboard's `#start-btn`
         // (dashboard-view.js: `disabled = status === 'running' || !manifest`).
-        // Investigated rather than assumed: `setStatus()`'s only input is
-        // whatever `pm2Control.getStatus()` returns — `{status, pid, uptime,
-        // restarts}` — passed straight through from status-poller.js's
-        // `onStatus(status)` callback with nothing about the manifest mixed
-        // in (see index.js's `startStatusPoller({ pm2Control, onStatus: ...
-        // tray.setStatus(status) })`). The `not-installed` status this label
-        // renders as "Not configured" (above) is verified to mean something
-        // narrower than "no manifest": pm2Control.js's `getStatus()` reports
-        // it purely from `findApp()` returning nothing — i.e. pm2 currently
-        // has no app registered under that name — which is orthogonal to
-        // whether `manifest.json` exists. A completed setup can still be
+        // Investigated rather than assumed: `setStatus()` only ever receives
+        // a `{status, pid?, uptime?, restarts?}`-shaped object —
+        // `pm2Control.getStatus()`'s own return, status-poller.js's
+        // synthesized `{status:'errored'}` on a rejected poll (status-poller.js's
+        // `tick()` catch block), or tray.js's own initial `{status:'stopped'}`
+        // passed to `setStatus()` at construction (below) — with nothing
+        // about the manifest in any of them (see index.js's
+        // `startStatusPoller({ pm2Control, onStatus: ... tray.setStatus(status)
+        // })`). The `not-installed` status this label renders as "Not
+        // configured" (above) is verified to mean something different from
+        // "no manifest": pm2Control.js's `getStatus()` reports it purely from
+        // `findApp()` returning nothing — i.e. pm2 currently has no app
+        // registered under that name — which is orthogonal to whether
+        // `manifest.json` exists. A completed setup can still be
         // `not-installed` with a manifest already on disk (e.g. `proxy.start()`
         // failing at the pm2 level before pm2 ever registers the app — the
         // ordinary case right after Setup finishes is actually `running`,
@@ -101,10 +104,13 @@ function createTray(opts, deps = {}) {
         // gating `enabled` on manifest presence would need
         // `setStatus()` to receive manifest state too —
         // threading that through means changing this call's
-        // shape at its one EXTERNAL call site (index.js)
-        // and status-poller.js's `onStatus` payload,
-        // both of which are out of scope for this task (index.js belongs to
-        // a sibling task, NCOW-57). Given that, the chosen fix is the
+        // shape at its one EXTERNAL call site (index.js), which is out of
+        // scope for this task (index.js belongs to a sibling task, NCOW-57;
+        // note status-poller.js's own `onStatus(status)` callback (status-
+        // poller.js:14) is layer-correctly ignorant of manifests and would
+        // need no change — index.js alone could enrich the call itself,
+        // since it already has `handlers` in scope and
+        // `handlers.config.getManifest` exists). Given that, the chosen fix is the
         // alternative the task explicitly allows: leave Start always enabled
         // while not running, and make a click that resolves `{ok:false,
         // error:{code:'NOT_CONFIGURED', ...}}` (the real, verified shape
@@ -269,9 +275,18 @@ function createTrayActions({ mutexes, handlers }, notifyDeps = {}) {
   function notifyFailure(label, err) {
     if (!Notification || typeof Notification.isSupported !== 'function' || !Notification.isSupported()) return;
     try {
+      // wave-15 integration review (finding F6): `err` here can be an
+      // `{ok:false}` result's `.error` field, coerced to `{}` when that field
+      // is absent (see runAction()'s `const err = result.error ?? {};`
+      // below). Falling all the way back to stringifying `err` itself (the
+      // pre-fix behavior) rendered the user-visible "[object Object]" for
+      // that case. No handler shipped today omits `error`, but the comment
+      // right above runAction() explicitly keeps this check generic for
+      // handlers that don't exist yet — exactly the case that would hit
+      // this — so fall back through `.code`, then a fixed string, instead.
       new Notification({
         title: 'Claude Conduit',
-        body: `${label} failed: ${err?.message ?? err}`,
+        body: `${label} failed: ${err?.message ?? err?.code ?? 'unknown error'}`,
       }).show();
     } catch (notifyErr) {
       // Notification plumbing itself breaking must not take the tray action
