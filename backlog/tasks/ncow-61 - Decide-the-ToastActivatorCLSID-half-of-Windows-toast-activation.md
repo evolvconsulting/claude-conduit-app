@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: To Do
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-07 13:25'
+updated_date: '2026-08-07 13:43'
 labels: []
 dependencies:
   - NCOW-57
@@ -39,6 +39,9 @@ Primary files: `src/main/appUserModelId.js`, `src/main/index.js`, `electron-buil
 - [ ] #3 If deferred: electron-builder.yml's comment names app.setToastActivatorCLSID AND the random-per-run default explicitly, so no future reader concludes the gap is unaddressable
 - [ ] #4 The claim that electron-builder writes no ToastActivatorCLSID for either Windows target is re-verified against the then-current app-builder-lib, not carried forward on trust
 - [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
+- [ ] #6 The two surviving appId drift-guard bypasses recorded in this task's notes are closed: a quoted key (`  "appId": com.DRIFT`) and an anchored scalar (`appId: &wid com.DRIFT`) inside the `win:` block are both DETECTED by the guard, each proven by making the mutation and observing the guard fail
+- [ ] #7 The WIN_BLOCK sanity assert in test/main/app-user-model-id.test.js makes its own comment exactly true: an empty-string WIN_BLOCK fails loudly rather than skipping silently (e.g. `assert.ok(WIN_BLOCK, ...)` or a `.trim() !== ''` check), proven by simulating an empty return with a real drift present and observing a failure
+- [ ] #8 Every guard change above is proven non-vacuous BY EXPERIMENT, not by reading: for each, state the exact mutation applied, that the guard failed with it and passes without it, and confirm the guard was not already catching it before the change
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -70,4 +73,19 @@ Also worth carrying into this task: the timing guidance "This method should be c
 showing notifications)" at `app.md:1159` belongs to `setToastActivatorCLSID` — i.e. to THIS task's API,
 not to `setAppUserModelId`. A wave-16 comment mis-transplanted that sentence onto the AUMID call and
 had to be corrected; if this task implements the CLSID call, the guidance genuinely does apply.
+
+## Scope amendment at wave-17 dispatch (2026-08-07) — user-approved via AskUserQuestion
+
+AC#6, #7 and #8 added, promoting the three latent findings recorded in the note above from "recorded,
+not required" to acceptance criteria. The user was offered all three / comment-overstatement-only /
+leave-as-notes, and chose all three.
+
+Rationale given: this task already touches `test/main/app-user-model-id.test.js`, so it is the natural
+home; this campaign has been bitten repeatedly by guards that silently no-op (this specific guard was
+hardened TWICE in wave 16 and still had two holes afterward); and this task is expected to be solo in
+its wave, so the added scope costs no parallelism.
+
+AC#8 is deliberately a process criterion, not a code one: wave 16's recurring failure was guard claims
+verified by reading rather than by experiment. Reading the guard and concluding it now covers a case is
+NOT evidence for AC#6 or AC#7 — apply the mutation, observe the failure.
 <!-- SECTION:NOTES:END -->

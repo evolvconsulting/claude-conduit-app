@@ -4,7 +4,7 @@ title: Document the tray's native notification behavior in README/DESIGN.md
 status: To Do
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 02:23'
+updated_date: '2026-08-07 13:43'
 labels: []
 dependencies:
   - NCOW-55
@@ -35,4 +35,22 @@ Also note: the wave-15 integration review's own staleness sweep confirmed that n
 - [ ] #3 Known platform caveats (Windows AUMID/portable-build gap, macOS DND/permission-denied) are mentioned or linked to NCOW-57's resolution, whichever is accurate at the time this task is done
 - [ ] #4 README.md describes BOTH failure classes the tray now surfaces: a wedged/thrown call and a resolved {ok:false} result (e.g. NOT_CONFIGURED on an unconfigured install, HEALTH_CHECK_TIMEOUT), not just the wedged case
 - [ ] #5 The deliberate tray-Start-vs-dashboard-#start-btn asymmetry from NCOW-56's AC#2 decision is documented where a user can read it, including why tray Start stays enabled with no manifest and notifies on click instead of being disabled
+- [ ] #6 README.md:331's `npm test` comment no longer asserts a protection that does not hold: the "no real config touched" half is corrected or dropped so the line is accurate on Windows as well, and accurate regardless of whether NCOW-60 lands (do NOT write a claim whose truth depends on a sibling task merging)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Scope amendment at wave-17 dispatch (2026-08-07) — user-approved via AskUserQuestion
+
+AC#6 added. `README.md:331` reads `npm test              # 485 tests, no network or real config touched`.
+The wave-16 cleanup branch edited that exact line (bumping the count) and left the second half standing;
+NCOW-60 establishes that half is FALSE on Windows (`npm test` overwrites the real
+`%APPDATA%\claude-conduit`). The user was offered three homes for the correction — this task, NCOW-60,
+or leave it as a note — and chose this task, because this task is the only wave-17 member editing
+README.md, which keeps README single-owner for the wave and lets NCOW-58/59/60 run genuinely parallel.
+
+Deliberate constraint on the wording, and the reason AC#6 says it explicitly: the corrected line must be
+true on its own, not conditional on NCOW-60 merging. Dropping or qualifying the false half satisfies
+this; re-asserting the protection because a sibling branch is expected to land does not.
+<!-- SECTION:NOTES:END -->
