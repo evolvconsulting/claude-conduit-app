@@ -558,3 +558,164 @@ test('createTrayActions: NCOW-55 — omitting the second (notifyDeps) argument e
     console.error = originalConsoleError;
   }
 });
+
+// NCOW-56 (AC#1/#3): NCOW-55 above only covers handlers.proxy.*() THROWING
+// or REJECTING (a genuine pm2-level wedge, e.g. PM2_START_TIMEOUT). The
+// wave-14 integration review found a second failure mode NCOW-55 left
+// completely uncovered, and the more common one in practice:
+// engine-context.js's proxy.start/stop/restart handlers can RESOLVE with
+// `{ok:false, error:{code, message}}` instead of throwing. Confirmed
+// directly in src/main/engine-context.js: `start` returns exactly
+// `{ok:false, error:{code:'NOT_CONFIGURED', message:'Run setup first.'}}`
+// when `getManifest()` is null (an unconfigured install — no manifest.json
+// yet), and — via pm2Control.js's `startOrRestart()`, src/engine/
+// pm2Control.js line ~703 — can carry
+// `{code:'HEALTH_CHECK_TIMEOUT', message:'litellm did not become healthy in
+// time.'}` when pm2 starts the process but litellm never reports healthy
+// inside its window. `restart` is `async () => handlers.proxy.start()`
+// (engine-context.js), so it inherits both codes exactly like Start. `stop`'s
+// real handler is verified to never itself resolve `{ok:false}` in production
+// today (pm2Control.js's `stop()` can reject on a timeout, on pm2's own
+// callback error, or from a failed `ensureConnected()` — or resolve with
+// nothing to report as an error) — it is
+// still exercised here because createTrayActions()'s runAction() checks
+// every action generically, and this proves that generic check actually
+// fires for Stop too, not just Start/Restart.
+//
+// Non-vacuity, confirmed by hand: with tray.js's runAction() reverted to
+// its pre-NCOW-56 shape (`git show
+// 5b9e49e56b0d663cae90e12d87fc550105658337:src/main/tray.js` —
+// 5b9e49e56b0d663cae90e12d87fc550105658337 is this branch's own merge base
+// on `dev`, i.e. tray.js exactly as NCOW-55 left it, with no `{ok:false}`
+// handling at all: `runAction()` was
+// `return mutexes.proxy.run(fn).catch((err) => {...})`, with no `.then()`
+// in between), running this file directly under
+// `node --test test/main/tray-actions.test.js` failed every one of the five
+// parametrized tests below at the SAME assertion each time —
+// `assert.equal(errorCalls.length, 1, ...)` reporting "0 !== 1" — because a
+// resolved `{ok:false}` never reaches a `.catch()` at all: it just passed
+// straight through `runAction()` untouched, with nothing logged and nothing
+// shown. Restoring the fix made all of them pass again, confirming these
+// assertions exercise something the pre-fix source genuinely lacked.
+for (const [method, label, code, message] of [
+  ['onStart', 'Start', 'NOT_CONFIGURED', 'Run setup first.'],
+  ['onStop', 'Stop', 'NOT_CONFIGURED', 'Run setup first.'],
+  ['onRestart', 'Restart', 'NOT_CONFIGURED', 'Run setup first.'],
+  ['onStart', 'Start', 'HEALTH_CHECK_TIMEOUT', 'litellm did not become healthy in time.'],
+  ['onRestart', 'Restart', 'HEALTH_CHECK_TIMEOUT', 'litellm did not become healthy in time.'],
+]) {
+  test(
+    method === 'onStop'
+      ? `createTrayActions: NCOW-56 — a RESOLVED {ok:false} tray Stop (${code}) is a synthetic contract case (stop() never itself resolves {ok:false} in production) exercised because runAction() checks every action generically (AC#1)`
+      : `createTrayActions: NCOW-56 — a RESOLVED {ok:false} tray ${label} (${code}) shows a native notification, not silence (AC#1)`,
+    async () => {
+      reset();
+      const mutexes = { proxy: { run: (fn) => fn() } };
+      const failure = { ok: false, error: { code, message } };
+      const handlers = {
+        proxy: {
+          start: async () => failure,
+          stop: async () => failure,
+          restart: async () => failure,
+        },
+      };
+      const { instances, Notification } = fakeNotificationDeps();
+
+      const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+      const originalConsoleError = console.error;
+      const errorCalls = [];
+      console.error = (...args) => errorCalls.push(args);
+      let result;
+      try {
+        // Must not throw/reject — a resolved {ok:false} is a reported failure,
+        // not an exception, so the caller still gets a settled promise back.
+        result = await actions[method]();
+      } finally {
+        console.error = originalConsoleError;
+      }
+
+      assert.deepEqual(result, failure, 'the resolved {ok:false} value must still be handed back to the caller unchanged, not swallowed');
+
+      assert.equal(errorCalls.length, 1, 'expected exactly one console.error call diagnosing the resolved failure');
+      const loggedText = errorCalls[0].join(' ');
+      assert.match(loggedText, new RegExp(`${label} failed`, 'i'));
+      assert.match(loggedText, new RegExp(code));
+
+      assert.equal(instances.length, 1, `expected exactly one Notification to be constructed for a resolved {ok:false} ${label}`);
+      assert.equal(instances[0].shown, true, 'Notification.show() must actually be called — constructing it alone never displays anything');
+      assert.match(instances[0].options.body, new RegExp(`${label} failed`), 'the notification body must name which action failed');
+      assert.match(
+        instances[0].options.body,
+        new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        'the notification body must carry the underlying error message, not just a generic "something failed"'
+      );
+    }
+  );
+}
+
+// NCOW-56 (AC#4): a resolved {ok:false} must respect Notification support
+// the same way the pre-existing wedge/rejection path does — mirroring the
+// NCOW-55 isSupported()===false test above.
+test('createTrayActions: NCOW-56 — Notification.isSupported() === false skips showing a notification for a resolved {ok:false} without throwing (falls back to the console.error trail alone)', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const failure = { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Run setup first.' } };
+  const handlers = { proxy: { start: async () => failure } };
+  const { instances, Notification } = fakeNotificationDeps({ supported: false });
+
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  let result;
+  try {
+    result = await actions.onStart();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(result, failure);
+  assert.equal(errorCalls.length, 1, 'the console.error trail must still fire regardless of notification support');
+  assert.equal(instances.length, 0, 'no Notification should be constructed when isSupported() reports false');
+});
+
+// NCOW-56 (AC#4): the fix must not change ordinary, non-failing behavior —
+// no console.error, no notification, and the resolved value passed straight
+// through. onStop's {ok:true} case is already covered above (NCOW-53's
+// normal-path test); this adds the {ok:false}-shaped-but-actually-successful
+// edge explicitly for Start/Restart, distinguishing "resolved with `ok`
+// explicitly true" from "resolved with `ok` explicitly false" so this test
+// would fail if the `result.ok === false` check above were ever loosened to
+// something like `!result.ok` (which would misfire on results with no `ok`
+// key at all, or falsy-but-not-`false` values).
+test('createTrayActions: NCOW-56 — a normal ({ok:true}) Start/Restart is not mistaken for a resolved failure', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const handlers = {
+    proxy: {
+      start: async () => ({ ok: true, which: 'start' }),
+      restart: async () => ({ ok: true, which: 'restart' }),
+    },
+  };
+  const { instances, Notification } = fakeNotificationDeps();
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  let startResult;
+  let restartResult;
+  try {
+    startResult = await actions.onStart();
+    restartResult = await actions.onRestart();
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(startResult, { ok: true, which: 'start' });
+  assert.deepEqual(restartResult, { ok: true, which: 'restart' });
+  assert.equal(errorCalls.length, 0, 'a successful {ok:true} Start/Restart must not log anything through the resolved-failure path');
+  assert.equal(instances.length, 0, 'a successful {ok:true} Start/Restart must not show any notification');
+});
