@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 02:23'
-updated_date: '2026-08-07 13:53'
+updated_date: '2026-08-07 14:03'
 labels: []
 dependencies:
   - NCOW-56
@@ -119,4 +119,65 @@ AC#4 says "a test" (singular); the worker wrote TWO, one per entry point, reason
 resolved-`{ok:false}` path reproduces the second-misattributed-console.error behavior the description
 centers on, while the rejecting path reproduces the rejection half of the contract violation on its
 own. Judged additive rather than risky since no existing test was touched.
+
+## Wave-17 review pass 1 verdict — APPROVE (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `fix/NCOW-59-contain-issupported-throw` @ `e8c728f494454dc60e5b53ff3275af186863cd9d` against
+wave base `20ffa60add5d7e281a2f39610adcec1ee987b489`. **AC#1-#5 all CONFIRMED independently.**
+`npm test` re-run twice, identical: `# tests 487 / # pass 487 / # fail 0`.
+
+**Non-vacuity reproduced by the reviewer itself, not taken on trust.** It copied `src/main/tray.js` to a
+scratchpad (SHA-256 `4019ba85...f3c12`), moved the guard back outside the `try` with Edit (never
+`git checkout`), and observed both new tests fail:
+```
+not ok 22 - ... a wedged (rejecting) tray Stop with a throwing Notification.isSupported() ...
+not ok 23 - ... a resolved {ok:false} tray Start with a throwing Notification.isSupported() ...
+# pass 21 / # fail 2
+```
+Restore verified byte-exact: `diff` empty, SHA-256 unchanged, `git status --porcelain` empty, HEAD still
+`e8c728f494454dc60e5b53ff3275af186863cd9d`.
+
+**Ordering nuance worth keeping.** In both tests the `rejected` assertion comes FIRST, so pre-fix they
+abort there and the `errorCalls.length === 1` assertion is never reached. The tests are genuinely
+non-vacuous, but the double-log half of AC#2 is not what makes them fail — the reviewer proved that half
+separately with its own probe (2 console.error pre-fix, 1 post-fix).
+
+**Adversarial probe: 13 arrangements.** Contained: throwing Error; a throwing *getter* on `isSupported`;
+a thrown bare string; a thrown `null`; a throwing `new Notification()`; a throwing `notify.show()`; a
+`Proxy` whose `get` throws. Correct behavior on truthy/falsy non-boolean returns. THREE SURVIVE, all
+from one root class (an unguarded `.message`/`.code` read on a value whose getter throws) and all
+correctly judged out of this task's AC scope.
+
+**Scope verified clean.** `git diff --numstat`: `1 1 src/main/tray.js`, `108 0 test/main/tray-actions.test.js`.
+Hunk header `@@ -341,8 +341,8 @@` — the NCOW-57 AUMID comment block at lines 224-290 is entirely
+untouched and not reflowed, and the deliberately-unresolved macOS ad-hoc-signing question at lines
+243-251 still reads that the comment does not resolve it. Nothing was guessed shut.
+
+**No false counterfactual, verified by provenance rather than by reading the prose.**
+`git blame -L 340,346 20ffa60...` attributes the guard line to
+`76a7c3c fix(tray): give wedged Start/Stop/Restart a user-visible error surface (NCOW-55) (#58)`, and
+`git log -S"Notification.isSupported"` shows it was never modified afterward — so the branch's claim
+"pre-existing since NCOW-55, unchanged by NCOW-56" is accurate. Both the commit body and the test
+comment state plainly that NCOW-56 only added a second entry point.
+
+**ID citation sweep: CLEAN.** NCOW-55, NCOW-56, NCOW-59 only; all resolve to filed tasks. Trailer
+`Refs NCOW-59.` present (that convention appears in 423 commits). The reviewer explicitly declined to
+name an ID for its follow-up findings, which is the correct handling of the ID-fabrication class.
+
+**Class sweep: both implementer findings CONFIRMED BY EXPERIMENT, and finding 1 is worse than reported.**
+With a fake `Tray` whose `setToolTip` throws, `createTray()` threw out to the caller with NO
+`console.warn` at all and no null-tray fallback. Its only call site, `src/main/index.js:211`, sits inside
+`app.whenReady().then(...)` with NO trailing `.catch()` — so it becomes a silent unhandled rejection
+that aborts startup after `createMainWindow()` but before `startStatusPoller`, leaving a window with no
+tray, no status polling, and no `stopStatusPoller`. Realistic on Linux, where the adjacent comment
+already documents that `new Tray()` itself throws on hosts without StatusNotifier. Finding 2 confirmed
+too, with a severity nuance the implementer did not draw: for Start/Stop/Restart the production risk is
+near-nil precisely because `createTrayActions()`'s returns are the never-rejecting functions this task
+hardens; the real exposure is `showDashboard`/`showDiagnostics`/`quit` from `index.js`.
+
+**One nit, no action needed**: the two new tests stub `console.error` but not `console.warn`, so
+`npm test` now prints two unstubbed `[tray] failed to show error notification: boom from isSupported`
+lines — consistent with the suite's existing habit.
+
+Approved for the merge queue with no changes requested.
 <!-- SECTION:NOTES:END -->
