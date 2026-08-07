@@ -123,21 +123,31 @@ function seedStaleInstall(homeDir) {
   return files;
 }
 
-// NCOW-60 AC#4: proves the exact resolveConfigDir call shape used by
-// seedStaleInstall (and the corrupt-manifest test below) actually resolves
+// NCOW-60 AC#4: proves that resolveConfigDir's real fallback precedence —
+// opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...) — resolves
 // under the fake homeDir even when the host looks like a real Windows
-// machine — without needing a real Windows host to run this on. Mirrors
-// test/engine/paths.test.js's own withRealWindowsEnvVars technique (set
-// realistic-looking APPDATA/LOCALAPPDATA env vars, since those are the two
-// things a real Windows machine always has set and this app's own resolver
-// deliberately prefers over a bare homedir guess — see paths.js's
-// resolveConfigDirNamed header comment). Before the NCOW-60 fix, this exact
-// assertion would have failed here on ANY platform, because the old call
-// (`paths.resolveConfigDir({ homedir: homeDir })`, no platform, no appData)
-// would have resolved to path.join(process.env.APPDATA, 'claude-conduit')
-// whenever APPDATA happened to be set in the test process's own env —
-// this test forces that condition deliberately instead of hoping for it.
-test('NCOW-60 (AC#4): seedStaleInstall/corrupt-manifest\'s resolveConfigDir call resolves under homeDir even when simulating a real Windows host with realistic APPDATA/LOCALAPPDATA set', () => {
+// machine, without needing an actual Windows host to run this on. This uses
+// the SAME options as seedStaleInstall's call above (and the corrupt-manifest
+// test below), with `platform` forced to 'win32' so the win32 branch runs
+// deterministically regardless of which OS actually executes this test. It
+// is a RETYPED COPY of that call shape, not a reference to it, so it cannot
+// detect drift in the real call sites — that is
+// test/engine/paths-win32-override-guard.test.js's job (NCOW-60 F6), not this
+// test's. Mirrors test/engine/paths.test.js's own withRealWindowsEnvVars
+// technique (set realistic-looking APPDATA/LOCALAPPDATA env vars, since those
+// are the two things a real Windows machine always has set and this app's
+// own resolver deliberately prefers over a bare homedir guess — see
+// paths.js's resolveConfigDirNamed header comment). Before the NCOW-60 fix,
+// this exact assertion would have failed on ANY host, for two DIFFERENT
+// reasons depending on platform: on win32, because process.env.APPDATA wins
+// over the bare homedir guess; on macOS/Linux, because
+// resolveConfigDirNamed's non-win32 branch resolves via the `.config` path
+// and never consults APPDATA at all (confirmed live: on darwin, with a
+// realistic APPDATA env var set, `resolveConfigDir({ homedir: '/tmp/x' })`
+// still returns '/tmp/x/.config/claude-conduit') — not because "APPDATA
+// happened to be set in the test process's own env" in some platform-uniform
+// way.
+test('NCOW-60 (AC#4): the same options as seedStaleInstall/corrupt-manifest use, with platform forced to win32, resolve under homeDir even when simulating a real Windows host with realistic APPDATA/LOCALAPPDATA set', () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-engine-context-regen-win32-sim-'));
   const originalAppData = process.env.APPDATA;
   const originalLocalAppData = process.env.LOCALAPPDATA;
@@ -1668,7 +1678,18 @@ test('index.js: findKeyAfterTraySpread() fails loud (throws) when the spread is 
   );
   assert.throws(
     () => findKeyAfterTraySpread(truncatedBlock),
-    /no `\.\.\.createTrayActions/,
+    // NCOW-60 F1: written with a Unicode escape instead of a literal
+    // backtick character on purpose — a JS regex pattern matches the exact
+    // same text either way, but a bare backtick sitting here, outside any
+    // real string, is indistinguishable to
+    // test/engine/paths-win32-override-guard.test.js's stripCommentsAndStrings
+    // from an unterminated template literal, and (after that guard's F1
+    // fix) that ambiguity is now a loud thrown failure naming the file and
+    // line, rather than a silently blanked region reaching to EOF — which is
+    // exactly what this bare backtick did to this file's own lines
+    // 1692-1696 before this fix. See that guard's stripCommentsAndStrings
+    // docblock for the full mechanism.
+    /no \u0060\.\.\.createTrayActions/,
     'expected findKeyAfterTraySpread() to throw rather than silently report "no override found" for a ' +
       'block that never contained the spread at all'
   );
