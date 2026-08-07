@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 00:10'
+updated_date: '2026-08-07 00:18'
 labels: []
 dependencies:
   - NCOW-55
@@ -133,4 +133,18 @@ Files touched: `src/main/tray.js`, `test/main/tray-actions.test.js`, plus numeri
 **Reviewer's note on F5 (agreeing with the deferral):** the class is genuinely pre-existing — the `.catch()` limb producing it is unchanged from before the branch, and real Electron's `Notification.isSupported()` does not throw. But it observed something worth recording: NCOW-56's new `.then()` limb adds a **second entry point** into the same latent bug, since a `{ok:false}` result now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`. It neither creates the defect nor makes it reachable with the real API. Correctly out of NCOW-56's scope; belongs in whatever residual gets filed.
 
 **Reviewer's note on AC#2 durability:** the decision lives only as a code comment in `src/main/tray.js:78-117`. Right given sibling NCOW-58 owns README/DESIGN prose — but if the decision should be durable outside the source file, NCOW-58 is where to carry it.
+
+**Fix pass 2 returned (comment-text-only, commit `7d9b0c9`). Not yet re-reviewed.** Blocking finding plus both nits corrected.
+
+**The blocking duplicate is fixed.** `test/main/tray-actions.test.js:577-579` now reads "pm2Control.js's `stop()` can reject on a timeout, on pm2's own callback error, or from a failed `ensureConnected()` — or resolve with nothing to report as an error", matching the already-corrected `src/main/tray.js:232-233`. The worker verified the three distinct rejection paths itself and added a detail neither earlier pass stated: `ensureConnected()`'s own `withTimeout` at `pm2Control.js:562-565` is called with **no `code` parameter**, and `pm2ConnectOnce()`'s raw `pm2.connect` callback error at `:540` is likewise uncoded — while `withTimeout` only attaches `PM2_STOP_TIMEOUT` on its own timeout branch (`:531`). So two of the three rejection paths carry no code at all, which is a stronger refutation of "only rejects on PM2_STOP_TIMEOUT" than the reviewer's original framing.
+
+**The required claim sweep was run and reported** — the specific discipline fix pass 1 failed. Two greps across the branch diff vs merge-base `5b9e49e...`: first scoped to the two touched files, then widened to all four changed files, searching for `"only rejects"`, `"PM2_STOP_TIMEOUT"`, `"nothing to report as an error"`, `"one call site"`, `"call site (index.js)"`. Results: **`"only rejects"` now has zero occurrences anywhere in the branch diff** — the false phrase is fully gone. The single surviving `PM2_STOP_TIMEOUT` hit is a correct, unrelated usage in `tray.js`'s doc comment listing example timeout codes for the throw/reject case, deliberately left alone with the reason stated. `CLAUDE.md`/`README.md` diffs confirmed to contain only the 467→474 count bump. Honest conclusion reported: nothing further to fix.
+
+**Nits fixed:** "its one call site (index.js)" → "its one EXTERNAL call site (index.js)", verified via `grep -rn setStatus src/` returning exactly two invocations — `index.js:214` (external) and `tray.js:137` (the module's own internal seed call). The ragged comment wrap was reflowed (39/78-char pair → 62/60).
+
+**AST proof, this pass: ZERO token diffs on BOTH files** — `src/main/tray.js` 895 → 895 (LCS 895, 0 ops) and `test/main/tray-actions.test.js` 3225 → 3225 (LCS 3225, 0 ops). Unlike fix pass 1, no test titles changed, so nothing at all should have moved, and nothing did. `git diff --stat`: 2 files changed, 9 insertions, 7 deletions, all inside `//` comment lines.
+
+**All three citations quoted to the worker were accurate this pass** (577-579, 103-104, 101-102) — worth noting, since the previous round's F6 citation was off by ~9 lines and the worker was explicitly told to verify rather than trust.
+
+`npm test`: **474 passing / 0 failing**. Scope held: no touch to `index.js`, `electron-builder.yml`, `DESIGN.md`, no prose in `README.md`/`CLAUDE.md`, no mention of F5 added anywhere, no rebase/force-push, no `backlog` command run.
 <!-- SECTION:NOTES:END -->
