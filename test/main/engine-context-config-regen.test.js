@@ -87,7 +87,14 @@ function recordingLogger() {
  * this task.
  */
 function seedStaleInstall(homeDir) {
-  const configDir = paths.resolveConfigDir({ homedir: homeDir });
+  // NCOW-60: on win32, resolveConfigDir's appData fallback is
+  // opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...) — and
+  // APPDATA is always set on a real Windows machine, so a homedir-only
+  // override here was silently ignored there and this test wrote straight
+  // into the real %APPDATA%\claude-conduit instead of homeDir. Threading
+  // resolveWindowsAppDataOverrides(homeDir) in (mirroring engine-context.js's
+  // own winTestOverrides) makes homeDir win on every platform.
+  const configDir = paths.resolveConfigDir({ homedir: homeDir, ...paths.resolveWindowsAppDataOverrides(homeDir) });
   const files = paths.getFilePaths(configDir);
 
   generateAll({
@@ -115,6 +122,51 @@ function seedStaleInstall(homeDir) {
 
   return files;
 }
+
+// NCOW-60 AC#4: proves the exact resolveConfigDir call shape used by
+// seedStaleInstall (and the corrupt-manifest test below) actually resolves
+// under the fake homeDir even when the host looks like a real Windows
+// machine — without needing a real Windows host to run this on. Mirrors
+// test/engine/paths.test.js's own withRealWindowsEnvVars technique (set
+// realistic-looking APPDATA/LOCALAPPDATA env vars, since those are the two
+// things a real Windows machine always has set and this app's own resolver
+// deliberately prefers over a bare homedir guess — see paths.js's
+// resolveConfigDirNamed header comment). Before the NCOW-60 fix, this exact
+// assertion would have failed here on ANY platform, because the old call
+// (`paths.resolveConfigDir({ homedir: homeDir })`, no platform, no appData)
+// would have resolved to path.join(process.env.APPDATA, 'claude-conduit')
+// whenever APPDATA happened to be set in the test process's own env —
+// this test forces that condition deliberately instead of hoping for it.
+test('NCOW-60 (AC#4): seedStaleInstall/corrupt-manifest\'s resolveConfigDir call resolves under homeDir even when simulating a real Windows host with realistic APPDATA/LOCALAPPDATA set', () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-engine-context-regen-win32-sim-'));
+  const originalAppData = process.env.APPDATA;
+  const originalLocalAppData = process.env.LOCALAPPDATA;
+  try {
+    // Exactly the shape a real Windows host always has, and exactly what
+    // silently won over a homedir-only override before this fix.
+    process.env.APPDATA = 'C:\\Users\\realuser\\AppData\\Roaming';
+    process.env.LOCALAPPDATA = 'C:\\Users\\realuser\\AppData\\Local';
+
+    const configDir = paths.resolveConfigDir({
+      platform: 'win32',
+      homedir: homeDir,
+      ...paths.resolveWindowsAppDataOverrides(homeDir),
+    });
+
+    assert.equal(configDir, path.join(homeDir, 'AppData', 'Roaming', 'claude-conduit'));
+    assert.notEqual(
+      configDir,
+      path.join(process.env.APPDATA, 'claude-conduit'),
+      'must not resolve to the simulated real %APPDATA%\\claude-conduit'
+    );
+  } finally {
+    if (originalAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = originalAppData;
+    if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = originalLocalAppData;
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
 
 test('createEngineContext: an upgraded install (stale generated config, older/no version marker) regenerates on launch without re-running setup', async () => {
   await withFakeHome(async (homeDir) => {
@@ -253,7 +305,9 @@ test('createEngineContext: omitting appVersion disables the check entirely (exis
 // index.js has no .catch() for — an unhandled rejection with zero renderers.
 test('createEngineContext: a corrupt/truncated manifest.json does not throw out of createEngineContext(), and is treated as absent', async () => {
   await withFakeHome(async (homeDir) => {
-    const configDir = paths.resolveConfigDir({ homedir: homeDir });
+    // NCOW-60: see seedStaleInstall's identical comment above — same fix,
+    // same reason.
+    const configDir = paths.resolveConfigDir({ homedir: homeDir, ...paths.resolveWindowsAppDataOverrides(homeDir) });
     const files = paths.getFilePaths(configDir);
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(files.manifestJson, '{ "version": 1, "port": 40', 'utf8');
