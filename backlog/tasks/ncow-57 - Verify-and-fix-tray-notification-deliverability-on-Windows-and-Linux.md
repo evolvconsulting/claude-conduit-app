@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 04:23'
+updated_date: '2026-08-07 05:09'
 labels: []
 dependencies:
   - NCOW-55
@@ -221,4 +221,21 @@ with `console.error` as the only guaranteed surface. The current branch silently
 while documenting that there is no problem. Separately, AC#4 needs a human ruling on whether
 captured D-Bus delivery to gnome-shell satisfies "visible" on a host where pixel proof is
 environmentally impossible.
+
+## User decisions on the wave-16 escalation (AskUserQuestion, 2026-08-07)
+
+1. **Windows AUMID — RESOLVED: set it to the appId unconditionally on win32.** Call
+   `app.setAppUserModelId('com.evolvconsulting.claudeconduit')` on Windows for BOTH packaged and
+   dev/source runs, so the runtime AUMID matches the AUMID electron-builder's NSIS installer
+   already binds to the Start Menu shortcut. The `!isPackaged` gate is dropped. Portable still
+   installs no shortcut, so its gap is to be documented honestly as a real, named gap rather than
+   dismissed as "no difference observed". Requires re-verification on winvm.
+2. **AC#4 evidence standard — RESOLVED: a captured `org.freedesktop.Notifications.Notify` call
+   accepted by gnome-shell (the actual renderer) satisfies "visible" on a host where pixel proof
+   is environmentally impossible.** Recorded here so it is not relitigated. GNOME 50 denies the
+   Shell Screenshot API and neither gnome-screenshot nor grim is installed on linuxvm.
+3. **The pre-existing `C:\Users\jdnewhouse\AppData\Roaming\claude-conduit\litellm.env` on winvm
+   (dated 2026-08-02, from an earlier wave's real install, NOT from NCOW-57)** — user elected to
+   be informed only; no action taken by this campaign. Out of NCOW-57's scope either way.
+4. Session budget: continue into a wave 17 (NCOW-58 + NCOW-59) after NCOW-57 settles.
 <!-- SECTION:NOTES:END -->
