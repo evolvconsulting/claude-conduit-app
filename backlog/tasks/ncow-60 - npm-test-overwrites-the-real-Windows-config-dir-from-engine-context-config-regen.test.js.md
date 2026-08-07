@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-07 14:15'
+updated_date: '2026-08-07 14:51'
 labels: []
 dependencies: []
 priority: high
@@ -252,4 +252,68 @@ this guard scans ALL test files, so NCOW-59's and NCOW-61's test files will be s
 touches the resolvers, so no false positive is expected.
 
 Fix pass 1 dispatched into the same worktree with all findings verbatim.
+
+## Wave-17 fix pass 1 (fresh worker, same worktree, commit `dd17824aea65763f9841e1ef748f6ecfe634fa1f`; since REBASED onto dev, branch head now `c59e93f68f29548a72953197589c5a746a6a61d7`)
+
+All nine findings plus the boundary tightening addressed. Rebased onto `dev` @
+`de6c1c35702e330bf6b73365c8946ac633410683` (which already contains merged NCOW-58 and NCOW-59); full
+suite **493/493** (487 on dev + 6 from this branch). Diffstat vs dev: new scanner test +98,
+guard +464, config-regen +81/-3. `src/engine/paths.js` and `README.md`: 0 diff lines.
+
+**F1** — `stripCommentsAndStrings()` gained regex-literal awareness limits: a `'`/`"`-opened phantom string
+now force-closes at the first unescaped newline (real JS strings cannot span one either), CONFINING
+blindness to at most one physical line; a backtick-opened phantom string that reaches EOF without closing
+now THROWS, naming the file and line. Claimed canary sweep: 37/37 files now detect an injected offender.
+
+**F2** — replaced the pointer-to-an-ephemeral-artifact with an actual 7-item survivor list written into
+the guard file itself (aliased imports, computed member access, harmless spread, hoisted options
+variable, wrapper indirection, F3-misclassification residual, F1 regex-literal residual), and softened
+the "any NEW resolver" framing to what F3 actually delivers.
+
+**F3** — added an export-drift test asserting `paths.js`'s exports partition exactly into
+`WIN32_BRANCHING_RESOLVERS` (4) + a new `EXEMPT_RESOLVERS` (3). Proven by temporarily adding an
+unclassified export and observing the drift test name it.
+
+**F4 + boundary tightening** — the `platform` exemption now requires a QUOTED LITERAL and is SCOPED to
+`test/engine/paths.test.js` only; `appData`/`localAppData` no longer count as an escape when `undefined`
+or `null`. Both previously-surviving bug-equivalent shapes (`platform: process.platform`,
+`appData: undefined`) now flagged.
+
+**F5** — corrected the false mechanism, verified live on darwin that the non-win32 branch never consults
+`APPDATE`/`APPDATA`. **F6** — reworded so the AC#4 test says it RE-TYPES the call shape rather than
+pinning the real call sites. **F7** — corrected numbers in the new commit body rather than rewriting
+pushed history (this branch squash-merges, so the orchestrator's PR body is the record that lands).
+**F8** — the fabricated "tray-wiring comments above" reference now names a real location.
+**F9** — a sentence noting `.test.js`-only discovery is latent-only today.
+
+**New scanner unit test** — `test/engine/paths-win32-override-guard-scanner.test.js` (3 tests):
+quote-in-regex does not blank past its line; backtick-in-regex with no close throws loudly naming
+file/line; end-to-end detection still works after a regex-literal-with-quote earlier in the file.
+
+## THREE THINGS THE FIX WORKER DISCLOSED HONESTLY, all consequential, all handed to review pass 2
+
+1. **It MODIFIED A PRE-EXISTING TEST LINE.** To stop its own new throw from firing on every run, it
+   rewrote a genuine, valid regex literal in `test/main/engine-context-config-regen.test.js` (was `:1671`,
+   now ~`:1692`), replacing a bare backtick with a Unicode escape, claiming byte-behavior-identical.
+   **AC#5 requires pre-existing tests pass UNMODIFIED**, so this is a real tension. It also means the
+   guard now imposes a source-FORMATTING constraint on the whole suite, and the first thing it did was
+   force an edit to an unrelated pre-existing test. The worker read pass 1's requested throw as SHIPPED
+   behavior rather than a diagnostic and said so explicitly; whether a scanner that TOLERATES regex
+   literals would have been the better remedy is review pass 2's call.
+2. **It used a `require.main === module` guard around the guard file's `test(...)` calls**, so the new
+   scanner unit test can `require()` its helpers without double-registering. **If that condition is ever
+   false under the real runner, the entire suite-wide guard silently stops running** — a worse version of
+   the exact F1 defect pass 1 rejected. Review pass 2 was instructed to prove EMPIRICALLY, under the full
+   `npm test`, that the guard both appears and can FAIL, rather than reasoning from Node's docs.
+3. **It corrected pass 1's "964-996" blind-span citation to "976-1006"** after its own comment edits
+   shifted line numbers, re-measuring rather than propagating a stale number.
+
+## Orchestrator's own post-rebase verification
+
+The guard's new throw-on-unterminated-backtick did NOT fire on NCOW-59's newly merged
+`test/main/tray-actions.test.js`, so that merge interaction is clean. This was checked deliberately: the
+pass-1 reviewer had warned that this guard scans every test file, and the throw made that coupling
+sharper than the blindness it replaced.
+
+Review pass 2 dispatched into the same worktree, against the rebased tree that will actually merge.
 <!-- SECTION:NOTES:END -->
