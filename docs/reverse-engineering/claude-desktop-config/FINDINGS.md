@@ -175,7 +175,7 @@ profile picker): reverting means *finding or creating* an entry whose config alr
 `inferenceProvider: "anthropic"`, then switching `appliedId` to point at it — never mutating an
 arbitrary "currently active" entry that might belong to something else the user configured.
 
-## Implication for this app's `claudeDesktopConfig.js` (NCOW-1.7) — revised approach
+## Implication for this app's `claudeDesktopConfig.js` (CCA-1.7) — revised approach
 
 The plan approved before this spike assumed reading/writing whatever entry `_meta.json.appliedId`
 currently points at. Given the above, the **safer and more Desktop-idiomatic** design is:

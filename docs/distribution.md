@@ -1,6 +1,6 @@
 # Distribution decision — how end users install Claude Conduit
 
-Decided under **NCOW-9**, 2026-08-01. This is the record of *why* the install story looks
+Decided under **CCA-9**, 2026-08-01. This is the record of *why* the install story looks
 the way it does; the user-facing steps themselves live in the README's
 [Install](../README.md#install) section, which is the single place they should be
 maintained.
@@ -25,7 +25,7 @@ Why:
 - **It is what the auto-updater will want anyway.** electron-builder emits
   `latest.yml` / `latest-mac.yml` / `latest-linux.yml` next to the artifacts, and
   `electron-updater`'s GitHub provider reads exactly that layout from a Release. Choosing
-  anything else as the primary path would mean maintaining a second location for NCOW-10
+  anything else as the primary path would mean maintaining a second location for CCA-10
   to poll. (Those files appear whenever electron-builder can resolve a publish target,
   which it already could here; `package.json`'s `repository` field now guarantees it from
   any checkout layout — see "Packaging hardening this task added" below.)
@@ -46,12 +46,12 @@ built: it would be a third artifact nobody here can test on a real Fedora/openSU
 and those users are well served by the AppImage today. Add it when there's a real user
 asking and a way to test it.
 
-### Linux target architecture: x64 **and** arm64 (NCOW-25, 2026-08-02)
+### Linux target architecture: x64 **and** arm64 (CCA-25, 2026-08-02)
 
-Surfaced during NCOW-22: every Linux machine this project's maintainer owns (linuxvm,
+Surfaced during CCA-22: every Linux machine this project's maintainer owns (linuxvm,
 spark, rpi5, jetson, remote — checked via `uname -m` on the tailnet) is **aarch64**, so an
 x64-only Linux artifact could never be run, smoke-tested, or verified on any of them.
-NCOW-22's own Linux cold-bootstrap verification had to fall back to a from-source run for
+CCA-22's own Linux cold-bootstrap verification had to fall back to a from-source run for
 exactly this reason — the packaged Linux path had never been exercised at all.
 
 **Decision: arm64 is a supported, published target, built on a native arm64 runner —
@@ -125,7 +125,7 @@ own code references an arch, hard-coded or otherwise.
   filenames and hashes.
 - The AppImage was extracted (`--appimage-extract`; this Ubuntu release ships FUSE3 only,
   matching the README's existing FUSE2 caveat) and launched for real against a throwaway
-  `NIM_PROXY_TEST_HOME`, driven over CDP (the same technique NCOW-22 and NCOW-10.3 used).
+  `NIM_PROXY_TEST_HOME`, driven over CDP (the same technique CCA-22 and CCA-10.3 used).
   Confirmed working end to end, live, on the packaged arm64 binary: prerequisite checks
   (Node/Python/litellm all detected), a real NVIDIA key validated against the live API,
   a real model catalog fetch, and real config generation (`config.yaml`, `litellm.env`,
@@ -151,7 +151,7 @@ own code references an arch, hard-coded or otherwise.
   `electron-builder.yml`/CI/docs). Filed as a follow-up rather than fixed here — see the
   handover for the recommended new task. The pm2 **daemon** itself cold-bootstrapped
   correctly on this same packaged arm64 binary (confirmed via `pm2 list` against the
-  real shared `~/.pm2`), so the daemon-launch half of NCOW-22's fix is confirmed working
+  real shared `~/.pm2`), so the daemon-launch half of CCA-22's fix is confirmed working
   on a packaged arm64 build too; only the managed-app-launch half is newly found broken,
   and only on packaged builds.
 - Left the machine clean afterward: crash-looped `litellm-nim` pm2 entry deleted, test
@@ -250,8 +250,8 @@ With that resolution failing, two downstream inferences fail with it:
 2. **No `latest*.yml` update metadata was emitted.** `PublishManager.js` infers the publish
    config from `repositoryInfo` too. In the main clone that inference also succeeds, so
    `latest.yml` / `latest-mac.yml` / `latest-linux.yml` **were already being emitted** —
-   NCOW-9's earlier implementation note saying those files already existed was **correct**,
-   and NCOW-10 (auto-update) can rely on it. Again, only the worktree build produced no
+   CCA-9's earlier implementation note saying those files already existed was **correct**,
+   and CCA-10 (auto-update) can rely on it. Again, only the worktree build produced no
    update feed.
 
 **So what do the new fields buy?** They remove the build's dependence on `.git` layout
@@ -263,17 +263,17 @@ fields stay; it is not a fix for anything the canonical repo ever got wrong.
 
 ## Release checklist (what a published Release must contain)
 
-**Recommended path: the CI release workflow (NCOW-10.2, `.github/workflows/release.yml`).**
+**Recommended path: the CI release workflow (CCA-10.2, `.github/workflows/release.yml`).**
 Push a version tag (`vX.Y.Z`) and CI does all four items below for you — see "CI release
 workflow" below for exactly how. Cutting a release by hand (the process this checklist
 was originally written for) still works and is documented here as a fallback for when CI
 itself needs debugging, but it is no longer the recommended way to publish. Either way, a
 release must contain:
 
-1. The eight artifacts from `npm run dist` (six before NCOW-25 added a linux-arm64
+1. The eight artifacts from `npm run dist` (six before CCA-25 added a linux-arm64
    AppImage and deb alongside the existing linux-x64 pair).
 2. The update metadata electron-builder emits beside them — `latest.yml`,
-   `latest-mac.yml`, `latest-linux.yml`, and (since NCOW-25) `latest-linux-arm64.yml` —
+   `latest-mac.yml`, `latest-linux.yml`, and (since CCA-25) `latest-linux-arm64.yml` —
    plus the `.blockmap` files.
 3. A `SHA256SUMS` file covering all of the above.
 4. Release notes that lead with the unsigned-build warning and link to the README's
@@ -323,20 +323,20 @@ specific artifact type."
 target's `.blockmap` is affected (verified twice, identically, across two independent real
 runs) — the `.dmg`, its own `.blockmap`, both `.zip`s' actual archives, the Linux and
 Windows artifacts, and critically **all three `latest*.yml` files themselves publish with
-correct, intact names** (this is what AC2 of NCOW-10.2 actually requires, and it holds).
+correct, intact names** (this is what AC2 of CCA-10.2 actually requires, and it holds).
 The corrupted file is also not currently load-bearing: `docs/auto-update.md` documents that
 macOS is notify-only and never invokes `electron-updater`/Squirrel.Mac at all today, so
 nothing currently reads the macOS zip's blockmap. It would matter the moment macOS is
 switched onto the shared `electron-updater` path (tracked as a revisit trigger in both
 docs), so this needs to be re-checked (upgrading electron-builder past whatever version
 fixes this, or patching around it) before that switch — flagged here rather than silently
-carried forward. Fixing electron-builder's own bug is out of scope for NCOW-10.2 (a
+carried forward. Fixing electron-builder's own bug is out of scope for CCA-10.2 (a
 CI/docs task, not a dependency-upgrade task); this section exists so the next person to
 touch this doesn't have to re-discover it by reading a corrupted filename on a real Release.
 
 ---
 
-## CI release workflow (NCOW-10.2)
+## CI release workflow (CCA-10.2)
 
 `.github/workflows/release.yml` builds and publishes a Release automatically.
 
@@ -355,14 +355,14 @@ bookkeeping — verified the hard way, by a real CI run that did exactly the wro
    "The tag must match `package.json`'s version" and "Why the release is pre-created, not
    left to `electron-builder`" below for why both exist.
 2. Four matrix jobs (`macos-latest`, `windows-latest`, `ubuntu-latest`, and — since
-   NCOW-25 — `ubuntu-24.04-arm`), gated on `prepare`, each check out the tag, run
+   CCA-25 — `ubuntu-24.04-arm`), gated on `prepare`, each check out the tag, run
    `npm ci && npm test`, then run this repo's own `dist:mac` / `dist:win` /
    `dist:linux:x64` / `dist:linux:arm64` script with `-- --publish always` appended.
    electron-builder cannot cross-build a platform's native installer target on another OS
-   (or, since NCOW-25, another CPU architecture) in CI the way `npm run dist` does locally
+   (or, since CCA-25, another CPU architecture) in CI the way `npm run dist` does locally
    from macOS (an NSIS `.exe` needs Windows, a `.dmg`/ad-hoc-signed `.app` needs macOS),
    so each job publishes only its own platform+arch's artifacts — the same eight
-   artifacts `npm run dist` produces locally (six from before NCOW-25 plus a linux-arm64
+   artifacts `npm run dist` produces locally (six from before CCA-25 plus a linux-arm64
    AppImage and deb), split across four runners instead of one. `npm test` runs plain
    `node --test` with no path argument —
    Node's own built-in test runner recursively discovers `test/**/*.test.js` itself by
@@ -477,10 +477,10 @@ Not done (and not doable from a dev machine):
 
 ## Follow-ups this decision implies
 
-See NCOW-9's report:
+See CCA-9's report:
 
 1. ~~A GitHub Actions release workflow (tag → build all three platforms → publish the
-   Release with correct asset names, `latest*.yml` and `SHA256SUMS`).~~ **Done — NCOW-10.2,
+   Release with correct asset names, `latest*.yml` and `SHA256SUMS`).~~ **Done — CCA-10.2,
    see "CI release workflow" above.**
 2. Code signing and notarization (Apple Developer ID + Windows Authenticode), which is
    what lets most of the README's Install section be deleted.

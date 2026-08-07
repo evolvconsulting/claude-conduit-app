@@ -1,6 +1,6 @@
 ---
 id: doc-2
-title: 'Session handover — NCOW-2..6 done, NCOW-8 next'
+title: 'Session handover — CCA-2..6 done, CCA-8 next'
 type: guide
 created_date: '2026-07-31 21:57'
 updated_date: '2026-07-31 21:57'
@@ -10,13 +10,13 @@ campaign stands, what is decided, and the traps that cost the most time to find.
 
 ## Status
 
-Five tasks completed this session: **NCOW-2, 3, 4, 5, 6** (all Done, all with full
+Five tasks completed this session: **CCA-2, 3, 4, 5, 6** (all Done, all with full
 Implementation Notes — read those rather than re-deriving anything). `npm test` is
 **141/141**, up from 101 at the start of the session.
 
-Five new tasks were created from user direction: **NCOW-11 through NCOW-15**.
+Five new tasks were created from user direction: **CCA-11 through CCA-15**.
 
-**Working order agreed with the user: NCOW-8 → NCOW-12 → NCOW-14 → NCOW-15.**
+**Working order agreed with the user: CCA-8 → CCA-12 → CCA-14 → CCA-15.**
 
 ## Git state: NOTHING IS COMMITTED
 
@@ -37,18 +37,18 @@ branch switching, or a careless `git checkout` loses a full session of verified 
    forces the question to be reopened deliberately.
 2. **Quitting stops the proxy, unconditionally.** No opt-out preference. This reversed a
    documented v1 design decision; DESIGN.md §7.4 and CLAUDE.md were corrected to match.
-   A preference was deliberately deferred until a settings surface exists (NCOW-13).
-3. **NCOW-7 (Setup sub-nav) is parked** behind NCOW-15, because NCOW-13 moves Prerequisites
-   into System Settings and NCOW-15 turns per-connection config into a connection library.
-   The sub-nav requirement is not dropped — satisfy it inside NCOW-15.
-4. **The app will be code-signed before release.** Plan NCOW-10 for a properly signed
+   A preference was deliberately deferred until a settings surface exists (CCA-13).
+3. **CCA-7 (Setup sub-nav) is parked** behind CCA-15, because CCA-13 moves Prerequisites
+   into System Settings and CCA-15 turns per-connection config into a connection library.
+   The sub-nav requirement is not dropped — satisfy it inside CCA-15.
+4. **The app will be code-signed before release.** Plan CCA-10 for a properly signed
    Squirrel.Mac auto-update path, not a macOS notify-only fallback.
 5. **Licenses UI is a scrollable dialog with expandable per-package text**, not a sidebar
    route.
 
-## Next task: NCOW-8 (model alias rename)
+## Next task: CCA-8 (model alias rename)
 
-Small, self-contained, and chosen because it survives the NCOW-14 provider abstraction
+Small, self-contained, and chosen because it survives the CCA-14 provider abstraction
 unchanged — the exposed alias names are a client-facing contract regardless of upstream.
 Its Implementation Notes list every current occurrence of `nim-large` / `nim-small`.
 
@@ -105,12 +105,12 @@ Live testing caught three real defects this session that unit tests did not. Use
   bundled files. `licenses.json` therefore comes over IPC.
 - **`npm run pack` / `dist` were broken at HEAD** by `linux.desktopName`, removed in
   electron-builder 26 (its `LinuxConfiguration` is `additionalProperties: false`, so the
-  whole build failed validation). Fixed under NCOW-2 — if packaging breaks again, check the
+  whole build failed validation). Fixed under CCA-2 — if packaging breaks again, check the
   schema before anything else.
 
 ## Known gaps, deliberately left
 
-- **NCOW-3 AC #3 is unchecked**: termination was only verified on macOS. Windows and Linux
+- **CCA-3 AC #3 is unchecked**: termination was only verified on macOS. Windows and Linux
   were never booted. The File → Exit item there is covered by a template unit test only.
 - **The tray Quit item has never been clicked** — assistive access is denied. Its handler is
   unit-tested and its target (`app.quit()`) was exercised live.

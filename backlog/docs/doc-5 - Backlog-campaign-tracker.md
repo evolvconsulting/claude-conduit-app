@@ -14,31 +14,31 @@ blocked → write handover.
 
 Driven by the `backlog-handover` skill (`.claude/skills/backlog-handover/SKILL.md`). This is a
 new campaign round following the prior one (see `doc-4`, now complete — waves 1-15, all of
-NCOW-9/10/12/16/17/18/19 and NCOW-31 Done there). This round exists specifically because
-NCOW-31's own two review passes filed five follow-up tasks (NCOW-32 through NCOW-36) that
+CCA-9/10/12/16/17/18/19 and CCA-31 Done there). This round exists specifically because
+CCA-31's own two review passes filed five follow-up tasks (CCA-32 through CCA-36) that
 doc-4's inventory predates.
 
 ## Confirmed at init (2026-08-04) — do not re-ask
 
 Fresh inventory of all 10 open Backlog tasks (`backlog task list --exclude-status Done`) at
-this init: NCOW-7, NCOW-11, NCOW-13, NCOW-14, NCOW-15, NCOW-32, NCOW-33, NCOW-34, NCOW-35,
-NCOW-36. Classification:
+this init: CCA-7, CCA-11, CCA-13, CCA-14, CCA-15, CCA-32, CCA-33, CCA-34, CCA-35,
+CCA-36. Classification:
 
-- **NCOW-32 through NCOW-36 are queued.** All five are follow-ups filed directly from
-  NCOW-31's review passes, each names a concrete, objectively-verifiable acceptance criteria
-  set, and each depends only on NCOW-31, which is Done — none blocked.
-- **NCOW-7, NCOW-11, NCOW-13, NCOW-14, NCOW-15 remain excluded, unchanged since doc-4's
+- **CCA-32 through CCA-36 are queued.** All five are follow-ups filed directly from
+  CCA-31's review passes, each names a concrete, objectively-verifiable acceptance criteria
+  set, and each depends only on CCA-31, which is Done — none blocked.
+- **CCA-7, CCA-11, CCA-13, CCA-14, CCA-15 remain excluded, unchanged since doc-4's
   round (all last updated 2026-07-31, before this init).** Re-checked fresh rather than
   trusted from the old tracker — still correctly not agent-resolvable as filed:
-  - NCOW-7: explicitly PARKED (its own implementation notes) pending NCOW-15, since NCOW-13/15
+  - CCA-7: explicitly PARKED (its own implementation notes) pending CCA-15, since CCA-13/15
     would likely make a rebuilt wizard structure throwaway work.
-  - NCOW-11: has an open, unresolved design question (where do usage metrics actually come
+  - CCA-11: has an open, unresolved design question (where do usage metrics actually come
     from against a stock, database-free LiteLLM install) that must be answered before the
     work is even scopeable.
-  - NCOW-13: depends on NCOW-14, which is itself undecomposed.
-  - NCOW-14: its own description says "Expect this to want splitting into subtasks when it is
+  - CCA-13: depends on CCA-14, which is itself undecomposed.
+  - CCA-14: its own description says "Expect this to want splitting into subtasks when it is
     picked up" — a deep, multi-provider abstraction, not a single agent-sized unit.
-  - NCOW-15: same self-described need to split into subtasks, plus multiple undecided design
+  - CCA-15: same self-described need to split into subtasks, plus multiple undecided design
     questions (single vs. multi-proxy, client-config-on-switch behavior).
   These five need a separate planning/decomposition session before a future campaign round
   can queue them — not something this round can resolve.
@@ -51,22 +51,22 @@ but well-scoped, precedent in menu.js), then the mutex-serialization change (mos
 behaviorally significant, touches live uninstall/auto-update proxy-stop paths) last.
 
 **Extended 2026-08-04 (wave 2 restore) — same principle, not a new decision**: wave 1's
-reviews surfaced 3 non-blocking follow-ups; the user approved filing all three as NCOW-37
-(hardening, isolated), NCOW-38 (tray call-site guard, structural but well-scoped), and NCOW-39
+reviews surfaced 3 non-blocking follow-ups; the user approved filing all three as CCA-37
+(hardening, isolated), CCA-38 (tray call-site guard, structural but well-scoped), and CCA-39
 (comment-only). Slotted into the queue using the identical already-confirmed principle —
 comment-only first, isolated hardening next, tray-related next, mutex-serialization
-(NCOW-32) last — rather than re-asking the user to re-rank four items against a rule they
+(CCA-32) last — rather than re-asking the user to re-rank four items against a rule they
 already gave.
 
 **Extended 2026-08-05 (wave 11 dispatch) — a deliberate, reasoned deviation from the greedy
 tie-break, not a new principle**: the confirmed order is a priority tie-break the wave builder
 respects, not a promise any item lands in any specific wave (SKILL.md's own Queue-order
-convention). Applying it mechanically this wave would defer NCOW-50 a THIRD consecutive time
-(it conflicts with NCOW-49, which sorts first in queue order) — exactly the outcome the wave-10
+convention). Applying it mechanically this wave would defer CCA-50 a THIRD consecutive time
+(it conflicts with CCA-49, which sorts first in queue order) — exactly the outcome the wave-10
 handover explicitly warned against ("do not let 'isolated hardening first' become a permanent
 excuse to defer the actual regression fix"). This orchestrator judged that warning as the more
 specific, more recent signal and broke the mechanical tie-break this once: wave 11 pairs
-NCOW-50 with NCOW-54 instead. See the Frontier note below for the full conflict-graph
+CCA-50 with CCA-54 instead. See the Frontier note below for the full conflict-graph
 justification.
 
 ## Frontier
@@ -75,7 +75,7 @@ The "ready now" set is ALWAYS recomputed live from the Backlog task list + this 
 at the start of every restore/wave — never trust a persisted "next wave" plan.
 
 **As of wave 17 DISPATCH (2026-08-07)**: **26 resolved** (waves 1-16), **3 dispatched this wave**
-(NCOW-58, NCOW-59, NCOW-60), **1 held** (NCOW-61 — conflicts with both NCOW-58 and NCOW-59), 0 blocked,
+(CCA-58, CCA-59, CCA-60), **1 held** (CCA-61 — conflicts with both CCA-58 and CCA-59), 0 blocked,
 5 excluded pending human decomposition. Ground-truth drift check found ZERO drift: `dev` in sync with
 `origin/dev` at `c659e79` (the wave-16 handover's own archive commit), clean tree, no campaign branches,
 no open PRs, all 4 treehouse pool trees `available` with no leases. The tracker matched reality exactly,
@@ -85,34 +85,34 @@ so R3 had nothing to reconcile.
 below).** Every citation below was verified against the working tree, not read off the prior note:
 `README.md:331` does read `485 tests, no network or real config touched`, confirming the false half;
 `grep -n "notification|Notification|toast|Toast" README.md DESIGN.md` returns ZERO hits, confirming
-NCOW-58 adds new prose rather than correcting existing prose; and `src/main/tray.js` carries a large
-NCOW-57 AUMID comment block (~lines 224-290) that NCOW-61 would plausibly edit. Resulting edges:
-NCOW-59—NCOW-61 (both may touch `src/main/tray.js`) and NCOW-58—NCOW-61 (NCOW-58's AC#3 documents the
-Windows caveat whose truth NCOW-61 changes). NCOW-58/59/60 are pairwise disjoint, so wave 17 is the
-first genuinely 3-wide wave in a while; NCOW-61 is held for wave 18, where it will be solo by
-computation. **None of the three needs live app verification** — NCOW-58 is docs, NCOW-59 drives a
-Notification fake, NCOW-60 simulates win32 — so the Shared Machine State single-live-verifier
+CCA-58 adds new prose rather than correcting existing prose; and `src/main/tray.js` carries a large
+CCA-57 AUMID comment block (~lines 224-290) that CCA-61 would plausibly edit. Resulting edges:
+CCA-59—CCA-61 (both may touch `src/main/tray.js`) and CCA-58—CCA-61 (CCA-58's AC#3 documents the
+Windows caveat whose truth CCA-61 changes). CCA-58/59/60 are pairwise disjoint, so wave 17 is the
+first genuinely 3-wide wave in a while; CCA-61 is held for wave 18, where it will be solo by
+computation. **None of the three needs live app verification** — CCA-58 is docs, CCA-59 drives a
+Notification fake, CCA-60 simulates win32 — so the Shared Machine State single-live-verifier
 constraint does not bind this wave.
 
 **Two user-approved AC amendments were made at this dispatch** (`e43aa89`), resolving the two scope
-questions wave-16 settlement deliberately left open: NCOW-58 gained AC#6 (correct `README.md:331`,
-chosen over NCOW-60 as the home precisely so README stays single-owner for the wave and the 3-wide
-shape survives) and NCOW-61 gained AC#6/#7/#8 (close the two surviving drift-guard bypasses, make the
+questions wave-16 settlement deliberately left open: CCA-58 gained AC#6 (correct `README.md:331`,
+chosen over CCA-60 as the home precisely so README stays single-owner for the wave and the 3-wide
+shape survives) and CCA-61 gained AC#6/#7/#8 (close the two surviving drift-guard bypasses, make the
 WIN_BLOCK assert match its own comment, and prove each by experiment).
 
 **As of wave 16 SETTLEMENT (2026-08-07)**: **26 resolved** (waves 1-16, all Done), **4 queued** —
-NCOW-58, NCOW-59, plus NCOW-60 and NCOW-61 both filed this settlement with user approval — 0 genuinely
+CCA-58, CCA-59, plus CCA-60 and CCA-61 both filed this settlement with user approval — 0 genuinely
 blocked, 5 excluded pending human decomposition (see Not queued). Final `npm test` on merged dev:
 **485/485**, verified directly by the orchestrator.
 
-**Wave 17 planning — recompute live, do not inherit this note.** Provisional only: NCOW-58 is
-docs-only (`README.md`/`DESIGN.md`) and NCOW-59 is `src/main/tray.js` + `test/main/tray-actions.test.js`,
-so those two look file-disjoint and pairable. NCOW-60 is `test/main/engine-context-config-regen.test.js`
-only, which looks disjoint from both. NCOW-61 is the awkward one — its resolution is doc material
-(conflicts with NCOW-58), it may touch `src/main/tray.js` (conflicts with NCOW-59), and it shares
+**Wave 17 planning — recompute live, do not inherit this note.** Provisional only: CCA-58 is
+docs-only (`README.md`/`DESIGN.md`) and CCA-59 is `src/main/tray.js` + `test/main/tray-actions.test.js`,
+so those two look file-disjoint and pairable. CCA-60 is `test/main/engine-context-config-regen.test.js`
+only, which looks disjoint from both. CCA-61 is the awkward one — its resolution is doc material
+(conflicts with CCA-58), it may touch `src/main/tray.js` (conflicts with CCA-59), and it shares
 `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its own notes. **None
 of the four obviously needs live app verification**, which would be the first wave in a while without
-that constraint — but NCOW-61 might, depending on which way it resolves. Verify all of this at dispatch;
+that constraint — but CCA-61 might, depending on which way it resolves. Verify all of this at dispatch;
 wave 16 is a standing reminder that the provisional file guesses recorded at a settlement are exactly
 the kind of thing that turns out wrong.
 
@@ -122,15 +122,15 @@ that handover's `699dc5f` grounding), clean, no leftover branches/worktrees/PRs,
 trees `available` with zero leases. Zero drift; nothing to reconcile.
 
 **The wave-16 conflict graph was computed fresh via the file-citation method and is pairwise-
-complete across the queue-order-first pick, so wave 16 is solo (NCOW-57) by real computation.**
-NCOW-57 -> `src/main/index.js` (a `setAppUserModelId()` call site, still absent app-wide),
+complete across the queue-order-first pick, so wave 16 is solo (CCA-57) by real computation.**
+CCA-57 -> `src/main/index.js` (a `setAppUserModelId()` call site, still absent app-wide),
 `electron-builder.yml`, `src/main/tray.js` (the `isSupported()` docstring at ~173-175 its own
 description names as too narrow), and README/DESIGN **if** its AC#2 resolves as "documented
-accepted gap" rather than a code mitigation. NCOW-59 -> `src/main/tray.js` +
-`test/main/tray-actions.test.js`, so **57 <-> 59 is a real file conflict**. NCOW-58 ->
+accepted gap" rather than a code mitigation. CCA-59 -> `src/main/tray.js` +
+`test/main/tray-actions.test.js`, so **57 <-> 59 is a real file conflict**. CCA-58 ->
 `README.md`/`DESIGN.md`, which **57 may also enter via AC#2** — over-approximated as a conflict
-(cheap: it only costs parallelism), and independently ordered after 57 because NCOW-58's AC#3
-must reflect NCOW-57's resolution. NCOW-57 is also the sole live-app-verification item, which the
+(cheap: it only costs parallelism), and independently ordered after 57 because CCA-58's AC#3
+must reflect CCA-57's resolution. CCA-57 is also the sole live-app-verification item, which the
 Shared Machine State rule caps at one wave member regardless.
 
 **The wave-15 handover's one UNVERIFIED precondition is now VERIFIED, and it resolves in favor of
@@ -142,7 +142,7 @@ wave-16 dispatch:
   State=active), and `org.freedesktop.Notifications` is owned by **gnome-shell** itself
   (`GetServerInformation` -> `('gnome-shell', 'GNOME', '50.1', '1.2')`); `notify-send` from an SSH
   shell returns rc=0 once `XDG_RUNTIME_DIR=/run/user/1000` and
-  `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus` are exported. **So NCOW-57's AC#4
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus` are exported. **So CCA-57's AC#4
   escape hatch ("or the absence is confirmed and documented") does NOT apply on grounds of
   absence — the daemon is really there and really reachable.** Toolchain present: node v22.23.2,
   npm 10.9.8, git 2.53.0. **Two real constraints for the worker:** the repo is NOT cloned there,
@@ -158,72 +158,72 @@ wave-16 dispatch:
   system`) — use `npm.cmd` from `cmd.exe`. The repo is NOT cloned there either.
 
 Prior note, as of wave 15 SETTLEMENT (2026-08-06): **25 resolved** (waves 1-15, all Done), **2 queued**
-— NCOW-57 and NCOW-58 — plus **NCOW-59**, newly filed this settlement with user approval, 0
-genuinely blocked, 5 excluded pending human decomposition (see Not queued). NCOW-56 merged (PR
+— CCA-57 and CCA-58 — plus **CCA-59**, newly filed this settlement with user approval, 0
+genuinely blocked, 5 excluded pending human decomposition (see Not queued). CCA-56 merged (PR
 #60, `905b8ad`) after 3 review passes and 2 fix cycles; wave-level integration review then found
 6 findings, all fixed via cleanup PR #61 (`ab2ec25`). Final `npm test` on merged dev: **476/476**,
 verified by the orchestrator directly.
 
 **Wave 16 planning.** The remaining queue is 3 items and the sequencing question is genuinely
-open — recompute it live, do not inherit this note. NCOW-57 is the only item needing live app
+open — recompute it live, do not inherit this note. CCA-57 is the only item needing live app
 verification (winvm + a Linux desktop); `winvm` was confirmed live on the tailnet this session
 (100.76.121.102, ping OK) and a `linuxvm` host exists, but whether linuxvm has a desktop
 environment with a running notification daemon is UNVERIFIED — its AC#4 has an explicit escape
-hatch ("or the absence is confirmed and documented") if not. NCOW-59 is unit-testable and file-
-scoped to `src/main/tray.js` + `test/main/tray-actions.test.js`, so it **conflicts with NCOW-57**
+hatch ("or the absence is confirmed and documented") if not. CCA-59 is unit-testable and file-
+scoped to `src/main/tray.js` + `test/main/tray-actions.test.js`, so it **conflicts with CCA-57**
 (which the wave-15 review confirmed will land adjacent to tray.js's `isSupported()` docstring —
-NCOW-56 inserted a comment block immediately after it, so NCOW-57 should rebase onto current dev
-rather than cherry-pick). NCOW-58 is docs-only and now depends on BOTH NCOW-55 and NCOW-56; its
+CCA-56 inserted a comment block immediately after it, so CCA-57 should rebase onto current dev
+rather than cherry-pick). CCA-58 is docs-only and now depends on BOTH CCA-55 and CCA-56; its
 scope was extended this settlement to cover the second failure class and the AC#2 asymmetry.
-Whether NCOW-58 can run parallel to NCOW-57 depends on whether NCOW-57's own AC#2 ("document why
+Whether CCA-58 can run parallel to CCA-57 depends on whether CCA-57's own AC#2 ("document why
 it's an accepted gap") lands in README — check that at dispatch.
 
 Prior note, as of wave 15 DISPATCH (2026-08-06): ground-truth drift check found `dev` in sync with
 `origin/dev` at `0748b1b`, clean, no leftover branches/worktrees/PRs, all 4 treehouse trees
 available (none leased) — zero drift from the wave-14 handover, nothing to reconcile.
 **The wave-15 conflict graph was computed fresh via the file-citation method, and it is
-pairwise-complete across all 3 queued tasks — so wave 15 is solo (NCOW-56), by real computation
+pairwise-complete across all 3 queued tasks — so wave 15 is solo (CCA-56), by real computation
 this time rather than by construction.** Findings, all grounded in the tasks' own text and the
 current source rather than the provisional guesses recorded at wave-14 settlement:
-NCOW-56 → `src/main/tray.js` (`runAction`/`notifyFailure` at lines 191-216, plus the Start-item
+CCA-56 → `src/main/tray.js` (`runAction`/`notifyFailure` at lines 191-216, plus the Start-item
 `enabled` logic inside `createTray` at line 78) and `test/main/tray-actions.test.js`;
-NCOW-57 → `src/main/index.js` (a `setAppUserModelId` call site, currently absent app-wide),
-`electron-builder.yml`, **and `src/main/tray.js` lines 173-175** — NCOW-57's description names
-that exact `isSupported()` docstring claim as too narrow, so the tray.js overlap with NCOW-56 is
-real, not hypothetical; NCOW-58 → `README.md`/`DESIGN.md`, disjoint by file but ordered last on
-two independent grounds — its AC#3 asks it to reflect NCOW-57's resolution, and its AC#1 wording
-("a wedged tray action raises a notification") would be stale-on-arrival the moment NCOW-56
+CCA-57 → `src/main/index.js` (a `setAppUserModelId` call site, currently absent app-wide),
+`electron-builder.yml`, **and `src/main/tray.js` lines 173-175** — CCA-57's description names
+that exact `isSupported()` docstring claim as too narrow, so the tray.js overlap with CCA-56 is
+real, not hypothetical; CCA-58 → `README.md`/`DESIGN.md`, disjoint by file but ordered last on
+two independent grounds — its AC#3 asks it to reflect CCA-57's resolution, and its AC#1 wording
+("a wedged tray action raises a notification") would be stale-on-arrival the moment CCA-56
 widens the surface to resolved `{ok:false}` failures. Documenting a behavior one wave before it
 changes is precisely the stale-claim failure class this campaign's integration review has caught
-in all 14 waves so far. Expected sequencing: wave 15 = NCOW-56, wave 16 = NCOW-57 (the sole
-live-app-verification item), wave 17 = NCOW-58 (docs last, reflecting both).
+in all 14 waves so far. Expected sequencing: wave 15 = CCA-56, wave 16 = CCA-57 (the sole
+live-app-verification item), wave 17 = CCA-58 (docs last, reflecting both).
 
 Prior note, as of wave 14 SETTLEMENT (2026-08-06): **24 resolved** (waves 1-14, all Done), **3 queued**
-— NCOW-56, NCOW-57, NCOW-58 (all on NCOW-55, Done — filed this settlement, user-approved, not
+— CCA-56, CCA-57, CCA-58 (all on CCA-55, Done — filed this settlement, user-approved, not
 yet conflict-checked against each other), 0 genuinely blocked, 5 excluded pending human
-decomposition (see Not queued). NCOW-55 merged (PR #58, `76a7c3c`) after 2 fix cycles on the
+decomposition (see Not queued). CCA-55 merged (PR #58, `76a7c3c`) after 2 fix cycles on the
 same finding (a self-invalidating relative git ref, corrected on the 2nd retry with an absolute
 SHA); wave-level integration review then found a fabricated pm2 error code and a
 mischaracterized test comment, fixed via cleanup PR #59 (`66d5aa0`). **Wave 15, if dispatched,
 needs a REAL conflict-graph computation for the first time in several waves** — this is not
-automatically solo, since 3 items are queued. Read the Queue table's NCOW-56/57/58 rows for a
+automatically solo, since 3 items are queued. Read the Queue table's CCA-56/57/58 rows for a
 provisional, NOT-yet-verified file-footprint guess (all 3 plausibly touch `src/main/tray.js` or
 overlapping surfaces) — re-derive this fresh via the file-citation method, don't trust the
-provisional guess. NCOW-57 also needs live app verification (winvm + Linux) — the Shared Machine
-State rule caps that to one wave member at a time regardless of file-conflict status. NCOW-58 is
-pure docs and may be worth sequencing after NCOW-57 rather than true-parallel, since its own
-AC#3 asks it to reflect NCOW-57's actual resolution. Final npm test on merged dev: 467/467.
+provisional guess. CCA-57 also needs live app verification (winvm + Linux) — the Shared Machine
+State rule caps that to one wave member at a time regardless of file-conflict status. CCA-58 is
+pure docs and may be worth sequencing after CCA-57 rather than true-parallel, since its own
+AC#3 asks it to reflect CCA-57's actual resolution. Final npm test on merged dev: 467/467.
 
 Prior note, as of wave 14 DISPATCH (2026-08-06): ground-truth drift check found `dev` in sync with
-`origin/dev` at `2026828` (before this restore's own NCOW-55 status-flip commit `22af11d`),
+`origin/dev` at `2026828` (before this restore's own CCA-55 status-flip commit `22af11d`),
 clean, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
 matched the wave-13 handover exactly, no drift. **23 resolved** (waves 1-13), **1 queued**
-(NCOW-55, on NCOW-53 Done — the only item in the ready set, so no conflict-graph computation
+(CCA-55, on CCA-53 Done — the only item in the ready set, so no conflict-graph computation
 was needed to make it solo), 0 genuinely blocked, 5 excluded pending human decomposition
 (re-checked fresh — see Not queued; all five still last-updated 2026-07-31, nothing changed).
-**Wave 14 = {NCOW-55}, solo, by construction of the queue itself.** Wave base pinned at
-`22af11d` (the commit that flipped NCOW-55 to In Progress; no code changed by that commit).
-NCOW-55's own ACs deliberately leave the error-surface mechanism (native OS notification vs.
+**Wave 14 = {CCA-55}, solo, by construction of the queue itself.** Wave base pinned at
+`22af11d` (the commit that flipped CCA-55 to In Progress; no code changed by that commit).
+CCA-55's own ACs deliberately leave the error-surface mechanism (native OS notification vs.
 IPC broadcast) undecided — this is intentional per the task-creation guide's rule against
 speculative implementation at filing time, not an oversight to escalate before dispatch; the
 worker decides and documents, the reviewer is the checkpoint on whether that call was
@@ -233,310 +233,310 @@ requires no live-verification of the running proxy/UI — all ACs are satisfiabl
 function/harness tests, matching the `createTrayActions()` test precedent from waves 8/13.
 
 Prior note, as of wave 13 SETTLEMENT (2026-08-06): **23 resolved** (waves 1-13, all Done), **1 queued**
-— NCOW-55 (on NCOW-53, Done — filed this settlement, user-approved, not yet conflict-checked
+— CCA-55 (on CCA-53, Done — filed this settlement, user-approved, not yet conflict-checked
 since it's the only queued item), 0 genuinely blocked, 5 excluded pending human decomposition
-(see Not queued). NCOW-53 merged (PR #56, `f20eb5d`) approved on the task-level reviewer's first
+(see Not queued). CCA-53 merged (PR #56, `f20eb5d`) approved on the task-level reviewer's first
 pass; wave-level integration review then found real material for the 13th consecutive wave —
-this time inaccurate claims in NCOW-53's OWN new comments/test-comments (not a later correction
+this time inaccurate claims in CCA-53's OWN new comments/test-comments (not a later correction
 pass), fixed via cleanup PR #57 (`9245a9d`) whose reviewer independently reproduced every
-corrected claim rather than trusting the worker's report (see the Resolved table's NCOW-53 row
-for the full account). **The queue is NOT empty** — NCOW-55 exists and is ready by dependency —
+corrected claim rather than trusting the worker's report (see the Resolved table's CCA-53 row
+for the full account). **The queue is NOT empty** — CCA-55 exists and is ready by dependency —
 so this session stopped between waves (self-assessed context-pressure checkpoint) rather than
 because the campaign is complete. Final npm test on merged dev: 461/461.
 
 Prior note, as of wave 13 DISPATCH (2026-08-06): ground-truth drift check found `dev` in sync with
-`origin/dev` at `6911b78` (before this restore's own NCOW-53 status-flip commit `674f455`),
+`origin/dev` at `6911b78` (before this restore's own CCA-53 status-flip commit `674f455`),
 clean, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
 matched the wave-12 handover exactly, no drift. **22 resolved** (waves 1-12), **1 queued**
-(NCOW-53, on NCOW-52 Done — the only item in the ready set, so no conflict-graph computation
+(CCA-53, on CCA-52 Done — the only item in the ready set, so no conflict-graph computation
 was needed to make it solo), 0 genuinely blocked, 5 excluded pending human decomposition
 (re-checked fresh — see Not queued; all five still last-updated 2026-07-31, nothing changed).
-**Wave 13 = {NCOW-53}, solo, by construction of the queue itself.** File citations re-verified
+**Wave 13 = {CCA-53}, solo, by construction of the queue itself.** File citations re-verified
 fresh directly against current source rather than trusted from the handover (see the Queue
-table's NCOW-53 row for the corrected line numbers and the literal-quote-vs-paraphrase
+table's CCA-53 row for the corrected line numbers and the literal-quote-vs-paraphrase
 distinction this found) — the `ipc.js`/`engine-context.js` pair has now drifted in every wave
 that has touched or cited it, without exception, since wave 7. Wave base pinned at `674f455`
-(`674f45540f6b1e08172937e32c78e3321a271b8c` — the commit that flipped NCOW-53 to In Progress;
+(`674f45540f6b1e08172937e32c78e3321a271b8c` — the commit that flipped CCA-53 to In Progress;
 no code changed by that commit). Task requires no live-verification of the running proxy/UI — all 4 ACs are satisfiable
 via direct function/harness tests (dashboard-view.js click handlers, tray.js's
 `createTrayActions`, both already unit-tested this way per wave 8/10 precedent).
 
 Prior note, as of wave 12 SETTLEMENT (2026-08-06): **22 resolved** (waves 1-12, all Done), **1
-queued** — NCOW-53 (on NCOW-52, Done) — 0 genuinely blocked, 5 excluded pending human
-decomposition (see Not queued). NCOW-49 merged (PR #54, `d49f86f`) after 1 fix cycle on AC#1
+queued** — CCA-53 (on CCA-52, Done) — 0 genuinely blocked, 5 excluded pending human
+decomposition (see Not queued). CCA-49 merged (PR #54, `d49f86f`) after 1 fix cycle on AC#1
 alone; wave-level integration review then found and fixed 2 stale test counts plus a 4th
 instance of "a correction introduces a new false claim" (cleanup PR #55, `b148f4b`, 1 review
-pass). **The dispatch-time conflict prediction that made this wave solo (NCOW-49's AC#8 might
-touch `mutex.js`, colliding with NCOW-53's AC#2) turned out WRONG, in the same direction this
-campaign has seen before (NCOW-32 at waves 4/5)**: NCOW-49 as actually merged does not touch
+pass). **The dispatch-time conflict prediction that made this wave solo (CCA-49's AC#8 might
+touch `mutex.js`, colliding with CCA-53's AC#2) turned out WRONG, in the same direction this
+campaign has seen before (CCA-32 at waves 4/5)**: CCA-49 as actually merged does not touch
 `mutex.js` at all (confirmed via identical blob SHA both by the task reviewer and the
-integration reviewer). This means **wave 13 should re-derive NCOW-53's conflict status fresh
+integration reviewer). This means **wave 13 should re-derive CCA-53's conflict status fresh
 rather than assume the wave-11/wave-12 caution still applies** — there is no longer any file
-NCOW-53 shares with merged work, but the integration review surfaced a NEW, narrower
-consideration to brief wave 13's worker on instead of a file conflict: NCOW-49 added 4 places
+CCA-53 shares with merged work, but the integration review surfaced a NEW, narrower
+consideration to brief wave 13's worker on instead of a file conflict: CCA-49 added 4 places
 (`ipc.js:117-118`/`155`/`233`, `engine-context.js:309`) that quote `mutex.js:53`'s exact
 `chain = run.catch(() => {})` line verbatim as justification for its own AC#8 mechanism, so if
-NCOW-53's own fix changes that line's shape, those quotations go stale in the same PR; and
+CCA-53's own fix changes that line's shape, those quotations go stale in the same PR; and
 `withLocks()`'s discard-except-shared-run behavior means `mutex.js:53`'s catch is what marks a
 multi-lock throwing path's other N-1 promises as handled — a naive AC#2 fix that logs-and-
 rethrows there was measured to produce unhandled rejections on a throwing 3-lock `uninstall`.
-See the Queue table's NCOW-53 row for the full note. Wave 13, if dispatched, will very likely
-be solo again regardless (NCOW-53 is now the only queued item), so this doesn't change wave
-sizing — it changes what the NCOW-53 worker needs to be briefed on.
+See the Queue table's CCA-53 row for the full note. Wave 13, if dispatched, will very likely
+be solo again regardless (CCA-53 is now the only queued item), so this doesn't change wave
+sizing — it changes what the CCA-53 worker needs to be briefed on.
 
 Prior note, as of wave 12 DISPATCH (2026-08-06): ground-truth drift check found `dev` in sync with
 `origin/dev` at `7be35cd`, clean, all wave-11 PRs (#51/#52/#53) merged, no leftover
 branches/worktrees/PRs, all 4 treehouse trees available (none leased) — matched the wave-11
 handover exactly, no drift. **21 resolved** (waves 1-11), **2 queued, both confirmed ready by
-dependency** (NCOW-49 on NCOW-46 Done; NCOW-53 on NCOW-52 Done), 0 genuinely blocked, 5 excluded
+dependency** (CCA-49 on CCA-46 Done; CCA-53 on CCA-52 Done), 0 genuinely blocked, 5 excluded
 pending human decomposition (re-checked fresh — see Not queued; all five still last-updated
 2026-07-31, nothing changed).
 
 **Conflict graph RECOMPUTED FRESH rather than trusted from the wave-11 dispatch note below** —
-and it reverses that note's own "no edge NCOW-49 ↔ NCOW-53" conclusion. That prior conclusion
-predates NCOW-49's own AC#8 (added during wave 11's settlement, after the wave-11 dispatch
+and it reverses that note's own "no edge CCA-49 ↔ CCA-53" conclusion. That prior conclusion
+predates CCA-49's own AC#8 (added during wave 11's settlement, after the wave-11 dispatch
 conflict graph was computed). AC#8's own text explicitly authorizes implementing its guard as
 "a reentrancy-detecting change to mutex.js" — one of three named options, alongside a
 module-load assertion in ipc.js (the `assertLockOrderIsConsistent` mould) or an "equivalently
 reasoned guard." Independently, this doc's own Critical-context note already confirms
 `src/main/mutex.js` as "a hub file for this cluster too, not just ipc.js" from wave 11's own
-fresh read, which found NCOW-53's AC#2 (surfacing the tray Stop's silently-absorbed rejection)
+fresh read, which found CCA-53's AC#2 (surfacing the tray Stop's silently-absorbed rejection)
 targets the exact same file — `mutex.js:53`'s deliberate `chain = run.catch(() => {})`. Read
 directly against current source at this restore (`src/main/mutex.js`, `src/main/tray.js`,
-`src/renderer/views/dashboard-view.js`, `src/main/ipc.js`, all re-read fresh): NCOW-53's AC#2 is
+`src/renderer/views/dashboard-view.js`, `src/main/ipc.js`, all re-read fresh): CCA-53's AC#2 is
 plausibly satisfiable without touching mutex.js at all (wrapping `tray.js`'s
 `createTrayActions().onStop` in its own `.catch` is the minimal fix, since `withLock`'s `run` —
 the promise it actually returns — is not itself already caught, only the internal `chain`
-variable is); and NCOW-49's AC#8 is plausibly satisfiable entirely inside `ipc.js` too (a second
+variable is); and CCA-49's AC#8 is plausibly satisfiable entirely inside `ipc.js` too (a second
 module-load assertion alongside `assertLockOrderIsConsistent`, matching the file's own
 established pattern). But "plausible minimal path" is not the same as "guaranteed" for either —
 AC#8 names mutex.js as an explicitly sanctioned alternative, and the wave-11 integration
-reviewer that filed AC#8 itself described NCOW-49's own surface as an "ipc.js/mutex.js rework."
+reviewer that filed AC#8 itself described CCA-49's own surface as an "ipc.js/mutex.js rework."
 Given this file is a proven, not merely hypothetical, hub file for this exact pairing one wave
-ago (NCOW-50 ↔ NCOW-53 both genuinely touched it), and per this skill's own over-approximate-on-
-ambiguity rule (echoing wave 8's identical judgment call on NCOW-48 ↔ NCOW-49's shared test
-file): **treat NCOW-49 ↔ NCOW-53 as conflicting for wave 12's purposes.** Greedy over the
-confirmed queue order [NCOW-49, NCOW-53]: NCOW-49 added (first in confirmed order); NCOW-53
-skipped (conflicts with NCOW-49, already in wave). **Wave 12 = {NCOW-49}, solo.** NCOW-53
+ago (CCA-50 ↔ CCA-53 both genuinely touched it), and per this skill's own over-approximate-on-
+ambiguity rule (echoing wave 8's identical judgment call on CCA-48 ↔ CCA-49's shared test
+file): **treat CCA-49 ↔ CCA-53 as conflicting for wave 12's purposes.** Greedy over the
+confirmed queue order [CCA-49, CCA-53]: CCA-49 added (first in confirmed order); CCA-53
+skipped (conflicts with CCA-49, already in wave). **Wave 12 = {CCA-49}, solo.** CCA-53
 deferred to wave 13, where its actual footprint should be re-verified fresh against whatever
-NCOW-49 actually lands as (the standing lesson: a pre-implementation conflict prediction is
-provisional either way, and this campaign has seen it resolve wrong in both directions — NCOW-32
-predicted-but-didn't touch a shared file at wave 4/5; NCOW-50/53 predicted-and-did at wave 11).
-Wave base pinned at `7be35cd` (`7be35cdb3862881391eb85983063d0c998c3e341`). Neither NCOW-49 nor
-NCOW-53 appears to require live-verifying the running proxy/UI as written (NCOW-49 is pure
-unit-level concurrency-primitive work; NCOW-53's ACs are all satisfiable via direct
+CCA-49 actually lands as (the standing lesson: a pre-implementation conflict prediction is
+provisional either way, and this campaign has seen it resolve wrong in both directions — CCA-32
+predicted-but-didn't touch a shared file at wave 4/5; CCA-50/53 predicted-and-did at wave 11).
+Wave base pinned at `7be35cd` (`7be35cdb3862881391eb85983063d0c998c3e341`). Neither CCA-49 nor
+CCA-53 appears to require live-verifying the running proxy/UI as written (CCA-49 is pure
+unit-level concurrency-primitive work; CCA-53's ACs are all satisfiable via direct
 function/harness tests per the precedent set by wave 8's `createTrayActions` probe and wave 10's
 `pm2.launchBus` mocking) — moot for this wave since only one task is dispatched, but noted for
 wave 13.
 
 Prior note, as of wave 11 SETTLEMENT (2026-08-05/06): **21 resolved** (waves 1-11, all Done),
-**2 queued** — NCOW-49 (on NCOW-46, Done) and NCOW-53 (on NCOW-52, Done), confirmed mutually
+**2 queued** — CCA-49 (on CCA-46, Done) and CCA-53 (on CCA-52, Done), confirmed mutually
 disjoint at wave-11 dispatch (a conclusion the wave-12 dispatch note above has since reversed,
-once NCOW-49's own AC#8 existed to consider), expected to pair cleanly as wave 12 with zero
+once CCA-49's own AC#8 existed to consider), expected to pair cleanly as wave 12 with zero
 greedy-drop — 0
 genuinely blocked, 5 excluded pending human decomposition (see Not queued). Both wave-11 tasks
-approved on their first review pass; NCOW-50 (given deeper scrutiny as a concurrency-primitive
-fix) needed none, NCOW-54 needed none either. The wave-level integration review found real
+approved on their first review pass; CCA-50 (given deeper scrutiny as a concurrency-primitive
+fix) needed none, CCA-54 needed none either. The wave-level integration review found real
 material for the 11th consecutive wave — see the wave log below for the full account,
 including a one-cycle fix on the follow-up cleanup branch (the same "correction introduces a
 new false claim" failure class this campaign has now hit three times: PR #45, PR #48/#50, and
-this wave's PR #53's first draft). **NCOW-49 was amended with a new AC#8** (user-approved,
+this wave's PR #53's first draft). **CCA-49 was amended with a new AC#8** (user-approved,
 folded in rather than filed as a separate task, since a separate task would have guaranteed a
-same-file conflict with NCOW-49's own ipc.js/mutex.js rework) — re-derive wave 12's conflict
-graph fresh regardless, since NCOW-49's own file citations have now drifted twice since wave 8
+same-file conflict with CCA-49's own ipc.js/mutex.js rework) — re-derive wave 12's conflict
+graph fresh regardless, since CCA-49's own file citations have now drifted twice since wave 8
 and were re-forwarded stale for two waves before this one caught it (see the wave log and
-NCOW-49's own recorded notes for corrected line numbers as of `dev` @ `320a8ca`/`7d6e5d1` —
+CCA-49's own recorded notes for corrected line numbers as of `dev` @ `320a8ca`/`7d6e5d1` —
 re-verify yet again at wave 12's own dispatch, don't trust even that).
 
 Prior note, as of wave 11 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the
 prior handover): ground-truth drift check found `dev` @ `ece7a2d`, clean, 0 ahead/0 behind
 `origin/dev`, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none
 leased) — matched the wave-10 handover exactly, no drift. **19 resolved** (waves 1-10), **4
-queued, all 4 confirmed ready by dependency** (NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47
-Done; NCOW-53 on NCOW-52 Done; NCOW-54 on NCOW-52 Done), 0 genuinely blocked, 5 excluded
+queued, all 4 confirmed ready by dependency** (CCA-49 on CCA-46 Done; CCA-50 on CCA-47
+Done; CCA-53 on CCA-52 Done; CCA-54 on CCA-52 Done), 0 genuinely blocked, 5 excluded
 pending human decomposition (re-checked fresh — see Not queued; all five still last-updated
 2026-07-31, nothing changed).
 
-Fresh file-citation conflict read against CURRENT source (NCOW-53/NCOW-54's conflict
+Fresh file-citation conflict read against CURRENT source (CCA-53/CCA-54's conflict
 footprint had never been computed before this restore): `src/main/ipc.js` (still 440 lines,
 citations unmoved since the wave-10 restore) — `UNSERIALIZED_METHODS` at :50,
 `DOMAIN_MUTEX_ALIASES` at :163, `LOCK_ACQUISITION_ORDER` at :195,
 `assertLockOrderIsConsistent` at :222, `resolveDomainLocks` at :264. `src/main/mutex.js`'s
-header comment (NCOW-50 AC#6's target) is at :1-9; its deliberate `chain = run.catch(() =>
-{})` (NCOW-53 AC#2's target) is at :53 — same file, different region, still a conflict under
-this skill's same-file rule. `src/engine/pm2Control.js`'s `startLogTail()` (NCOW-54's entire
+header comment (CCA-50 AC#6's target) is at :1-9; its deliberate `chain = run.catch(() =>
+{})` (CCA-53 AC#2's target) is at :53 — same file, different region, still a conflict under
+this skill's same-file rule. `src/engine/pm2Control.js`'s `startLogTail()` (CCA-54's entire
 footprint) runs :789-830, with `bus.close()` at :811 and :830 — confirmed disjoint from every
 other candidate's citations (no other task touches this file). `src/renderer/views/
 dashboard-view.js` (`#stop-btn` :68, `startLogTailIfNeeded`/`logTailStarted` :99-101) and
-`src/main/tray.js` (`onStop` :130) are NCOW-53's other two files, touched by no other
-candidate. `src/main/engine-context.js` (`validateAndSave` :263) is NCOW-50's own primary
+`src/main/tray.js` (`onStop` :130) are CCA-53's other two files, touched by no other
+candidate. `src/main/engine-context.js` (`validateAndSave` :263) is CCA-50's own primary
 file, touched by no other candidate.
 
-Resolved footprints: **NCOW-49** = `src/main/ipc.js` (resolveDomainLocks/
+Resolved footprints: **CCA-49** = `src/main/ipc.js` (resolveDomainLocks/
 DOMAIN_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER/assertLockOrderIsConsistent region) +
-`test/main/ipc-mutex.test.js`. **NCOW-50** = `src/main/engine-context.js` +
+`test/main/ipc-mutex.test.js`. **CCA-50** = `src/main/engine-context.js` +
 `src/main/ipc.js` (UNSERIALIZED_METHODS, AC#5) + `src/main/mutex.js` (header, AC#6) +
 `test/main/ipc-mutex.test.js` (rework at :1106-1142, AC#7) + possibly
 `src/renderer/views/setup-view.js`/`src/renderer/app.js` (AC#4's tray-coverage claim doesn't
 need renderer changes, but the nav-guard finding in the task description could motivate an
-edit — treated as an open possibility, not a confirmed touch). **NCOW-53** =
+edit — treated as an open possibility, not a confirmed touch). **CCA-53** =
 `src/renderer/views/dashboard-view.js` + `src/main/tray.js` + `src/main/mutex.js` (AC#2) +
-their test files. **NCOW-54** = `src/engine/pm2Control.js` + `test/engine/pm2Control.test.js`
+their test files. **CCA-54** = `src/engine/pm2Control.js` + `test/engine/pm2Control.test.js`
 only.
 
-Edges confirmed real: **NCOW-49 ↔ NCOW-50** (both `src/main/ipc.js` and both
+Edges confirmed real: **CCA-49 ↔ CCA-50** (both `src/main/ipc.js` and both
 `test/main/ipc-mutex.test.js` — double-conflicting, consistent with every prior wave this
-trio-family has appeared in). **NCOW-50 ↔ NCOW-53** (both `src/main/mutex.js` — a new edge,
+trio-family has appeared in). **CCA-50 ↔ CCA-53** (both `src/main/mutex.js` — a new edge,
 never computed before this restore since both tasks are new/newly-paired). No edge
-NCOW-49 ↔ NCOW-53 (disjoint file sets: ipc.js/ipc-mutex.test.js vs dashboard-view.js/
-tray.js/mutex.js — wait, NCOW-50 shares mutex.js with NCOW-53, but NCOW-49 shares nothing
-with NCOW-53). No edge NCOW-49 ↔ NCOW-54, NCOW-50 ↔ NCOW-54, or NCOW-53 ↔ NCOW-54 — NCOW-54's
+CCA-49 ↔ CCA-53 (disjoint file sets: ipc.js/ipc-mutex.test.js vs dashboard-view.js/
+tray.js/mutex.js — wait, CCA-50 shares mutex.js with CCA-53, but CCA-49 shares nothing
+with CCA-53). No edge CCA-49 ↔ CCA-54, CCA-50 ↔ CCA-54, or CCA-53 ↔ CCA-54 — CCA-54's
 entire footprint (`pm2Control.js` + its own test file) is untouched by any other candidate.
 
 **Deliberate deviation from greedy queue-order, reasoned explicitly (see Confirmed queue
-order above)**: mechanical greedy-by-order over [NCOW-49, NCOW-50, NCOW-53, NCOW-54] would add
-NCOW-49 first (no conflicts yet), skip NCOW-50 (conflicts with NCOW-49, already in wave), add
-NCOW-53 (no conflict with NCOW-49), add NCOW-54 (no conflict with either) — producing
-{NCOW-49, NCOW-53, NCOW-54} and deferring NCOW-50 to a THIRD consecutive wave. The wave-10
+order above)**: mechanical greedy-by-order over [CCA-49, CCA-50, CCA-53, CCA-54] would add
+CCA-49 first (no conflicts yet), skip CCA-50 (conflicts with CCA-49, already in wave), add
+CCA-53 (no conflict with CCA-49), add CCA-54 (no conflict with either) — producing
+{CCA-49, CCA-53, CCA-54} and deferring CCA-50 to a THIRD consecutive wave. The wave-10
 handover explicitly carried forward, for the second time, a warning against exactly this
-outcome: NCOW-50 is the only queued item fixing a real user-visible regression this campaign
+outcome: CCA-50 is the only queued item fixing a real user-visible regression this campaign
 itself introduced (the measured ~20s freeze), it was passed over for wave 10 in favor of the
-more isolated NCOW-52, and "isolated hardening first" must not become a permanent excuse to
+more isolated CCA-52, and "isolated hardening first" must not become a permanent excuse to
 defer it. This orchestrator judged that carried-forward signal as decisive: **wave 11 =
-{NCOW-50, NCOW-54}** instead — the only other conflict-free pairing available, since NCOW-50
-conflicts with both other candidates. NCOW-49 and NCOW-53 (confirmed mutually disjoint above)
-are deferred to wave 12, where they should pair cleanly with zero greedy-drop. Neither NCOW-50
-nor NCOW-54 clearly requires live-verifying the running proxy/UI as written (NCOW-50's tray-
-path AC#4 and NCOW-54's retry-sequence AC#2 both look constructible via direct function/harness
+{CCA-50, CCA-54}** instead — the only other conflict-free pairing available, since CCA-50
+conflicts with both other candidates. CCA-49 and CCA-53 (confirmed mutually disjoint above)
+are deferred to wave 12, where they should pair cleanly with zero greedy-drop. Neither CCA-50
+nor CCA-54 clearly requires live-verifying the running proxy/UI as written (CCA-50's tray-
+path AC#4 and CCA-54's retry-sequence AC#2 both look constructible via direct function/harness
 tests, following the precedent set by wave 8's createTrayActions probe and wave 10's own
 pm2.launchBus mocking) — so no Shared Machine State contention expected, though workers are
 still briefed on the rule as a safeguard. Wave base pinned at `ece7a2d`
 (`ece7a2da366c991911b071082db79e170dde9dd2`).
 
 Prior note, as of wave 10 SETTLEMENT (2026-08-05): **19 resolved** (waves 1-10, all Done), **4 queued** —
-NCOW-49 (on NCOW-46, Done), NCOW-50 (on NCOW-47, Done), and two newly filed this wave, NCOW-53 and
-NCOW-54 (both on NCOW-52, Done, filed with explicit user approval from wave-10's integration
+CCA-49 (on CCA-46, Done), CCA-50 (on CCA-47, Done), and two newly filed this wave, CCA-53 and
+CCA-54 (both on CCA-52, Done, filed with explicit user approval from wave-10's integration
 review) — 0 genuinely blocked, 5 excluded pending human decomposition (see Not queued). Wave 10
-itself was solo as predicted (NCOW-52), needed one request_changes → fix → re-review cycle (a
+itself was solo as predicted (CCA-52), needed one request_changes → fix → re-review cycle (a
 non-AC test-runtime issue, not a correctness defect), and its integration review found real
-material for the 10th consecutive wave — see the Resolved table's NCOW-52 row and the wave log
+material for the 10th consecutive wave — see the Resolved table's CCA-52 row and the wave log
 below for the full account. **Countervailing consideration still carried forward, not dropped**:
-NCOW-50 fixes a real user-visible regression this campaign itself introduced (the measured ~20s
+CCA-50 fixes a real user-visible regression this campaign itself introduced (the measured ~20s
 freeze) and should be prioritized soon, not deferred indefinitely — it was NOT selected for wave
-10 (NCOW-52 was, being more isolated), so this is now two waves running without addressing it.
-Re-derive the wave-11 conflict graph fresh rather than assuming NCOW-49/50/53/54's relationships to
-each other — NCOW-53 and NCOW-54 are both new and their real conflict footprint (against each
-other, against NCOW-49/50, and against dev's current state post-wave-10) has not been computed
+10 (CCA-52 was, being more isolated), so this is now two waves running without addressing it.
+Re-derive the wave-11 conflict graph fresh rather than assuming CCA-49/50/53/54's relationships to
+each other — CCA-53 and CCA-54 are both new and their real conflict footprint (against each
+other, against CCA-49/50, and against dev's current state post-wave-10) has not been computed
 yet.
 
 Prior note, as of wave 10 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the prior
 handover): ground-truth drift check found `dev` @ `f6140e3`, clean, 0 ahead/0 behind
 `origin/dev`, no leftover branches/worktrees/PRs, all 4 treehouse trees available (none leased) —
 matched the handover exactly, no drift. **18 resolved** (waves 1-9), **3 queued, all 3 confirmed
-ready by dependency** (NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47 Done; NCOW-52 on NCOW-48 Done),
+ready by dependency** (CCA-49 on CCA-46 Done; CCA-50 on CCA-47 Done; CCA-52 on CCA-48 Done),
 0 genuinely blocked, 5 excluded pending human decomposition (re-checked fresh — see Not queued;
 all five still last-updated 2026-07-31, nothing changed). Fresh file-citation conflict read against
 CURRENT source (not the wave-9 citations, several of which have moved): `src/main/ipc.js` is now
 440 lines — `UNSERIALIZED_METHODS` at :50, `DOMAIN_MUTEX_ALIASES` at :163, `LOCK_ACQUISITION_ORDER`
 at :195, `assertLockOrderIsConsistent` at :222, `resolveDomainLocks` at :264;
 `src/engine/pm2Control.js` is now 783 lines — `pm2.start` at :634, `pm2.stop` at :660,
-`pm2.launchBus` at :695 (NCOW-52's own citations of 628/653/685 have each drifted +6-10 lines from
-NCOW-48's fix-pass comments, re-check before dispatch); `test/main/ipc-mutex.test.js` is now 1573
-lines (+310 from wave 9's NCOW-48 append, confirmed a pure trailing append — NCOW-49's cited
+`pm2.launchBus` at :695 (CCA-52's own citations of 628/653/685 have each drifted +6-10 lines from
+CCA-48's fix-pass comments, re-check before dispatch); `test/main/ipc-mutex.test.js` is now 1573
+lines (+310 from wave 9's CCA-48 append, confirmed a pure trailing append — CCA-49's cited
 876-880/939-943 read unchanged). Confirms the trio remains pairwise-conflicting exactly as
-predicted: NCOW-49 and NCOW-50 both target `src/main/ipc.js`; all three (NCOW-49, NCOW-50, and
-NCOW-52's own AC#3 demonstration) target `test/main/ipc-mutex.test.js`. **Wave 10 = solo,
-confirmed fresh.** Live finding for whoever eventually dispatches NCOW-50: its AC#6 (fix
+predicted: CCA-49 and CCA-50 both target `src/main/ipc.js`; all three (CCA-49, CCA-50, and
+CCA-52's own AC#3 demonstration) target `test/main/ipc-mutex.test.js`. **Wave 10 = solo,
+confirmed fresh.** Live finding for whoever eventually dispatches CCA-50: its AC#6 (fix
 `mutex.js:4-6`'s header to mention `nim-key.enc`) **already appears satisfied** — wave 8's cleanup
 PR #45 already added it; the header at `src/main/mutex.js:4-9` currently reads "...and — since
-NCOW-47 — the encrypted NVIDIA key at `<userData>/nim-key.enc`, which the `config` lock also
-guards even though it lives outside the config directory." Re-verify at NCOW-50's own dispatch
+CCA-47 — the encrypted NVIDIA key at `<userData>/nim-key.enc`, which the `config` lock also
+guards even though it lives outside the config directory." Re-verify at CCA-50's own dispatch
 rather than assume the AC needs new work — do not silently drop the AC either, since the task
 still needs an explicit decision recorded, just possibly a one-line confirmation rather than a
 fix. Greedy over the confirmed ordering principle (docs-only first — none of the three qualifies;
-isolated hardening next; structural next; mutex-serialization last): **NCOW-52 selected for wave
-10** — it follows NCOW-48's precedent directly (bounding raw pm2 callbacks behind the existing
+isolated hardening next; structural next; mutex-serialization last): **CCA-52 selected for wave
+10** — it follows CCA-48's precedent directly (bounding raw pm2 callbacks behind the existing
 `withTimeout` helper), is the most isolated and lowest-risk of the three, and shares no edge with
-anything currently in flight (nothing is). NCOW-49 (closing residual gaps in the mutex mechanism
-itself — arguably structural, since it hardens the mechanism NCOW-45/46 built) and NCOW-50 (moving
+anything currently in flight (nothing is). CCA-49 (closing residual gaps in the mutex mechanism
+itself — arguably structural, since it hardens the mechanism CCA-45/46 built) and CCA-50 (moving
 network calls out of the config lock — the most behaviorally significant of the three) both
 deferred to future solo waves. **Countervailing consideration carried forward, not dropped**:
-NCOW-50 fixes a real user-visible regression this campaign itself introduced (the measured ~20s
+CCA-50 fixes a real user-visible regression this campaign itself introduced (the measured ~20s
 freeze); it should be wave 11 or 12, not deferred indefinitely.
 
 Prior note, as of wave 9 SETTLEMENT (2026-08-05): **18 resolved** (waves 1-9, all Done), **3 queued and all
-3 ready by dependency** — NCOW-49 (on NCOW-46, Done), NCOW-50 (on NCOW-47, Done) and NCOW-52 (on
-NCOW-48, Done, filed this wave with user approval) — 0 genuinely blocked, 5 excluded pending human
+3 ready by dependency** — CCA-49 (on CCA-46, Done), CCA-50 (on CCA-47, Done) and CCA-52 (on
+CCA-48, Done, filed this wave with user approval) — 0 genuinely blocked, 5 excluded pending human
 decomposition (see Not queued). **Expect wave 10 to be SOLO regardless of which item leads**: all
 three remaining tasks are `proxy-mutex` cluster and pairwise-conflicting via `src/main/ipc.js`
-and/or `test/main/ipc-mutex.test.js` — NCOW-49 rewrites resolveDomainLocks/LOCK_ACQUISITION_ORDER/
-DOMAIN_MUTEX_ALIASES, NCOW-50 touches UNSERIALIZED_METHODS plus engine-context.js and mutex.js,
-NCOW-52 adds bounds in pm2Control.js but its AC#3 demonstration lands in ipc-mutex.test.js like
-NCOW-48's did. Re-derive this fresh rather than trusting it. Note the docs-first tie-break no
+and/or `test/main/ipc-mutex.test.js` — CCA-49 rewrites resolveDomainLocks/LOCK_ACQUISITION_ORDER/
+DOMAIN_MUTEX_ALIASES, CCA-50 touches UNSERIALIZED_METHODS plus engine-context.js and mutex.js,
+CCA-52 adds bounds in pm2Control.js but its AC#3 demonstration lands in ipc-mutex.test.js like
+CCA-48's did. Re-derive this fresh rather than trusting it. Note the docs-first tie-break no
 longer discriminates (none of the three is docs-only), so the confirmed principle's next rule
-applies: isolated hardening before structural before mutex-serialization — which favours NCOW-52,
-then NCOW-49, then NCOW-50. **Countervailing consideration a future session must weigh rather than
-ignore: NCOW-50 is the only remaining item that fixes a user-visible regression this campaign
-itself introduced** (the measured ~20s freeze from NCOW-47's alias composed with NCOW-45's
+applies: isolated hardening before structural before mutex-serialization — which favours CCA-52,
+then CCA-49, then CCA-50. **Countervailing consideration a future session must weigh rather than
+ignore: CCA-50 is the only remaining item that fixes a user-visible regression this campaign
+itself introduced** (the measured ~20s freeze from CCA-47's alias composed with CCA-45's
 hold-and-wait), and its AC#7 requires reworking `test/main/ipc-mutex.test.js:1106-1142`, whose line
-numbers HAVE NOW MOVED because NCOW-48 appended 310 lines to that file — re-check its citations at
+numbers HAVE NOW MOVED because CCA-48 appended 310 lines to that file — re-check its citations at
 dispatch.
 
 Prior note, As of wave 9 DISPATCH (2026-08-05, recomputed live at this restore, not trusted from the
 prior handover): **16 resolved** (waves 1-8), 4 queued and **all 4 confirmed ready by
-dependency** (NCOW-48 on NCOW-45 Done; NCOW-49 on NCOW-46 Done; NCOW-50 on NCOW-47 Done;
-NCOW-51 has no dependencies), 0 genuinely blocked, 5 excluded pending human decomposition
+dependency** (CCA-48 on CCA-45 Done; CCA-49 on CCA-46 Done; CCA-50 on CCA-47 Done;
+CCA-51 has no dependencies), 0 genuinely blocked, 5 excluded pending human decomposition
 (re-checked fresh — see Not queued; all five still last-updated 2026-07-31, nothing changed
-between sessions). **Wave 9 = {NCOW-51, NCOW-48}** — see the wave-9 conflict graph below.
-NCOW-49 and NCOW-50 both deferred: each conflicts with NCOW-48 and with each other.
+between sessions). **Wave 9 = {CCA-51, CCA-48}** — see the wave-9 conflict graph below.
+CCA-49 and CCA-50 both deferred: each conflicts with CCA-48 and with each other.
 
 (Earlier wave history preserved below unchanged.)
 
 **Wave 9 conflict graph (file-citation read against real, current source at this restore,
-over the ready set {NCOW-48, NCOW-49, NCOW-50, NCOW-51})**: footprints resolved by reading each
-task plus the actual files. NCOW-48 = `src/engine/pm2Control.js` (the fix site — `pm2.delete`
+over the ready set {CCA-48, CCA-49, CCA-50, CCA-51})**: footprints resolved by reading each
+task plus the actual files. CCA-48 = `src/engine/pm2Control.js` (the fix site — `pm2.delete`
 at :509 and `pm2.dump` at :516, both re-confirmed accurate at this restore, unmoved since
 wave 8), `test/engine/pm2Control.test.js`, and `test/main/ipc-mutex.test.js` (AC#3 needs
-withLocks + all three mutexes, so its demonstration necessarily lands there). NCOW-49 =
+withLocks + all three mutexes, so its demonstration necessarily lands there). CCA-49 =
 `src/main/ipc.js` (resolveDomainLocks / LOCK_ACQUISITION_ORDER / DOMAIN_MUTEX_ALIASES /
-assertLockOrderIsConsistent) + `test/main/ipc-mutex.test.js`. NCOW-50 =
+assertLockOrderIsConsistent) + `test/main/ipc-mutex.test.js`. CCA-50 =
 `src/main/engine-context.js` + `src/main/ipc.js` (UNSERIALIZED_METHODS, AC#5) +
 `src/main/mutex.js` (AC#6 header) + `test/main/ipc-mutex.test.js` (AC#7 rework at :1106-1142).
-NCOW-51 = `DESIGN.md` + `README.md`, with an AC#4-dependent tail: if its worker implements the
+CCA-51 = `DESIGN.md` + `README.md`, with an AC#4-dependent tail: if its worker implements the
 opt-in rather than deferring it, it additionally reaches `src/engine/uninstall.js`,
 `src/main/ipc.js`/`ipc-channels.js`, `src/main/engine-context.js` and
 `src/renderer/views/uninstall-view.js`.
 
-Edges: **NCOW-48↔NCOW-49**, **NCOW-48↔NCOW-50** and **NCOW-49↔NCOW-50** all real, via
+Edges: **CCA-48↔CCA-49**, **CCA-48↔CCA-50** and **CCA-49↔CCA-50** all real, via
 `test/main/ipc-mutex.test.js` (all three) and `src/main/ipc.js` (the latter two) — the trio is
 pairwise-conflicting exactly as waves 7 and 8 predicted, so at most one of them can be in this
-wave. **No edge NCOW-51↔NCOW-48**, decided deliberately rather than by the blanket same-file
-rule: NCOW-48's fix site `src/engine/pm2Control.js` is a file NCOW-51 has no path to under
-either AC#4 outcome, and NCOW-51's docs targets are `DESIGN.md` (line 604, see the drift note
+wave. **No edge CCA-51↔CCA-48**, decided deliberately rather than by the blanket same-file
+rule: CCA-48's fix site `src/engine/pm2Control.js` is a file CCA-51 has no path to under
+either AC#4 outcome, and CCA-51's docs targets are `DESIGN.md` (line 604, see the drift note
 below) and `README.md`'s "Where things live" table at :266-273, which is ~57 lines from the
-only `README.md` line NCOW-48 needs (the test-count at :330) — read both regions directly, so
+only `README.md` line CCA-48 needs (the test-count at :330) — read both regions directly, so
 this is a characterized non-overlap, not an ambiguity being waved through. The residual risk is
-NCOW-51's undetermined opt-in tail reaching `src/main/ipc.js`; both workers are briefed to
+CCA-51's undetermined opt-in tail reaching `src/main/ipc.js`; both workers are briefed to
 declare `files_touched` precisely and both reviewers get the sibling manifest.
 
 Greedy over the confirmed ordering principle (docs-only first, isolated hardening next,
 structural next, mutex-serialization last), which — unlike the wave-8 round — genuinely
-discriminates here: NCOW-51 added first (docs-only, sorts first under the confirmed rule even
-though the Queue table lists it 4th, because that table's numbering predates NCOW-50/51 being
-filed); NCOW-48 added (isolated hardening, bounding pm2 callbacks behind the existing
-shutdown.js precedent, no edge to NCOW-51); NCOW-49 skipped (conflicts with NCOW-48, already in
-wave); NCOW-50 skipped (same). **Wave 9 = {NCOW-51, NCOW-48}.** Neither member needs live-app
+discriminates here: CCA-51 added first (docs-only, sorts first under the confirmed rule even
+though the Queue table lists it 4th, because that table's numbering predates CCA-50/51 being
+filed); CCA-48 added (isolated hardening, bounding pm2 callbacks behind the existing
+shutdown.js precedent, no edge to CCA-51); CCA-49 skipped (conflicts with CCA-48, already in
+wave); CCA-50 skipped (same). **Wave 9 = {CCA-51, CCA-48}.** Neither member needs live-app
 verification (docs + unit-level pm2 callback bounding), so no Shared Machine State contention
 this wave.
 
 **Test-count ownership, assigned at dispatch to prevent a predictable one-line rebase
 conflict**: `CLAUDE.md:51` and `README.md:330` both read 416 at this restore (verified).
-NCOW-48 owns updating both; NCOW-51 is instructed not to touch them even if its AC#5 adds a
-test. NCOW-48 merges second in the queue walk, so its mandatory post-rebase `npm test` is where
+CCA-48 owns updating both; CCA-51 is instructed not to touch them even if its AC#5 adds a
+test. CCA-48 merges second in the queue walk, so its mandatory post-rebase `npm test` is where
 the true final number gets confirmed in-branch — keeping this in-branch per the standing rule
 rather than deferring to a wave-6/7-style cleanup PR.
 
-**Citation drift found and corrected at this restore (NCOW-51)**: its description cites
+**Citation drift found and corrected at this restore (CCA-51)**: its description cites
 `DESIGN.md:597-598` for the `(keys included)` claim; the real location is **line 604**
 (`4. \`--purge\`: delete \`~/.config/claude-conduit/\` entirely (keys included).`). Also found,
 and NOT in the task text: two further purge claims in the same file that a fix should consider
@@ -546,14 +546,14 @@ accurate. Confirmed independently: `grep -n nim-key README.md` returns **nothing
 premise that the table omits the file entirely holds.
 
 **Wave 7 conflict graph (file-citation read against real, current source at this restore, over
-the ready set {NCOW-46})**: trivially empty — a single-member wave has no edges to compute.
+the ready set {CCA-46})**: trivially empty — a single-member wave has no edges to compute.
 Footprint confirmed by direct grep against merged `dev` @ `70eaa80`: `src/main/ipc.js` carries
 `DOMAIN_MUTEX_ALIASES` (line 107), `LOCK_ACQUISITION_ORDER` (line 138, currently
 `['claudeCode','claudeDesktop','config','proxy']`), `resolveDomainLocks()` (line 147, with the
 un-deduped `.sort(...)` chain at line 153) and `withLocks()` (line 198) — all four exactly
-where NCOW-45 left them, untouched since. `MUTEX_DOMAINS` (`['proxy','config','claudeDesktop',
+where CCA-45 left them, untouched since. `MUTEX_DOMAINS` (`['proxy','config','claudeDesktop',
 'claudeCode']`) is already exported from `src/main/mutex.js` line 80, so AC#3's permutation
-assertion needs no new export. Confirmed NCOW-46's own premise independently: zero direct test
+assertion needs no new export. Confirmed CCA-46's own premise independently: zero direct test
 references to `LOCK_ACQUISITION_ORDER`, `DOMAIN_MUTEX_ALIASES`, `resolveDomainLocks` or
 `withLocks` exist anywhere under `test/` — all existing `ipc-mutex.test.js` coverage goes
 through `createDomainMutexes()` behaviorally. Real footprint: `src/main/ipc.js` +
@@ -561,185 +561,185 @@ through `createDomainMutexes()` behaviorally. Real footprint: `src/main/ipc.js` 
 logic), so no Shared Machine State contention.
 
 **Wave 6 conflict graph (file-citation read against real, current source at that restore,
-over the ready set {NCOW-43, NCOW-45})**: confirmed NCOW-43's target is unchanged from wave 5's
+over the ready set {CCA-43, CCA-45})**: confirmed CCA-43's target is unchanged from wave 5's
 prediction — `src/main/index.js`'s config-regen backstop at lines 91-97 (still there,
-untouched by NCOW-32's merge, which landed entirely in `ipc.js` instead), needing only
+untouched by CCA-32's merge, which landed entirely in `ipc.js` instead), needing only
 `safeReadProperty()` imported alongside the already-imported `describeThrownValue()` (both
 already exist in `src/engine/configGen.js` — confirmed by reading it directly, no source
-change needed there) — so NCOW-43's real footprint is `src/main/index.js` +
-`test/main/index.test.js` (confirmed: that file already carries NCOW-42's sibling
-startup-backstop tests at lines 25-70, the natural home for NCOW-43's new ones). NCOW-45's
+change needed there) — so CCA-43's real footprint is `src/main/index.js` +
+`test/main/index.test.js` (confirmed: that file already carries CCA-42's sibling
+startup-backstop tests at lines 25-70, the natural home for CCA-43's new ones). CCA-45's
 target is `src/main/ipc.js` (widening `DOMAIN_MUTEX_ALIASES`'s value type to support multiple
 alias targets per domain, or an equivalent mechanism, per its own description) and
 `src/engine/uninstall.js`, tested via `test/main/ipc-mutex.test.js` (confirmed: already carries
-NCOW-32's own uninstall/update-install tests, the natural home for NCOW-45's multi-domain
-ones) and/or `test/engine/uninstall.test.js`. **No edge NCOW-43 ↔ NCOW-45** — confirmed
-disjoint: NCOW-43 never touches `ipc.js` or `uninstall.js`; NCOW-45 never touches `index.js`.
+CCA-32's own uninstall/update-install tests, the natural home for CCA-45's multi-domain
+ones) and/or `test/engine/uninstall.test.js`. **No edge CCA-43 ↔ CCA-45** — confirmed
+disjoint: CCA-43 never touches `ipc.js` or `uninstall.js`; CCA-45 never touches `index.js`.
 This is the first wave since wave 2 where the two ready tasks turned out fully
-conflict-free without any greedy-drop needed. **Wave 6 = {NCOW-43, NCOW-45}.**
+conflict-free without any greedy-drop needed. **Wave 6 = {CCA-43, CCA-45}.**
 
 **Wave 5 conflict graph (file-citation read against real, current source at that restore,
-over the ready set {NCOW-32, NCOW-43, NCOW-44})**: read `src/main/index.js` directly —
-NCOW-43's target region is the config-regen backstop at lines ~91-97
+over the ready set {CCA-32, CCA-43, CCA-44})**: read `src/main/index.js` directly —
+CCA-43's target region is the config-regen backstop at lines ~91-97
 (`configRegeneration.then(...).catch((err) => ... err.message)`, plus the `result.error?.message`
 read at line 94), which needs the same `describeThrownValue()`/`safeReadProperty()` treatment
-already imported at line 16. NCOW-32's target spanned `src/engine/uninstall.js`,
+already imported at line 16. CCA-32's target spanned `src/engine/uninstall.js`,
 `src/main/autoUpdate.js`, and was predicted to very likely touch `src/main/index.js` too —
-**this prediction turned out to be wrong in a useful way**: NCOW-32 actually landed entirely
+**this prediction turned out to be wrong in a useful way**: CCA-32 actually landed entirely
 in `src/main/ipc.js` (a generic `DOMAIN_MUTEX_ALIASES`/`resolveDomainLock()` mechanism) plus a
 comment-only line in `engine-context.js`, touching `index.js` NOT AT ALL. The predicted
-NCOW-32 ↔ NCOW-43 conflict was based on the BEST AVAILABLE information at dispatch time
+CCA-32 ↔ CCA-43 conflict was based on the BEST AVAILABLE information at dispatch time
 (before either was implemented) and was a reasonable over-approximation, not a mistake — but
-it means **NCOW-43's actual conflict status against post-wave-5 `dev` needs to be re-derived
-fresh at the wave-6 restore**, not assumed from this note. NCOW-44 confirmed test-file-only
+it means **CCA-43's actual conflict status against post-wave-5 `dev` needs to be re-derived
+fresh at the wave-6 restore**, not assumed from this note. CCA-44 confirmed test-file-only
 (`test/main/engine-context-config-regen.test.js` only) and conflict-free with both siblings,
 confirmed correct after the fact by two independent reviews plus the wave-5 integration
 review.
 
-Greedy over confirmed queue order [NCOW-32, NCOW-43, NCOW-44] at dispatch time: NCOW-32
-added; NCOW-43 skipped (conflicts with NCOW-32, already in wave, per the pre-implementation
-prediction); NCOW-44 added (no conflict with NCOW-32). **Wave 5 = {NCOW-32, NCOW-44}.**
+Greedy over confirmed queue order [CCA-32, CCA-43, CCA-44] at dispatch time: CCA-32
+added; CCA-43 skipped (conflicts with CCA-32, already in wave, per the pre-implementation
+prediction); CCA-44 added (no conflict with CCA-32). **Wave 5 = {CCA-32, CCA-44}.**
 
 Wave 4 conflict graph (file-citation read, fresh at wave-4 dispatch over the ready set
-{NCOW-42, NCOW-41, NCOW-32}), kept for history: NCOW-42 candidates = src/engine/updateCheck.js
+{CCA-42, CCA-41, CCA-32}), kept for history: CCA-42 candidates = src/engine/updateCheck.js
 (err.name/err.message reads in checkLatestRelease's catch block), src/main/autoUpdate.js
 (performCheck()'s darwin-path branch — real try/catch + null-result guard around
 checkLatestRelease()), src/main/index.js (startup backstop `.catch((err) => ... err.message)`),
-plus test/engine/updateCheck.test.js and test/main/autoUpdate.test.js. NCOW-32 candidates =
+plus test/engine/updateCheck.test.js and test/main/autoUpdate.test.js. CCA-32 candidates =
 src/engine/uninstall.js (runUninstall → pm2Control.remove(), currently unmutexed),
 src/main/autoUpdate.js (installUpdateAndRestart() → stopProxyForShutdown(), currently
 unmutexed), src/main/index.js (wiring the shared mutex into both call sites), plus
-test/engine/uninstall.test.js and test/main/autoUpdate.test.js. **Edge: NCOW-42 ↔ NCOW-32**
+test/engine/uninstall.test.js and test/main/autoUpdate.test.js. **Edge: CCA-42 ↔ CCA-32**
 via both src/main/autoUpdate.js and src/main/index.js — confirmed real.
 
-NCOW-41's own file footprint, resolved (was flagged ambiguous at the wave-3 restore): read
+CCA-41's own file footprint, resolved (was flagged ambiguous at the wave-3 restore): read
 against the actual test/main/engine-context-config-regen.test.js content, every one of its 8
 ACs mirrored the established test-file-only pattern set by its 3 direct predecessors in this
-exact region (NCOW-35, NCOW-38, NCOW-39). **NCOW-41 candidates = test/main/engine-context-config-regen.test.js,
-test/main/tray-actions.test.js only** — confirmed correct: NCOW-41 landed with zero production
+exact region (CCA-35, CCA-38, CCA-39). **CCA-41 candidates = test/main/engine-context-config-regen.test.js,
+test/main/tray-actions.test.js only** — confirmed correct: CCA-41 landed with zero production
 source changes, verified by two independent reviews plus a wave-4 integration-review re-probe.
-No edge NCOW-41 ↔ NCOW-42, no edge NCOW-41 ↔ NCOW-32 (disjoint file sets in both cases).
+No edge CCA-41 ↔ CCA-42, no edge CCA-41 ↔ CCA-32 (disjoint file sets in both cases).
 
-Greedy over confirmed order [NCOW-42, NCOW-41, NCOW-32]: NCOW-42 added; NCOW-41 added (no
-conflict with NCOW-42); NCOW-32 skipped (conflicts with NCOW-42, already in wave). **Wave 4 =
-{NCOW-42, NCOW-41}** — the first 2-task wave since wave 2. NCOW-32 deferred to a solo wave 5.
+Greedy over confirmed order [CCA-42, CCA-41, CCA-32]: CCA-42 added; CCA-41 added (no
+conflict with CCA-42); CCA-32 skipped (conflicts with CCA-42, already in wave). **Wave 4 =
+{CCA-42, CCA-41}** — the first 2-task wave since wave 2. CCA-32 deferred to a solo wave 5.
 
 Wave 1 conflict graph (file-citation read against real code, not just cluster labels), kept
-for history: NCOW-34 = README.md/DESIGN.md only. NCOW-33 = engine-context.js comment only.
-NCOW-36 = src/engine/configGen.js only. NCOW-35 = src/main/tray.js + src/main/index.js (createTray
-call site) + test files. All four were mutually conflict-free and formed wave 1. NCOW-32 was
-deferred solely because it would touch both engine-context.js (conflict with NCOW-33) and
-src/main/index.js (conflict with NCOW-35, a finding made fresh at this restore — not previously
+for history: CCA-34 = README.md/DESIGN.md only. CCA-33 = engine-context.js comment only.
+CCA-36 = src/engine/configGen.js only. CCA-35 = src/main/tray.js + src/main/index.js (createTray
+call site) + test files. All four were mutually conflict-free and formed wave 1. CCA-32 was
+deferred solely because it would touch both engine-context.js (conflict with CCA-33) and
+src/main/index.js (conflict with CCA-35, a finding made fresh at this restore — not previously
 noted).
 
-**Wave 2 conflict graph (file-citation read, fresh at this restore)**: NCOW-32 candidates =
+**Wave 2 conflict graph (file-citation read, fresh at this restore)**: CCA-32 candidates =
 src/engine/uninstall.js, src/main/engine-context.js, src/main/autoUpdate.js, src/main/index.js
 (deps wiring into createAutoUpdate), test/main/ipc-mutex.test.js, test/engine/uninstall.test.js,
-test/main/autoUpdate.test.js. NCOW-37 candidates = src/engine/configGen.js,
+test/main/autoUpdate.test.js. CCA-37 candidates = src/engine/configGen.js,
 src/main/autoUpdate.js, test/engine/configGen.test.js, test/main/autoUpdate.test.js (confirmed:
 existing describeThrownValue/restart-failed unit tests live in test/engine/configGen.test.js,
-not the integration-level test/main/engine-context-config-regen.test.js). NCOW-38 candidates =
+not the integration-level test/main/engine-context-config-regen.test.js). CCA-38 candidates =
 src/main/index.js (createTray call site, lines ~174-189), test/main/engine-context-config-regen.test.js
-and/or test/main/tray-actions.test.js (both explicitly named in NCOW-38's own description as the
-two existing checks its new guard sits beside). NCOW-39 candidates =
+and/or test/main/tray-actions.test.js (both explicitly named in CCA-38's own description as the
+two existing checks its new guard sits beside). CCA-39 candidates =
 test/main/engine-context-config-regen.test.js only (the same comment block + static check
-NCOW-38 will extend).
+CCA-38 will extend).
 
-Edges found: NCOW-32↔NCOW-37 (share src/main/autoUpdate.js and test/main/autoUpdate.test.js),
-NCOW-32↔NCOW-38 (share src/main/index.js — a repeat of the exact hub-file pattern first noted
-in wave 1: this file keeps accumulating unrelated concerns in different regions), NCOW-38↔NCOW-39
+Edges found: CCA-32↔CCA-37 (share src/main/autoUpdate.js and test/main/autoUpdate.test.js),
+CCA-32↔CCA-38 (share src/main/index.js — a repeat of the exact hub-file pattern first noted
+in wave 1: this file keeps accumulating unrelated concerns in different regions), CCA-38↔CCA-39
 (share test/main/engine-context-config-regen.test.js, same comment/check region). No edge
-NCOW-32↔NCOW-39, NCOW-37↔NCOW-38, NCOW-37↔NCOW-39. Greedy over confirmed order
-[NCOW-39, NCOW-37, NCOW-38, NCOW-32]: NCOW-39 added; NCOW-37 added (no conflict with NCOW-39);
-NCOW-38 skipped (conflicts with NCOW-39, already in wave); NCOW-32 skipped (conflicts with
-NCOW-37, already in wave). **Wave 2 = {NCOW-39, NCOW-37}.** NCOW-38 and NCOW-32 remain queued
+CCA-32↔CCA-39, CCA-37↔CCA-38, CCA-37↔CCA-39. Greedy over confirmed order
+[CCA-39, CCA-37, CCA-38, CCA-32]: CCA-39 added; CCA-37 added (no conflict with CCA-39);
+CCA-38 skipped (conflicts with CCA-39, already in wave); CCA-32 skipped (conflicts with
+CCA-37, already in wave). **Wave 2 = {CCA-39, CCA-37}.** CCA-38 and CCA-32 remain queued
 for subsequent waves — they also conflict with each other via src/main/index.js, so expect two
 more solo waves (3 and 4), a correct sequential degradation, not a bug.
 
 **Wave 3 conflict graph (file-citation read, fresh at this restore, over the ready set
-{NCOW-38, NCOW-32, NCOW-40} — NCOW-41 excluded, blocked on NCOW-38's dependency)**: NCOW-40
+{CCA-38, CCA-32, CCA-40} — CCA-41 excluded, blocked on CCA-38's dependency)**: CCA-40
 candidates = src/main/autoUpdate.js, src/engine/configGen.js (describeThrownValue refactor),
-test/main/autoUpdate.test.js, test/engine/configGen.test.js. NCOW-38/NCOW-32 candidates
-unchanged from the wave-2 conflict graph above. Edges: NCOW-38↔NCOW-32 (src/main/index.js,
-as before), NCOW-32↔NCOW-40 (share src/main/autoUpdate.js — NCOW-32 wires the mutex into
-installUpdateAndRestart's stopProxyForShutdown call, NCOW-40 hardens performCheck()'s catch
-and the darwin-path branch elsewhere in the same file). No edge NCOW-38↔NCOW-40 (disjoint
-file sets). Greedy over confirmed order [NCOW-40, NCOW-38, NCOW-32] (isolated hardening
+test/main/autoUpdate.test.js, test/engine/configGen.test.js. CCA-38/CCA-32 candidates
+unchanged from the wave-2 conflict graph above. Edges: CCA-38↔CCA-32 (src/main/index.js,
+as before), CCA-32↔CCA-40 (share src/main/autoUpdate.js — CCA-32 wires the mutex into
+installUpdateAndRestart's stopProxyForShutdown call, CCA-40 hardens performCheck()'s catch
+and the darwin-path branch elsewhere in the same file). No edge CCA-38↔CCA-40 (disjoint
+file sets). Greedy over confirmed order [CCA-40, CCA-38, CCA-32] (isolated hardening
 first, tray-guard next, mutex-serialization last, per the already-confirmed principle):
-NCOW-40 added; NCOW-38 added (no conflict with NCOW-40); NCOW-32 skipped (conflicts with both
-NCOW-40 and NCOW-38, already in wave). **Wave 3 = {NCOW-40, NCOW-38}.** NCOW-32 deferred to a
-solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependency clears.
+CCA-40 added; CCA-38 added (no conflict with CCA-40); CCA-32 skipped (conflicts with both
+CCA-40 and CCA-38, already in wave). **Wave 3 = {CCA-40, CCA-38}.** CCA-32 deferred to a
+solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency clears.
 
 ## Queue (confirmed order)
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-58 | tray-notify | NCOW-55 + NCOW-56 (both Done) | Dispatched | 17 | **Scope EXTENDED at wave-15 settlement, user-approved**: 2 new ACs — document BOTH failure classes the tray now surfaces (wedged/thrown AND resolved `{ok:false}`, the latter being the more common case), and document the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry from NCOW-56's AC#2 decision, which currently exists ONLY as a code comment. The wave-15 staleness sweep confirmed NOTHING in README/DESIGN/CLAUDE currently describes tray failure behavior, so this task adds prose rather than correcting it. Document the tray's native notification behavior in README/DESIGN.md — this is the app's first-ever OS notification and it's currently undocumented anywhere. Filed from wave-14 integration review, user-approved. Primary files: `README.md`, `DESIGN.md` — pure docs, no code; likely disjoint from NCOW-56/57's code changes, but should wait on NCOW-57's actual resolution if dispatched in the same wave (its own AC#3 says to link to NCOW-57's resolution "whichever is accurate at the time this task is done") — consider sequencing after NCOW-57 rather than true-parallel, or brief its worker to write the caveat provisionally and let review catch any mismatch. |
-| 2 | NCOW-59 | tray-notify | NCOW-56 (Done) | Dispatched | 17 | Filed at wave-15 settlement from the integration review, user-approved. Contain a throwing `Notification.isSupported()`: it is called in `notifyFailure()`'s guard OUTSIDE that function's own `try`, so a throw escapes into `runAction()`'s trailing `.catch()` — producing a SECOND, misattributed `console.error` (as though the tray action itself failed, when it may have succeeded) and a promise REJECTION contradicting the module's own "none of the three ever reject" JSDoc. **Pre-existing in class** — three review passes independently confirmed the pre-NCOW-56 code rejects identically under the same throwing fake — and unreachable with real Electron, whose `isSupported()` does not throw. But NCOW-56 added a SECOND entry point into it (a resolved `{ok:false}` now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`). Deliberately deferred from NCOW-56 as outside its ACs rather than folded in silently. Primary files: `src/main/tray.js`, `test/main/tray-actions.test.js` — **conflicts with NCOW-57**. |
-| 3 | NCOW-60 | test-safety | none | Dispatched | 17 | Filed at wave-16 settlement from the fix pass's own self-report, adjudicated real and PRE-EXISTING by review pass 2, user-approved. `npm test` on a real Windows host overwrites the user's REAL `%APPDATA%\claude-conduit`: `test/main/engine-context-config-regen.test.js:90` and `:256` call `paths.resolveConfigDir({homedir})` without threading `paths.resolveWindowsAppDataOverrides()`, and `paths.js:59-62`'s win32 branch prefers `APPDATA` over a bare homedir override. It had ALREADY fired silently in an earlier wave (the clobbered files were dated 2026-08-02). The key it wrote was the fixture `nvapi-old-install`, never a live secret. Scope independently confirmed narrow by the wave-16 integration review — no other offenders suite-wide. **Conflicts with nothing currently queued** (test-file-only). |
-| 4 | NCOW-61 | tray-notify | NCOW-57 (Done) | To Do | | Filed at wave-16 settlement from the integration review, user-approved. NCOW-57 closed only the AppUserModelID half of Electron's two-part Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the gap and document it accurately. **Expect a file conflict with NCOW-58** (its resolution is doc material) **and with NCOW-59** (both may touch `src/main/tray.js`); it also shares `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its notes. |
+| 1 | CCA-58 | tray-notify | CCA-55 + CCA-56 (both Done) | Dispatched | 17 | **Scope EXTENDED at wave-15 settlement, user-approved**: 2 new ACs — document BOTH failure classes the tray now surfaces (wedged/thrown AND resolved `{ok:false}`, the latter being the more common case), and document the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry from CCA-56's AC#2 decision, which currently exists ONLY as a code comment. The wave-15 staleness sweep confirmed NOTHING in README/DESIGN/CLAUDE currently describes tray failure behavior, so this task adds prose rather than correcting it. Document the tray's native notification behavior in README/DESIGN.md — this is the app's first-ever OS notification and it's currently undocumented anywhere. Filed from wave-14 integration review, user-approved. Primary files: `README.md`, `DESIGN.md` — pure docs, no code; likely disjoint from CCA-56/57's code changes, but should wait on CCA-57's actual resolution if dispatched in the same wave (its own AC#3 says to link to CCA-57's resolution "whichever is accurate at the time this task is done") — consider sequencing after CCA-57 rather than true-parallel, or brief its worker to write the caveat provisionally and let review catch any mismatch. |
+| 2 | CCA-59 | tray-notify | CCA-56 (Done) | Dispatched | 17 | Filed at wave-15 settlement from the integration review, user-approved. Contain a throwing `Notification.isSupported()`: it is called in `notifyFailure()`'s guard OUTSIDE that function's own `try`, so a throw escapes into `runAction()`'s trailing `.catch()` — producing a SECOND, misattributed `console.error` (as though the tray action itself failed, when it may have succeeded) and a promise REJECTION contradicting the module's own "none of the three ever reject" JSDoc. **Pre-existing in class** — three review passes independently confirmed the pre-CCA-56 code rejects identically under the same throwing fake — and unreachable with real Electron, whose `isSupported()` does not throw. But CCA-56 added a SECOND entry point into it (a resolved `{ok:false}` now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`). Deliberately deferred from CCA-56 as outside its ACs rather than folded in silently. Primary files: `src/main/tray.js`, `test/main/tray-actions.test.js` — **conflicts with CCA-57**. |
+| 3 | CCA-60 | test-safety | none | Dispatched | 17 | Filed at wave-16 settlement from the fix pass's own self-report, adjudicated real and PRE-EXISTING by review pass 2, user-approved. `npm test` on a real Windows host overwrites the user's REAL `%APPDATA%\claude-conduit`: `test/main/engine-context-config-regen.test.js:90` and `:256` call `paths.resolveConfigDir({homedir})` without threading `paths.resolveWindowsAppDataOverrides()`, and `paths.js:59-62`'s win32 branch prefers `APPDATA` over a bare homedir override. It had ALREADY fired silently in an earlier wave (the clobbered files were dated 2026-08-02). The key it wrote was the fixture `nvapi-old-install`, never a live secret. Scope independently confirmed narrow by the wave-16 integration review — no other offenders suite-wide. **Conflicts with nothing currently queued** (test-file-only). |
+| 4 | CCA-61 | tray-notify | CCA-57 (Done) | To Do | | Filed at wave-16 settlement from the integration review, user-approved. CCA-57 closed only the AppUserModelID half of Electron's two-part Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the gap and document it accurately. **Expect a file conflict with CCA-58** (its resolution is doc material) **and with CCA-59** (both may touch `src/main/tray.js`); it also shares `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its notes. |
 
 ## Resolved
 
 | # | Task ID | Status/date/wave | Evidence summary |
 | --- | --- | --- | --- |
-| 1 | NCOW-34 | Done, 2026-08-04, wave 1 | Documented the shutdown-mutex carve-out in README.md/DESIGN.md §7.4. AC #1 confirmed by independent review (opus): new doc text checked against the real engine-context.js comment, shutdown.js, index.js's tray mutex wiring, ipc.js's UNSERIALIZED_METHODS. npm test 333/333 (reviewer's own run). Merged as PR #24 (059f888). One wave-integration finding (dangling README cross-reference) fixed in the wave-1 cleanup (PR #28, e9fe0a7). |
-| 2 | NCOW-33 | Done, 2026-08-04, wave 1 | Corrected engine-context.js's shutdown-mutex-exclusion comment (mechanism + window size). Both ACs confirmed by independent review (opus): technical claims re-verified against shutdown.js/pm2Control.js/autoUpdate.js; comment-only claim verified byte-for-byte (comment-stripped file diff was empty). npm test 333/333. Merged as PR #25 (8145984). One wave-integration finding (a window-size figure elsewhere in the same comment block, "up to 60s" vs "60s+") fixed in the wave-1 cleanup (PR #28, e9fe0a7). |
-| 3 | NCOW-36 | Done, 2026-08-04, wave 1 | Hardened configGen's thrown-value logging guard with a structural safeStringify()/describeThrownValue() fix (2 review rounds — round 1 found the initial single-case fix still leaked on adjacent shapes; round 2 confirmed the structural rewrite closes it via 60+ adversarial probes and non-vacuity replay against pre-fix source). All 3 ACs confirmed by independent review (opus). npm test 339/339 at final review. Merged as PR #26 (8431df3). One wave-integration finding (orphaned JSDoc block) fixed in the wave-1 cleanup (PR #28, e9fe0a7). Two non-blocking follow-up candidates noted, not yet proposed as tasks (see Wave log) — both since filed as NCOW-37 and part of NCOW-38/39 (see wave 2 dispatch entry below). |
-| 4 | NCOW-35 | Done, 2026-08-04, wave 1 | Extracted tray actions into createTrayActions({ mutexes, handlers }) in tray.js, matching menu.js precedent, with a genuine behavioral mutex-identity test (2 review rounds — round 1 found AC#2's core claim not yet proven, since the exact nested-scope-shadowing mutation still passed; round 2 confirmed a targeted static single-binding check closes that specific mutation class). All 3 ACs confirmed by independent review (opus), which also documented several further adversarial variants the guard still doesn't catch and judged that an acceptable stopping point. npm test 337/337 at final review (343/343 after later rebase). Merged as PR #27 (362202d). Two non-blocking follow-up candidates noted, not yet proposed as tasks (see Wave log) — both since filed as NCOW-38 and NCOW-39 (see wave 2 dispatch entry below). |
-| 5 | NCOW-39 | Done, 2026-08-04, wave 2 | Softened test/main/engine-context-config-regen.test.js's overstated "close the chain honestly" comment. 2 review rounds (opus) — round 1 found the first softening replaced one overstatement with a narrower, still-false one (reviewer empirically reproduced a private-handlers-shadow passing 343/343); round 2 confirmed the fix correctly scopes the claim to what each check proves and lists all 4 known residual gaps as siblings. All 3 ACs confirmed. Comment-only diff across both commits. npm test 343/343 (both review passes), 348/348 on merged dev (wave-integration reviewer's own run). Merged as PR #29 (c86f908). |
-| 6 | NCOW-37 | Done, 2026-08-04, wave 2 | Hardened configGen.js's regenerateStaleConfig() "restart-failed" branch (new safeReadProperty() + existing safeStringify()) and autoUpdate.js's electron-updater "error" handler (describeThrownValue(), imported from ../engine/configGen) — the 2 remaining unguarded-interpolation sites NCOW-36's reviewer had flagged. Approved on the first review pass (opus): all 4 ACs confirmed, including the reviewer's own from-scratch 38-case adversarial probe (0 failures against the fix, 21 against unpatched dev; reverting to dev made exactly the 5 new tests fail). npm test 348/348 (reviewer's own run; wave-integration reviewer's own run). Merged as PR #30 (6c5ecaf). Wave-2 integration review surfaced 2 real follow-up candidates (see Wave log) — not yet approved/created. |
-| 7 | NCOW-40 | Done, 2026-08-04, wave 3 | Hardened autoUpdate.js's performCheck() catch block and darwin-path result.error interpolation, refactored describeThrownValue() to use safeReadProperty(), gave safeStringify() a real consumer. Approved on the first review pass (opus): all 6 ACs confirmed, including a from-scratch 159-case-run adversarial probe (0 failures against the fix, 29 genuine throws against unpatched dev) and a 61-shape behavior-preservation differential (byte-identical outputs, zero divergence). npm test 356/356 (reviewer's own run). Merged as PR #31 (7fbcc9e). Wave-3 integration review found the 2 residuals this task's reviewer deferred combine with an equally-unguarded backstop at index.js:209 into a real, reproducible unhandled-rejection-shaped chain — filed as NCOW-42. |
-| 8 | NCOW-38 | Done, 2026-08-04, wave 3 | Added a static regression test + companion meta-test guarding index.js's createTray({...}) call against a post-spread action-key override, updated the shared comment block to describe the guard as landed and folded in NCOW-39's 2 accepted residuals. Approved on the first review pass (opus): all 4 ACs confirmed, including the reviewer's own direct reproduction of the regression. npm test 350/350 (reviewer's own run). Merged as PR #32 (0f74ed4). 2 low-severity residuals + a wave-3-integration-review-found fail-open edge case all folded into NCOW-41. |
-| 9 | NCOW-42 | Done, 2026-08-05, wave 4 | Hardened all 3 sites in the auto-update error chain (updateCheck.js's catch blocks, autoUpdate.js's darwin-path try/catch + null-result guard, index.js's startup backstop) reusing existing safeReadProperty/describeThrownValue helpers. Approved on the first review pass (opus): all 5 ACs confirmed via a from-scratch 281-assertion adversarial probe (zero unhandled rejections/uncaught exceptions across the full chain, hostile shapes at every layer) and non-vacuity reproduced via targeted file reverts. npm test 358 -> 377 passing. Merged as PR #33 (4d56a19). |
-| 10 | NCOW-41 | Done, 2026-08-05, wave 4 | Closed the 3 remaining tray-wiring mutex-identity gaps (handlers single-binding check, mutexes.proxy/handlers.proxy property-mutation guard, parameter-shadowing check) plus widened/hardened NCOW-38's post-spread-override regex — test-file-only, zero production source changes, confirming the hypothesis flagged at the wave-3 restore. 2 review rounds: pass 1 found AC#2's delivered test had inverted polarity (proven by injecting the mutation and showing the suite still passed 362/362); a fix pass added a real identifierPropertyIsAssigned() text-only guard; pass 2 independently re-injected the mutation (plus a computed-key variant) and confirmed the suite now correctly fails with no false positive. A post-merge wave-integration re-probe (7 fresh hostile injections against the merged index.js) confirmed no regressions in any of the 4 guard families. npm test 358 -> 382 passing. Merged as PR #34 (78ad549). |
-| 11 | NCOW-32 | Done, 2026-08-05, wave 5 | Added a DOMAIN_MUTEX_ALIASES mechanism to src/main/ipc.js (uninstall/update -> proxy) plus a resolveDomainLock() helper, so both previously-unmutexed IPC domains now share the same proxy lock the background restart and user-initiated Start/Stop/Restart already use; update:check exempted (pure status read). before-quit's own shutdown path confirmed untouched (zero index.js changes). Approved on the first review pass (opus): all 4 ACs confirmed via the reviewer's own adversarial reproduction (reverting only ipc.js reproduces the exact prevented interleaving — 4/5 new tests fail against unpatched ipc.js). npm test 382 -> 387 passing. Merged as PR #36 (365fc53). Wave-5 integration review found uninstall also touches the config/claudeCode domains, which the alias doesn't cover — filed as NCOW-45 (not a regression, correctly out of scope for this task's own ACs). |
-| 12 | NCOW-44 | Done, 2026-08-05, wave 5 | Widened identifierPropertyIsAssigned() (test/main/engine-context-config-regen.test.js) to catch Object.assign/defineProperty/destructuring/logical-assignment mutation spellings beyond NCOW-41's canonical shape — test-file-only, zero production source changes, matching the precedent set by NCOW-35/38/39/41. Approved on the first review pass (opus): all 6 ACs confirmed via a per-branch regex ablation (each new branch independently load-bearing) plus the reviewer's own non-vacuity reproduction. npm test 382 -> 383 passing, confirmed to still pass 388/388 after rebasing onto NCOW-32's merge (guard genuinely still clean against real index.js, not by luck — independently re-verified by the wave-5 integration reviewer). Merged as PR #37 (e79d8fff). |
-| 13 | NCOW-43 | Done, 2026-08-05, wave 6 | Hardened index.js's config-regen backstop's result.error?.message (~line 94) and err.message (~line 97) reads through describeThrownValue(), mirroring NCOW-42's sibling fix at the auto-update backstop in the same file. Approved on the first review pass (opus): all 4 ACs confirmed via a 21-case adversarial sweep of describeThrownValue() plus the reviewer's own reproduction of the exact unhandledRejection the fix prevents. npm test 388 -> 394 passing. Merged as PR #39 (5287a3a). Zero overlap with NCOW-45's parallel work confirmed by both task reviews and the wave-6 integration review. |
-| 14 | NCOW-45 | Done, 2026-08-05, wave 6 | Widened ipc.js's DOMAIN_MUTEX_ALIASES.uninstall from a single string ('proxy') to an array (['claudeCode','config','proxy']), plus a new LOCK_ACQUISITION_ORDER + withLocks() mechanism that reserves every needed lock synchronously in one tick, making partial-reservation races and lock-ordering deadlocks structurally impossible. Approved on the first review pass (opus, given proportionally more scrutiny as the campaign's first real concurrency primitive): all 6 ACs confirmed via genuine stress-testing — starvation scenarios, two concurrent uninstalls, both async/sync fault paths, and an explicit single-lock-path regression check. npm test 388 -> 394 passing standalone, 400 after rebasing onto NCOW-43. Merged as PR #40 (83f4cc67). Wave-6 integration review ran its own behavioral probes and found the mechanism sound, while surfacing 2 latent hardening gaps (duplicate-lock self-deadlock, LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift) — filed as NCOW-46, correctly out of scope for this task's own ACs. |
-| 15 | NCOW-46 | Done, 2026-08-05, wave 7 | Deduped resolveDomainLocks()'s resolved locks by mutex-function identity (Set, applied AFTER the LOCK_ACQUISITION_ORDER sort so acquisition order is preserved) and added an exported assertLockOrderIsConsistent(order, domains, aliases) called at MODULE LOAD against the real constants. Added the first direct test coverage of LOCK_ACQUISITION_ORDER/DOMAIN_MUTEX_ALIASES/resolveDomainLocks/withLocks, which previously had none. Approved on the first review pass (opus, given the proportionally-deeper scrutiny this campaign's concurrency work has earned): all 6 ACs confirmed. The reviewer judged the delivered source-text regex too weak to establish AC#4 in situ and REPLACED that evidence with 5 real require() loads of mutated module copies (control clean; one domain dropped, two dropped, a new MUTEX_DOMAINS entry added without updating the order, and an absent alias target all throw at load), plus 13 behavioral probes proving dedupe-after-sort never degrades acquisition order (shared duplicate spanning first and last keeps the earliest slot) and NCOW-45's queue-race guarantee intact. Non-vacuity independently reproduced: 6 of 10 new tests fail against reverted source. AC#3's authorized module-load-vs-test choice was DECIDED (not escalated) by the reviewer, which established rather than assumed the blast radius — all inputs are developer-authored constants, opts.mutexes provably cannot reach the assertion, and two existing suites require ipc.js so drift fails CI rather than a user's launch. npm test 400 -> 410. Merged as PR #42 (19d1ff7), plus doc cleanup PR #43 (985389a). Wave-7 integration review filed 3 follow-ups with user approval: NCOW-47, NCOW-48, NCOW-49. |
-| 16 | NCOW-47 | Done, 2026-08-05, wave 8 | Serialized the apiKey IPC domain against the config lock it shares secretStore state with, closing the last IPC domain with a real mutating concern and no lock — the family NCOW-32/NCOW-45 had been draining one instance at a time. Three lines of logic (DOMAIN_MUTEX_ALIASES gains `apiKey: 'config'` as a bare string, not an array, since the only shared-state concern is config.generate's secretStore.load(); UNSERIALIZED_METHODS gains `apiKey: ['getMasked']`), plus 242 lines of new tests appended at test/main/ipc-mutex.test.js:1011 with no pre-existing test modified anywhere. **Three review passes (opus) — the campaign's first task to need two fix cycles.** Passes 1 and 2 both rejected AC#4 alone for the SAME failure mode: replacing one unverified absolute claim with another. Pass 1 killed 'Only app and catalog are domains with genuinely no mutating concern — pure reads, full stop' (false: app.openLogsFolder mkdirSync's into the config-lock-guarded directory with zero locks). Pass 2 then MEASURED the replacement claim as inverted — as shipped a mid-uninstall openLogsFolder lands BEFORE fs.rmSync and is wiped (resurrected false), while aliasing app onto config, the fix that wording implied, is what makes it land after and survive a purge reporting success (resurrected true). Pass 3 reproduced all five timings itself and approved, accepting the negative claim because the case analysis is COMPLETE rather than sampled: before rmSync is wiped, between rmSync and settlement is unreachable (microtask-only chain, both real callers macrotask-delivered), after settlement is the reachable defect. All 6 ACs confirmed. npm test 410 -> 416, verified independently by all three reviewers and again after rebase. Non-vacuity reproduced three separate times (deleting only the alias line fails exactly the 4 load-bearing tests). Merged as PR #44 (81b5eb9), plus doc cleanup PR #45 (ec0f8e9). Wave-8 integration review found an emergent hazard this merge introduced — filed with user approval as NCOW-50 — plus NCOW-51, and corrections to both queued tasks. |
-| 17 | NCOW-51 | Done, 2026-08-05, wave 9 | Corrected DESIGN.md 9.4 step 4 (real line 604, not the 597-598 cited) and README so they describe what a purge actually does and does not delete, added the missing `nim-key.enc` row to "Where things live", and recorded an explicit deferral of the "also forget my API key" opt-in. Documentation-only, proven by esprima token-stream identity (188 tokens before and after, streams byte-identical; corroborated by comment excision reducing both revisions to the same 769-character source). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** Pass 1 REJECTED on four blocking findings, the worst being that the branch documented a **"Clear Key" button that has never existed** — four occurrences, twice in README and twice in production source — the same confidently-wrong-mechanism class NCOW-47 was rejected twice for; the true position is more severe (nothing in the shipped app deletes nim-key.enc). Pass 1 also disproved the AC#4 deferral premise (it rested on an NCOW-48 collision in uninstall.js that does not exist). Pass 2 approved after verifying the replacement claim path by path and confirming the macOS path EMPIRICALLY on this machine (nim-key.enc at ~/Library/Application Support/Claude Conduit/, mode 0600, 83 bytes). npm test 416/416. Merged as PR #46 (`65635f5`); prose later reconciled with NCOW-48's bounded-failure mode in PR #48 (`c63eee1`). |
-| 18 | NCOW-48 | Done, 2026-08-05, wave 9 | Bounded the raw pm2 callbacks reachable from uninstall — pm2.delete/pm2.dump/pm2.list — via the `withTimeout` helper `ensureConnected` already used, 15s default matching shutdown.js, injectable via `deps.pm2CallTimeoutMs`. 416 → 425 tests, both test files pure appends (215/0, 310/0). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** **Pass 1 REJECTED AC#1 ON A FINDING THAT MADE THE FIRST ATTEMPT INERT**: `pm2.list` (via findApp → listApps) was still unbounded INSIDE `deleteAppIfPresent` itself and hit BEFORE the newly-bounded `pm2.delete`, so in the canonical wedge (daemon accepts the connection then stops answering RPC) neither new bound engaged — reproduced through the real chain, still frozen after 100× the bound. Pass 1 also corrected the delivered non-vacuity evidence (claimed "0 cancelled", actually 391 pass / 1 fail / **29 cancelled**). Pass 2 proved AC#1 two ways rather than by reading: a mechanical wedge sweep over every pm2 member reachable from `remove()`, and a **Proxy-based exhaustiveness census** (remove → connect/list/delete/dump; save → dump; getStatus → list; start/stop/launchBus provably off these paths, now NCOW-52). Non-vacuity run against BOTH the delta and the merge base, arithmetic closing from both ends (425−7=418, 416+9=425). AC#5 re-verified with real 40ms round trips: identical result shape and identical ~163ms hold, so NCOW-45's multi-lock fairness is intact. Incidentally fixed two pre-existing leaks: status-poller accumulated one never-settling promise per 5s tick forever, and app.js:44 hung the renderer's entire boot. Merged as PR #47 (`4668ddc`), plus PR #48 (`c63eee1`). |
-| 19 | NCOW-52 | Done, 2026-08-05, wave 10 | Bounded pm2Control's last 3 unbounded raw pm2 callbacks (stop, start, launchBus) via the NCOW-48 precedent: PM2_STOP_TIMEOUT, PM2_START_TIMEOUT, and a manual-timeout PM2_LOG_TAIL_TIMEOUT (launchBus needed a manual timeout, not plain withTimeout, since a late callback yields a live bus handle that must be explicitly closed to avoid leaking an open pm2 pub-socket). **2 review passes (opus), all 10 ACs confirmed both passes.** Pass 1's own independent call-chain census found nothing missed (contrast NCOW-48's first attempt, rejected for exactly this); its one blocking finding was non-AC — the new AC#8 shutdown-integration test's 10s inner timeout wasn't cleared until it fired, adding ~2.3s to every npm test run (74x regression on that one file). Fix pass tightened the test's own inner timeout and assertion threshold together (moving only one would have made the test pass vacuously against a regressed outer bound — pass 2 proved this by reproducing the vacuity trap itself, not just trusting the fix). npm test 425 → 435. Merged as PR #49 (`d4a4115`). Wave-10 integration review found 2 real defects NCOW-52 itself introduced — filed with user approval as **NCOW-53** (its own new timeout codes are silently discarded on the renderer's Stop/log-tail and fully absorbed by tray's Stop with zero trace) and **NCOW-54** (its own launchBus leak-prevention close() can close a later retry's live bus, reachable via the shipped UI's navigate-away/back cycle) — plus 2 narrow doc-staleness items (a stale "three codes" pm2-timeout census in DESIGN.md and pm2Control.js's own JSDoc, now six), fixed directly as cleanup PR #50 (`410e40b`). That cleanup itself needed one review-found correction — an overcorrected false claim that proxy:stop/tray "can only ever surface PM2_STOP_TIMEOUT" (false: the same handler's post-stop status broadcast also reaches listApps(), so PM2_LIST_TIMEOUT is reachable even when the stop itself succeeds) — fixed and re-approved. |
-| 20 | NCOW-50 | Done, 2026-08-05/06, wave 11 | Moved apiKey.validateAndSave's NVIDIA validation round trips (up to two sequential 10s network calls) outside the config mutex lock, eliminating a measured ~20s freeze of the window, tray, and every claudeCode/proxy IPC method that occurred when Uninstall was clicked during a slow/offline Validate Key attempt. validateAndSave now opts out of ipc.js's automatic locking (UNSERIALIZED_METHODS.apiKey) and self-acquires mutexes.config directly in engine-context.js, scoped to only the secretStore.save() write — preserving NCOW-47's serialization guarantee while collapsing the hold to milliseconds. apiKey.clear unchanged. Also decided config.getManifest's exemption explicitly and confirmed AC#6 (mutex.js header) already satisfied by an earlier wave's cleanup. **Approved on the first review pass (opus, given deeper scrutiny as a concurrency-primitive fix): all 8 ACs confirmed with the reviewer's own traced/reproduced evidence** — independently falsified AC#2 by reverting only the lock line, and independently probed apiKey.clear racing the self-acquiring validateAndSave in both directions (no deadlock, FIFO holds). npm test 435 → 439. Merged as PR #51 (`fe0ed9d`). The reviewer also proved a latent re-entrancy deadlock hazard if the UNSERIALIZED_METHODS entry is ever removed without also removing the self-acquisition — folded into NCOW-49 as a new AC#8 (user-approved) rather than filed separately, avoiding a guaranteed file conflict with NCOW-49's own ipc.js/mutex.js rework. Several stale comments/docs left behind by this merge fixed in cleanup PR #53 (`7d6e5d1`, see wave log — needed one request_changes → fix → re-review cycle). |
-| 21 | NCOW-54 | Done, 2026-08-05/06, wave 11 | Fixed a defect NCOW-52 itself introduced: startLogTail's late-arriving timeout callback read pm2's own shared-mutable Client.sub slot at callback-fire time rather than a captured per-call value, so a timed-out call's late callback could close a SUBSEQUENT retry's currently-live bus — killing a healthy log tail while the actually-stale socket leaked anyway. Genuinely reachable via the shipped UI's navigate-away/back unmount cycle. Fix: a closure-scoped activeLogTailBus variable, identity-checked before closing, contained entirely inside pm2Control.js. **Approved on the first review pass (opus): all 6 ACs confirmed** — the reviewer reproduced non-vacuity itself (git apply -R on just the production diff) and probed 9 further edge cases with an independently-written shared-slot fake (3-way overlapping calls, unsubscribe-before-late-callback ordering, non-shared-slot pm2 semantics) — all correct. npm test 435 → 436 (440 in-branch after composing with NCOW-50's merge). Merged as PR #52 (`320a8ca`). |
-| 22 | NCOW-49 | Done, 2026-08-06, wave 12 | Closed NCOW-46's three wave-7-flagged residual multi-lock gaps plus wave-11's new AC#8, dispatched SOLO (deferring sibling NCOW-53 over a mutex.js collision risk that, per this settlement, turned out not to materialize — see the Queue table's NCOW-53 row for the residual semantic-coupling note this created instead). AC#1/#2: resolveDomainLocks() now dedupes/rejects locks by `.run` FUNCTION identity rather than lock-object identity, closing every wrapper-forwarding chain-sharing evasion (Proxy, Object.assign, copied `.run` reference) that survived the initial naive-wrapper-only guard — one residual (a wrapper inventing an entirely new, non-forwarded `.run`) is honestly documented as accepted. AC#3/#4: assertLockOrderIsConsistent() now also verifies LOCK_ACQUISITION_ORDER equals the alphabetical sort of MUTEX_DOMAINS exactly. AC#5: DOMAIN_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER/SELF_ACQUIRING_HANDLERS all deep-frozen. AC#6: empty alias arrays, unknown alias keys, and an alias target missing from the injected mutex set (a pre-existing NCOW-45 gap) all now throw loudly instead of silently degrading. AC#8: a hand-maintained SELF_ACQUIRING_HANDLERS registry + module-load assertUnserializedMethodsCoverSelfAcquirers(), implemented entirely inside ipc.js (deliberately, to avoid the NCOW-53 mutex.js collision) rather than the mutex.js-reentrancy-guard alternative AC#8 also authorized; the second self-acquisition instance (engine-context.js's runProxyOperation) was scanned and confirmed not reachable from a locked handler today. **2 review passes (opus, deeper scrutiny as a concurrency-primitive fix), 1 fix cycle**: pass 1 request_changes on AC#1 alone — reproduced a transparent `.run`-forwarding wrapper (`new Proxy(realMutex,{})` et al.) evading the initial duck-type guard while still sharing the same FIFO chain (3 locks resolved, handler never entered); fix pass switched the dedupe key to `.run` identity, reworded the over-claiming docstrings. Pass 2 approved, all 8 ACs independently reconfirmed with fresh reproduction, including independently verifying the `mutex.js`-untouched and `engine-context.js`-comment-only claims and the AC#8 non-reachability claim by reading `main/index.js`'s real call order directly. npm test 440 → 454 → 457 across the two passes (both counts independently reproduced by the orchestrator and both reviewers, not merely trusted). Merged as PR #54 (`d49f86f`). **Wave-level integration review found real material for the 12th consecutive wave**: 2 stale test counts (CLAUDE.md/README.md still said 440) plus a factually-mischaracterized claim added in fix pass 2 (`ipc.js`'s SELF_ACQUIRING_HANDLERS comment claimed a specific regression "hangs" a test; reviewer reproduced it actually aborts via node's test runner cancelling 29 tests with a still-pending-promise error, not a hang) — the campaign's **4th instance of "a correction introduces a new false claim"** (after PR #45, PR #48/#50, wave 11's PR #53), this time caught by integration review before it could compound further. Fixed directly (narrow_findings path, no new task) as cleanup PR #55 (`b148f4b`), 1 review pass, reviewer independently re-reproduced the new comment's exact claimed numbers fresh rather than trusting the prior reproduction — matched exactly (35 pass, 0 fail, 29 cancelled). Final npm test on merged dev: 457/457. |
-| 23 | NCOW-53 | Done, 2026-08-06, wave 13 | Surfaced all 3 previously-silent pm2 timeout paths (dispatched solo, the only queued item): dashboard-view.js's `#stop-btn` now checks the result and toasts on `!ok` (matching `#start-btn`/`#restart-btn`); `startLogTailIfNeeded()` resets `logTailStarted` and toasts on failure instead of leaving the log pane permanently stuck; tray.js's `onStop` now `.catch()`s the mutex-guarded call and logs a diagnostic, at the tray.js call site rather than inside `mutex.js` — `mutex.js` confirmed byte-for-byte untouched by two independent reviewers (`git diff dev...HEAD -- src/main/mutex.js` empty both times), so the ipc.js:118/155 literal quotations of `mutex.js:53` stayed accurate and the `withLocks()` multi-lock-discard hazard was never implicated. **Approved on the first review pass (opus): all 6 ACs confirmed**, including independently re-running each new test against reverted pre-fix source (genuine failures both times) and structurally confirming tray.js never reaches `withLocks()` (single-lock `.run()` calls only). npm test 457 → 461. Merged as PR #56 (`f20eb5d`). **Wave-level integration review found real material for the 13th consecutive wave** — this time in NCOW-53's OWN new comments/test-comments rather than a later correction pass: a claim that the pre-fix log-tail path had "no subscription ever attached" (false — the renderer's `onLogLine` subscription was genuinely reached; only the main-process pm2 bus never emitted), a self-contradictory "permanently...until unmounted" phrase, over-crediting the flag reset with enabling a retry `unmount()` already permitted pre-fix, a test comment claiming a pre-fix revert would produce a Node `unhandledRejection` (it actually produces a caught `AssertionError` — `assert.doesNotReject`), and a test-header comment misattributing why the log-tail test fails against old code (a literal-string `indexOf` returning `-1`, not a missing `if(!r.ok)` branch). Also found NCOW-53's own task notes recorded that same false "unhandled rejection" claim as observed evidence — corrected directly on the task record. Fixed via a comment-only cleanup pass, PR #57 (`9245a9d`), 1 review pass — the reviewer independently reproduced EVERY corrected claim itself (temporarily reverting each file, re-running the specific tests, and for the highest-risk claim, running a real Electron process to confirm the rejection is genuinely silent/unhandled in the actual app) rather than trusting the worker's report; all held up exactly. `esprima` token-stream comparison redone independently by the reviewer confirmed 3 files are comment-only and the 4th's only non-comment change is one new guard assertion. Final npm test on merged dev: 461/461. Follow-up **NCOW-55** filed with user approval (tray Start/Stop/Restart still lack a real user-visible error surface — `console.error` alone is invisible in a packaged build). |
-| 24 | NCOW-55 | Done, 2026-08-06, wave 14 | Gave the tray a real user-visible error surface for wedged Start/Stop/Restart via Electron's native `Notification` API (dispatched solo, the only queued item). Mechanism chosen over an IPC-broadcast alternative specifically because broadcast requires adding a 3rd property to `createTrayActions({ mutexes, handlers })`'s first argument, breaking 2 pre-existing regex identity guards (NCOW-35/38/39/41) — AC#6 forbids modifying pre-existing tests. `Notification` obtained via the module's existing lazy `require('electron')`, with an optional `notifyDeps` 2nd argument (mirroring `createTray()`'s own `deps` pattern) for test injection only — confirmed unreachable in production (exactly one call site, one argument, itself pinned by the same 2 identity guards). 6 new tests, npm test 461 → 467. **3 review passes (opus)** — pass 1 approved the implementation's substance (all 6 ACs, plus a live Electron `Notification` probe against the real unwrapped call site) but found 2 comment-only issues; pass 2 caught that one "fix" reintroduced the same defect shifted by one commit — a `HEAD~1` reference in a test comment self-invalidating the moment it was committed, since committing shifts what `HEAD` resolves to (this campaign's established "correction introduces a false claim" pattern, in a new variant: a *reference*, not a claim about behavior, going stale); pass 3 confirmed the final fix — an absolute SHA (`e9f0c4f`, this branch's genuine merge-base) — is immutable and independently re-reproduced the underlying non-vacuity claim. Merged as PR #58 (`76a7c3c`). **Wave-level integration review found real material for the 14th consecutive wave**: a fabricated pm2 error code/message in the new Restart test row (`PM2_RESTART_TIMEOUT` invented; restart genuinely delegates to `start()` internally per `engine-context.js`/`pm2Control.js`/`DESIGN.md`'s six-code enumeration, so the real code is `PM2_START_TIMEOUT`) and a mischaracterized comment describing which `electron` module a test exercises (the test's own seeded fake, not the real module or its absence). Both fixed via a comment/test-data-only cleanup pass, PR #59 (`66d5aa0`), 1 review pass — reviewer independently re-confirmed the real pm2 code from four separate sources and re-derived the `require.cache` seeding claim from the actual code, plus redid the `esprima` token-stream comparison (exactly 2 string-literal tokens differ, nothing else). Final npm test on merged dev: 467/467. **3 follow-up tasks filed with user approval**: **NCOW-56** (tray still silent on a resolved `{ok:false}` failure — the more common real-world case, since NCOW-55 only covers thrown/rejected calls), **NCOW-57** (notification deliverability never verified on Windows/Linux; no `app.setAppUserModelId()` anywhere, and the portable Windows build target has no AUMID-bearing shortcut), **NCOW-58** (document the app's first-ever OS notification behavior — currently absent from README/DESIGN.md/CLAUDE.md). |
+| 1 | CCA-34 | Done, 2026-08-04, wave 1 | Documented the shutdown-mutex carve-out in README.md/DESIGN.md §7.4. AC #1 confirmed by independent review (opus): new doc text checked against the real engine-context.js comment, shutdown.js, index.js's tray mutex wiring, ipc.js's UNSERIALIZED_METHODS. npm test 333/333 (reviewer's own run). Merged as PR #24 (059f888). One wave-integration finding (dangling README cross-reference) fixed in the wave-1 cleanup (PR #28, e9fe0a7). |
+| 2 | CCA-33 | Done, 2026-08-04, wave 1 | Corrected engine-context.js's shutdown-mutex-exclusion comment (mechanism + window size). Both ACs confirmed by independent review (opus): technical claims re-verified against shutdown.js/pm2Control.js/autoUpdate.js; comment-only claim verified byte-for-byte (comment-stripped file diff was empty). npm test 333/333. Merged as PR #25 (8145984). One wave-integration finding (a window-size figure elsewhere in the same comment block, "up to 60s" vs "60s+") fixed in the wave-1 cleanup (PR #28, e9fe0a7). |
+| 3 | CCA-36 | Done, 2026-08-04, wave 1 | Hardened configGen's thrown-value logging guard with a structural safeStringify()/describeThrownValue() fix (2 review rounds — round 1 found the initial single-case fix still leaked on adjacent shapes; round 2 confirmed the structural rewrite closes it via 60+ adversarial probes and non-vacuity replay against pre-fix source). All 3 ACs confirmed by independent review (opus). npm test 339/339 at final review. Merged as PR #26 (8431df3). One wave-integration finding (orphaned JSDoc block) fixed in the wave-1 cleanup (PR #28, e9fe0a7). Two non-blocking follow-up candidates noted, not yet proposed as tasks (see Wave log) — both since filed as CCA-37 and part of CCA-38/39 (see wave 2 dispatch entry below). |
+| 4 | CCA-35 | Done, 2026-08-04, wave 1 | Extracted tray actions into createTrayActions({ mutexes, handlers }) in tray.js, matching menu.js precedent, with a genuine behavioral mutex-identity test (2 review rounds — round 1 found AC#2's core claim not yet proven, since the exact nested-scope-shadowing mutation still passed; round 2 confirmed a targeted static single-binding check closes that specific mutation class). All 3 ACs confirmed by independent review (opus), which also documented several further adversarial variants the guard still doesn't catch and judged that an acceptable stopping point. npm test 337/337 at final review (343/343 after later rebase). Merged as PR #27 (362202d). Two non-blocking follow-up candidates noted, not yet proposed as tasks (see Wave log) — both since filed as CCA-38 and CCA-39 (see wave 2 dispatch entry below). |
+| 5 | CCA-39 | Done, 2026-08-04, wave 2 | Softened test/main/engine-context-config-regen.test.js's overstated "close the chain honestly" comment. 2 review rounds (opus) — round 1 found the first softening replaced one overstatement with a narrower, still-false one (reviewer empirically reproduced a private-handlers-shadow passing 343/343); round 2 confirmed the fix correctly scopes the claim to what each check proves and lists all 4 known residual gaps as siblings. All 3 ACs confirmed. Comment-only diff across both commits. npm test 343/343 (both review passes), 348/348 on merged dev (wave-integration reviewer's own run). Merged as PR #29 (c86f908). |
+| 6 | CCA-37 | Done, 2026-08-04, wave 2 | Hardened configGen.js's regenerateStaleConfig() "restart-failed" branch (new safeReadProperty() + existing safeStringify()) and autoUpdate.js's electron-updater "error" handler (describeThrownValue(), imported from ../engine/configGen) — the 2 remaining unguarded-interpolation sites CCA-36's reviewer had flagged. Approved on the first review pass (opus): all 4 ACs confirmed, including the reviewer's own from-scratch 38-case adversarial probe (0 failures against the fix, 21 against unpatched dev; reverting to dev made exactly the 5 new tests fail). npm test 348/348 (reviewer's own run; wave-integration reviewer's own run). Merged as PR #30 (6c5ecaf). Wave-2 integration review surfaced 2 real follow-up candidates (see Wave log) — not yet approved/created. |
+| 7 | CCA-40 | Done, 2026-08-04, wave 3 | Hardened autoUpdate.js's performCheck() catch block and darwin-path result.error interpolation, refactored describeThrownValue() to use safeReadProperty(), gave safeStringify() a real consumer. Approved on the first review pass (opus): all 6 ACs confirmed, including a from-scratch 159-case-run adversarial probe (0 failures against the fix, 29 genuine throws against unpatched dev) and a 61-shape behavior-preservation differential (byte-identical outputs, zero divergence). npm test 356/356 (reviewer's own run). Merged as PR #31 (7fbcc9e). Wave-3 integration review found the 2 residuals this task's reviewer deferred combine with an equally-unguarded backstop at index.js:209 into a real, reproducible unhandled-rejection-shaped chain — filed as CCA-42. |
+| 8 | CCA-38 | Done, 2026-08-04, wave 3 | Added a static regression test + companion meta-test guarding index.js's createTray({...}) call against a post-spread action-key override, updated the shared comment block to describe the guard as landed and folded in CCA-39's 2 accepted residuals. Approved on the first review pass (opus): all 4 ACs confirmed, including the reviewer's own direct reproduction of the regression. npm test 350/350 (reviewer's own run). Merged as PR #32 (0f74ed4). 2 low-severity residuals + a wave-3-integration-review-found fail-open edge case all folded into CCA-41. |
+| 9 | CCA-42 | Done, 2026-08-05, wave 4 | Hardened all 3 sites in the auto-update error chain (updateCheck.js's catch blocks, autoUpdate.js's darwin-path try/catch + null-result guard, index.js's startup backstop) reusing existing safeReadProperty/describeThrownValue helpers. Approved on the first review pass (opus): all 5 ACs confirmed via a from-scratch 281-assertion adversarial probe (zero unhandled rejections/uncaught exceptions across the full chain, hostile shapes at every layer) and non-vacuity reproduced via targeted file reverts. npm test 358 -> 377 passing. Merged as PR #33 (4d56a19). |
+| 10 | CCA-41 | Done, 2026-08-05, wave 4 | Closed the 3 remaining tray-wiring mutex-identity gaps (handlers single-binding check, mutexes.proxy/handlers.proxy property-mutation guard, parameter-shadowing check) plus widened/hardened CCA-38's post-spread-override regex — test-file-only, zero production source changes, confirming the hypothesis flagged at the wave-3 restore. 2 review rounds: pass 1 found AC#2's delivered test had inverted polarity (proven by injecting the mutation and showing the suite still passed 362/362); a fix pass added a real identifierPropertyIsAssigned() text-only guard; pass 2 independently re-injected the mutation (plus a computed-key variant) and confirmed the suite now correctly fails with no false positive. A post-merge wave-integration re-probe (7 fresh hostile injections against the merged index.js) confirmed no regressions in any of the 4 guard families. npm test 358 -> 382 passing. Merged as PR #34 (78ad549). |
+| 11 | CCA-32 | Done, 2026-08-05, wave 5 | Added a DOMAIN_MUTEX_ALIASES mechanism to src/main/ipc.js (uninstall/update -> proxy) plus a resolveDomainLock() helper, so both previously-unmutexed IPC domains now share the same proxy lock the background restart and user-initiated Start/Stop/Restart already use; update:check exempted (pure status read). before-quit's own shutdown path confirmed untouched (zero index.js changes). Approved on the first review pass (opus): all 4 ACs confirmed via the reviewer's own adversarial reproduction (reverting only ipc.js reproduces the exact prevented interleaving — 4/5 new tests fail against unpatched ipc.js). npm test 382 -> 387 passing. Merged as PR #36 (365fc53). Wave-5 integration review found uninstall also touches the config/claudeCode domains, which the alias doesn't cover — filed as CCA-45 (not a regression, correctly out of scope for this task's own ACs). |
+| 12 | CCA-44 | Done, 2026-08-05, wave 5 | Widened identifierPropertyIsAssigned() (test/main/engine-context-config-regen.test.js) to catch Object.assign/defineProperty/destructuring/logical-assignment mutation spellings beyond CCA-41's canonical shape — test-file-only, zero production source changes, matching the precedent set by CCA-35/38/39/41. Approved on the first review pass (opus): all 6 ACs confirmed via a per-branch regex ablation (each new branch independently load-bearing) plus the reviewer's own non-vacuity reproduction. npm test 382 -> 383 passing, confirmed to still pass 388/388 after rebasing onto CCA-32's merge (guard genuinely still clean against real index.js, not by luck — independently re-verified by the wave-5 integration reviewer). Merged as PR #37 (e79d8fff). |
+| 13 | CCA-43 | Done, 2026-08-05, wave 6 | Hardened index.js's config-regen backstop's result.error?.message (~line 94) and err.message (~line 97) reads through describeThrownValue(), mirroring CCA-42's sibling fix at the auto-update backstop in the same file. Approved on the first review pass (opus): all 4 ACs confirmed via a 21-case adversarial sweep of describeThrownValue() plus the reviewer's own reproduction of the exact unhandledRejection the fix prevents. npm test 388 -> 394 passing. Merged as PR #39 (5287a3a). Zero overlap with CCA-45's parallel work confirmed by both task reviews and the wave-6 integration review. |
+| 14 | CCA-45 | Done, 2026-08-05, wave 6 | Widened ipc.js's DOMAIN_MUTEX_ALIASES.uninstall from a single string ('proxy') to an array (['claudeCode','config','proxy']), plus a new LOCK_ACQUISITION_ORDER + withLocks() mechanism that reserves every needed lock synchronously in one tick, making partial-reservation races and lock-ordering deadlocks structurally impossible. Approved on the first review pass (opus, given proportionally more scrutiny as the campaign's first real concurrency primitive): all 6 ACs confirmed via genuine stress-testing — starvation scenarios, two concurrent uninstalls, both async/sync fault paths, and an explicit single-lock-path regression check. npm test 388 -> 394 passing standalone, 400 after rebasing onto CCA-43. Merged as PR #40 (83f4cc67). Wave-6 integration review ran its own behavioral probes and found the mechanism sound, while surfacing 2 latent hardening gaps (duplicate-lock self-deadlock, LOCK_ACQUISITION_ORDER/MUTEX_DOMAINS drift) — filed as CCA-46, correctly out of scope for this task's own ACs. |
+| 15 | CCA-46 | Done, 2026-08-05, wave 7 | Deduped resolveDomainLocks()'s resolved locks by mutex-function identity (Set, applied AFTER the LOCK_ACQUISITION_ORDER sort so acquisition order is preserved) and added an exported assertLockOrderIsConsistent(order, domains, aliases) called at MODULE LOAD against the real constants. Added the first direct test coverage of LOCK_ACQUISITION_ORDER/DOMAIN_MUTEX_ALIASES/resolveDomainLocks/withLocks, which previously had none. Approved on the first review pass (opus, given the proportionally-deeper scrutiny this campaign's concurrency work has earned): all 6 ACs confirmed. The reviewer judged the delivered source-text regex too weak to establish AC#4 in situ and REPLACED that evidence with 5 real require() loads of mutated module copies (control clean; one domain dropped, two dropped, a new MUTEX_DOMAINS entry added without updating the order, and an absent alias target all throw at load), plus 13 behavioral probes proving dedupe-after-sort never degrades acquisition order (shared duplicate spanning first and last keeps the earliest slot) and CCA-45's queue-race guarantee intact. Non-vacuity independently reproduced: 6 of 10 new tests fail against reverted source. AC#3's authorized module-load-vs-test choice was DECIDED (not escalated) by the reviewer, which established rather than assumed the blast radius — all inputs are developer-authored constants, opts.mutexes provably cannot reach the assertion, and two existing suites require ipc.js so drift fails CI rather than a user's launch. npm test 400 -> 410. Merged as PR #42 (19d1ff7), plus doc cleanup PR #43 (985389a). Wave-7 integration review filed 3 follow-ups with user approval: CCA-47, CCA-48, CCA-49. |
+| 16 | CCA-47 | Done, 2026-08-05, wave 8 | Serialized the apiKey IPC domain against the config lock it shares secretStore state with, closing the last IPC domain with a real mutating concern and no lock — the family CCA-32/CCA-45 had been draining one instance at a time. Three lines of logic (DOMAIN_MUTEX_ALIASES gains `apiKey: 'config'` as a bare string, not an array, since the only shared-state concern is config.generate's secretStore.load(); UNSERIALIZED_METHODS gains `apiKey: ['getMasked']`), plus 242 lines of new tests appended at test/main/ipc-mutex.test.js:1011 with no pre-existing test modified anywhere. **Three review passes (opus) — the campaign's first task to need two fix cycles.** Passes 1 and 2 both rejected AC#4 alone for the SAME failure mode: replacing one unverified absolute claim with another. Pass 1 killed 'Only app and catalog are domains with genuinely no mutating concern — pure reads, full stop' (false: app.openLogsFolder mkdirSync's into the config-lock-guarded directory with zero locks). Pass 2 then MEASURED the replacement claim as inverted — as shipped a mid-uninstall openLogsFolder lands BEFORE fs.rmSync and is wiped (resurrected false), while aliasing app onto config, the fix that wording implied, is what makes it land after and survive a purge reporting success (resurrected true). Pass 3 reproduced all five timings itself and approved, accepting the negative claim because the case analysis is COMPLETE rather than sampled: before rmSync is wiped, between rmSync and settlement is unreachable (microtask-only chain, both real callers macrotask-delivered), after settlement is the reachable defect. All 6 ACs confirmed. npm test 410 -> 416, verified independently by all three reviewers and again after rebase. Non-vacuity reproduced three separate times (deleting only the alias line fails exactly the 4 load-bearing tests). Merged as PR #44 (81b5eb9), plus doc cleanup PR #45 (ec0f8e9). Wave-8 integration review found an emergent hazard this merge introduced — filed with user approval as CCA-50 — plus CCA-51, and corrections to both queued tasks. |
+| 17 | CCA-51 | Done, 2026-08-05, wave 9 | Corrected DESIGN.md 9.4 step 4 (real line 604, not the 597-598 cited) and README so they describe what a purge actually does and does not delete, added the missing `nim-key.enc` row to "Where things live", and recorded an explicit deferral of the "also forget my API key" opt-in. Documentation-only, proven by esprima token-stream identity (188 tokens before and after, streams byte-identical; corroborated by comment excision reducing both revisions to the same 769-character source). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** Pass 1 REJECTED on four blocking findings, the worst being that the branch documented a **"Clear Key" button that has never existed** — four occurrences, twice in README and twice in production source — the same confidently-wrong-mechanism class CCA-47 was rejected twice for; the true position is more severe (nothing in the shipped app deletes nim-key.enc). Pass 1 also disproved the AC#4 deferral premise (it rested on an CCA-48 collision in uninstall.js that does not exist). Pass 2 approved after verifying the replacement claim path by path and confirming the macOS path EMPIRICALLY on this machine (nim-key.enc at ~/Library/Application Support/Claude Conduit/, mode 0600, 83 bytes). npm test 416/416. Merged as PR #46 (`65635f5`); prose later reconciled with CCA-48's bounded-failure mode in PR #48 (`c63eee1`). |
+| 18 | CCA-48 | Done, 2026-08-05, wave 9 | Bounded the raw pm2 callbacks reachable from uninstall — pm2.delete/pm2.dump/pm2.list — via the `withTimeout` helper `ensureConnected` already used, 15s default matching shutdown.js, injectable via `deps.pm2CallTimeoutMs`. 416 → 425 tests, both test files pure appends (215/0, 310/0). **2 review passes + a narrow confirmation (opus), all 6 ACs confirmed.** **Pass 1 REJECTED AC#1 ON A FINDING THAT MADE THE FIRST ATTEMPT INERT**: `pm2.list` (via findApp → listApps) was still unbounded INSIDE `deleteAppIfPresent` itself and hit BEFORE the newly-bounded `pm2.delete`, so in the canonical wedge (daemon accepts the connection then stops answering RPC) neither new bound engaged — reproduced through the real chain, still frozen after 100× the bound. Pass 1 also corrected the delivered non-vacuity evidence (claimed "0 cancelled", actually 391 pass / 1 fail / **29 cancelled**). Pass 2 proved AC#1 two ways rather than by reading: a mechanical wedge sweep over every pm2 member reachable from `remove()`, and a **Proxy-based exhaustiveness census** (remove → connect/list/delete/dump; save → dump; getStatus → list; start/stop/launchBus provably off these paths, now CCA-52). Non-vacuity run against BOTH the delta and the merge base, arithmetic closing from both ends (425−7=418, 416+9=425). AC#5 re-verified with real 40ms round trips: identical result shape and identical ~163ms hold, so CCA-45's multi-lock fairness is intact. Incidentally fixed two pre-existing leaks: status-poller accumulated one never-settling promise per 5s tick forever, and app.js:44 hung the renderer's entire boot. Merged as PR #47 (`4668ddc`), plus PR #48 (`c63eee1`). |
+| 19 | CCA-52 | Done, 2026-08-05, wave 10 | Bounded pm2Control's last 3 unbounded raw pm2 callbacks (stop, start, launchBus) via the CCA-48 precedent: PM2_STOP_TIMEOUT, PM2_START_TIMEOUT, and a manual-timeout PM2_LOG_TAIL_TIMEOUT (launchBus needed a manual timeout, not plain withTimeout, since a late callback yields a live bus handle that must be explicitly closed to avoid leaking an open pm2 pub-socket). **2 review passes (opus), all 10 ACs confirmed both passes.** Pass 1's own independent call-chain census found nothing missed (contrast CCA-48's first attempt, rejected for exactly this); its one blocking finding was non-AC — the new AC#8 shutdown-integration test's 10s inner timeout wasn't cleared until it fired, adding ~2.3s to every npm test run (74x regression on that one file). Fix pass tightened the test's own inner timeout and assertion threshold together (moving only one would have made the test pass vacuously against a regressed outer bound — pass 2 proved this by reproducing the vacuity trap itself, not just trusting the fix). npm test 425 → 435. Merged as PR #49 (`d4a4115`). Wave-10 integration review found 2 real defects CCA-52 itself introduced — filed with user approval as **CCA-53** (its own new timeout codes are silently discarded on the renderer's Stop/log-tail and fully absorbed by tray's Stop with zero trace) and **CCA-54** (its own launchBus leak-prevention close() can close a later retry's live bus, reachable via the shipped UI's navigate-away/back cycle) — plus 2 narrow doc-staleness items (a stale "three codes" pm2-timeout census in DESIGN.md and pm2Control.js's own JSDoc, now six), fixed directly as cleanup PR #50 (`410e40b`). That cleanup itself needed one review-found correction — an overcorrected false claim that proxy:stop/tray "can only ever surface PM2_STOP_TIMEOUT" (false: the same handler's post-stop status broadcast also reaches listApps(), so PM2_LIST_TIMEOUT is reachable even when the stop itself succeeds) — fixed and re-approved. |
+| 20 | CCA-50 | Done, 2026-08-05/06, wave 11 | Moved apiKey.validateAndSave's NVIDIA validation round trips (up to two sequential 10s network calls) outside the config mutex lock, eliminating a measured ~20s freeze of the window, tray, and every claudeCode/proxy IPC method that occurred when Uninstall was clicked during a slow/offline Validate Key attempt. validateAndSave now opts out of ipc.js's automatic locking (UNSERIALIZED_METHODS.apiKey) and self-acquires mutexes.config directly in engine-context.js, scoped to only the secretStore.save() write — preserving CCA-47's serialization guarantee while collapsing the hold to milliseconds. apiKey.clear unchanged. Also decided config.getManifest's exemption explicitly and confirmed AC#6 (mutex.js header) already satisfied by an earlier wave's cleanup. **Approved on the first review pass (opus, given deeper scrutiny as a concurrency-primitive fix): all 8 ACs confirmed with the reviewer's own traced/reproduced evidence** — independently falsified AC#2 by reverting only the lock line, and independently probed apiKey.clear racing the self-acquiring validateAndSave in both directions (no deadlock, FIFO holds). npm test 435 → 439. Merged as PR #51 (`fe0ed9d`). The reviewer also proved a latent re-entrancy deadlock hazard if the UNSERIALIZED_METHODS entry is ever removed without also removing the self-acquisition — folded into CCA-49 as a new AC#8 (user-approved) rather than filed separately, avoiding a guaranteed file conflict with CCA-49's own ipc.js/mutex.js rework. Several stale comments/docs left behind by this merge fixed in cleanup PR #53 (`7d6e5d1`, see wave log — needed one request_changes → fix → re-review cycle). |
+| 21 | CCA-54 | Done, 2026-08-05/06, wave 11 | Fixed a defect CCA-52 itself introduced: startLogTail's late-arriving timeout callback read pm2's own shared-mutable Client.sub slot at callback-fire time rather than a captured per-call value, so a timed-out call's late callback could close a SUBSEQUENT retry's currently-live bus — killing a healthy log tail while the actually-stale socket leaked anyway. Genuinely reachable via the shipped UI's navigate-away/back unmount cycle. Fix: a closure-scoped activeLogTailBus variable, identity-checked before closing, contained entirely inside pm2Control.js. **Approved on the first review pass (opus): all 6 ACs confirmed** — the reviewer reproduced non-vacuity itself (git apply -R on just the production diff) and probed 9 further edge cases with an independently-written shared-slot fake (3-way overlapping calls, unsubscribe-before-late-callback ordering, non-shared-slot pm2 semantics) — all correct. npm test 435 → 436 (440 in-branch after composing with CCA-50's merge). Merged as PR #52 (`320a8ca`). |
+| 22 | CCA-49 | Done, 2026-08-06, wave 12 | Closed CCA-46's three wave-7-flagged residual multi-lock gaps plus wave-11's new AC#8, dispatched SOLO (deferring sibling CCA-53 over a mutex.js collision risk that, per this settlement, turned out not to materialize — see the Queue table's CCA-53 row for the residual semantic-coupling note this created instead). AC#1/#2: resolveDomainLocks() now dedupes/rejects locks by `.run` FUNCTION identity rather than lock-object identity, closing every wrapper-forwarding chain-sharing evasion (Proxy, Object.assign, copied `.run` reference) that survived the initial naive-wrapper-only guard — one residual (a wrapper inventing an entirely new, non-forwarded `.run`) is honestly documented as accepted. AC#3/#4: assertLockOrderIsConsistent() now also verifies LOCK_ACQUISITION_ORDER equals the alphabetical sort of MUTEX_DOMAINS exactly. AC#5: DOMAIN_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER/SELF_ACQUIRING_HANDLERS all deep-frozen. AC#6: empty alias arrays, unknown alias keys, and an alias target missing from the injected mutex set (a pre-existing CCA-45 gap) all now throw loudly instead of silently degrading. AC#8: a hand-maintained SELF_ACQUIRING_HANDLERS registry + module-load assertUnserializedMethodsCoverSelfAcquirers(), implemented entirely inside ipc.js (deliberately, to avoid the CCA-53 mutex.js collision) rather than the mutex.js-reentrancy-guard alternative AC#8 also authorized; the second self-acquisition instance (engine-context.js's runProxyOperation) was scanned and confirmed not reachable from a locked handler today. **2 review passes (opus, deeper scrutiny as a concurrency-primitive fix), 1 fix cycle**: pass 1 request_changes on AC#1 alone — reproduced a transparent `.run`-forwarding wrapper (`new Proxy(realMutex,{})` et al.) evading the initial duck-type guard while still sharing the same FIFO chain (3 locks resolved, handler never entered); fix pass switched the dedupe key to `.run` identity, reworded the over-claiming docstrings. Pass 2 approved, all 8 ACs independently reconfirmed with fresh reproduction, including independently verifying the `mutex.js`-untouched and `engine-context.js`-comment-only claims and the AC#8 non-reachability claim by reading `main/index.js`'s real call order directly. npm test 440 → 454 → 457 across the two passes (both counts independently reproduced by the orchestrator and both reviewers, not merely trusted). Merged as PR #54 (`d49f86f`). **Wave-level integration review found real material for the 12th consecutive wave**: 2 stale test counts (CLAUDE.md/README.md still said 440) plus a factually-mischaracterized claim added in fix pass 2 (`ipc.js`'s SELF_ACQUIRING_HANDLERS comment claimed a specific regression "hangs" a test; reviewer reproduced it actually aborts via node's test runner cancelling 29 tests with a still-pending-promise error, not a hang) — the campaign's **4th instance of "a correction introduces a new false claim"** (after PR #45, PR #48/#50, wave 11's PR #53), this time caught by integration review before it could compound further. Fixed directly (narrow_findings path, no new task) as cleanup PR #55 (`b148f4b`), 1 review pass, reviewer independently re-reproduced the new comment's exact claimed numbers fresh rather than trusting the prior reproduction — matched exactly (35 pass, 0 fail, 29 cancelled). Final npm test on merged dev: 457/457. |
+| 23 | CCA-53 | Done, 2026-08-06, wave 13 | Surfaced all 3 previously-silent pm2 timeout paths (dispatched solo, the only queued item): dashboard-view.js's `#stop-btn` now checks the result and toasts on `!ok` (matching `#start-btn`/`#restart-btn`); `startLogTailIfNeeded()` resets `logTailStarted` and toasts on failure instead of leaving the log pane permanently stuck; tray.js's `onStop` now `.catch()`s the mutex-guarded call and logs a diagnostic, at the tray.js call site rather than inside `mutex.js` — `mutex.js` confirmed byte-for-byte untouched by two independent reviewers (`git diff dev...HEAD -- src/main/mutex.js` empty both times), so the ipc.js:118/155 literal quotations of `mutex.js:53` stayed accurate and the `withLocks()` multi-lock-discard hazard was never implicated. **Approved on the first review pass (opus): all 6 ACs confirmed**, including independently re-running each new test against reverted pre-fix source (genuine failures both times) and structurally confirming tray.js never reaches `withLocks()` (single-lock `.run()` calls only). npm test 457 → 461. Merged as PR #56 (`f20eb5d`). **Wave-level integration review found real material for the 13th consecutive wave** — this time in CCA-53's OWN new comments/test-comments rather than a later correction pass: a claim that the pre-fix log-tail path had "no subscription ever attached" (false — the renderer's `onLogLine` subscription was genuinely reached; only the main-process pm2 bus never emitted), a self-contradictory "permanently...until unmounted" phrase, over-crediting the flag reset with enabling a retry `unmount()` already permitted pre-fix, a test comment claiming a pre-fix revert would produce a Node `unhandledRejection` (it actually produces a caught `AssertionError` — `assert.doesNotReject`), and a test-header comment misattributing why the log-tail test fails against old code (a literal-string `indexOf` returning `-1`, not a missing `if(!r.ok)` branch). Also found CCA-53's own task notes recorded that same false "unhandled rejection" claim as observed evidence — corrected directly on the task record. Fixed via a comment-only cleanup pass, PR #57 (`9245a9d`), 1 review pass — the reviewer independently reproduced EVERY corrected claim itself (temporarily reverting each file, re-running the specific tests, and for the highest-risk claim, running a real Electron process to confirm the rejection is genuinely silent/unhandled in the actual app) rather than trusting the worker's report; all held up exactly. `esprima` token-stream comparison redone independently by the reviewer confirmed 3 files are comment-only and the 4th's only non-comment change is one new guard assertion. Final npm test on merged dev: 461/461. Follow-up **CCA-55** filed with user approval (tray Start/Stop/Restart still lack a real user-visible error surface — `console.error` alone is invisible in a packaged build). |
+| 24 | CCA-55 | Done, 2026-08-06, wave 14 | Gave the tray a real user-visible error surface for wedged Start/Stop/Restart via Electron's native `Notification` API (dispatched solo, the only queued item). Mechanism chosen over an IPC-broadcast alternative specifically because broadcast requires adding a 3rd property to `createTrayActions({ mutexes, handlers })`'s first argument, breaking 2 pre-existing regex identity guards (CCA-35/38/39/41) — AC#6 forbids modifying pre-existing tests. `Notification` obtained via the module's existing lazy `require('electron')`, with an optional `notifyDeps` 2nd argument (mirroring `createTray()`'s own `deps` pattern) for test injection only — confirmed unreachable in production (exactly one call site, one argument, itself pinned by the same 2 identity guards). 6 new tests, npm test 461 → 467. **3 review passes (opus)** — pass 1 approved the implementation's substance (all 6 ACs, plus a live Electron `Notification` probe against the real unwrapped call site) but found 2 comment-only issues; pass 2 caught that one "fix" reintroduced the same defect shifted by one commit — a `HEAD~1` reference in a test comment self-invalidating the moment it was committed, since committing shifts what `HEAD` resolves to (this campaign's established "correction introduces a false claim" pattern, in a new variant: a *reference*, not a claim about behavior, going stale); pass 3 confirmed the final fix — an absolute SHA (`e9f0c4f`, this branch's genuine merge-base) — is immutable and independently re-reproduced the underlying non-vacuity claim. Merged as PR #58 (`76a7c3c`). **Wave-level integration review found real material for the 14th consecutive wave**: a fabricated pm2 error code/message in the new Restart test row (`PM2_RESTART_TIMEOUT` invented; restart genuinely delegates to `start()` internally per `engine-context.js`/`pm2Control.js`/`DESIGN.md`'s six-code enumeration, so the real code is `PM2_START_TIMEOUT`) and a mischaracterized comment describing which `electron` module a test exercises (the test's own seeded fake, not the real module or its absence). Both fixed via a comment/test-data-only cleanup pass, PR #59 (`66d5aa0`), 1 review pass — reviewer independently re-confirmed the real pm2 code from four separate sources and re-derived the `require.cache` seeding claim from the actual code, plus redid the `esprima` token-stream comparison (exactly 2 string-literal tokens differ, nothing else). Final npm test on merged dev: 467/467. **3 follow-up tasks filed with user approval**: **CCA-56** (tray still silent on a resolved `{ok:false}` failure — the more common real-world case, since CCA-55 only covers thrown/rejected calls), **CCA-57** (notification deliverability never verified on Windows/Linux; no `app.setAppUserModelId()` anywhere, and the portable Windows build target has no AUMID-bearing shortcut), **CCA-58** (document the app's first-ever OS notification behavior — currently absent from README/DESIGN.md/CLAUDE.md). |
 
-| 25 | NCOW-56 | Done, 2026-08-06, wave 15 | Extended the tray's error surface to cover a RESOLVED `{ok:false}` result, not just a thrown/rejected call — closing the more common real-world gap, since clicking tray Start on a fresh unconfigured install returned `{ok:false, error:{code:'NOT_CONFIGURED'}}` and the user saw nothing at all. `runAction()` now inspects the fulfilled value via `.then()` and, on `result.ok === false`, logs and calls the same `notifyFailure()` NCOW-55 established, returning `result` unchanged; the `.catch()` limb untouched and `createTrayActions({ mutexes, handlers })`'s first argument unchanged (2 pre-existing regex identity guards require it). **AC#2 decided for the on-click notification over a manifest gate**: `setStatus()` carries no manifest data on any input path, and `not-installed` derives purely from `findApp()` returning null — orthogonal to whether `manifest.json` exists. **3 review passes (opus), 2 fix cycles.** Pass 1 confirmed AC 1/3/4/5 and withheld AC#2: the decision was right and its load-bearing facts true, but its illustration was false (it called a never-started-with-manifest state "the ordinary case right after Setup finishes"; `setup-view.js` wires the models step into `generateAndStart()`, which writes the manifest then immediately awaits `proxy.start()`, so the ordinary post-Setup state is `running`). Pass 2 confirmed ALL FIVE ACs but blocked on a new variant of this campaign's signature failure: **fix pass 1 corrected a false `pm2Control.stop()` claim in `tray.js` while leaving a VERBATIM DUPLICATE of it in the test file** — a correction that fixed an *instance* rather than the *claim*. Fix pass 2 corrected it and ran a mandatory claim sweep. Pass 3 approved: all 5 ACs independently confirmed, its own widened sweep found no third restatement, and it verified directly against source that of `stop()`'s three rejection paths only its own timeout carries `PM2_STOP_TIMEOUT` (`withTimeout` attaches the code inside its `setTimeout` callback only; `ensureConnected()` passes no `code` at all). Non-vacuity reproduced independently 4 times by 3 reviewers. Both fix passes proven comment-only by `esprima` token streams, reproduced independently (895 → 895 tokens, 0 diff ops; test file LCS = |A|, additions only). Merged as PR #60 (`905b8ad`), npm test 467 → 474. **Wave-level integration review found real material for the 15th consecutive wave** — 6 findings, headlined by **a comment claiming a strictness guarantee no test actually provided**: it said the test would fail if `result.ok === false` were loosened to `!result.ok`, and the reviewer DISPROVED it by making that exact edit and observing all 474 tests still pass. Nothing in the suite guarded that contract. Worse, the test that comment described was byte-identical to a pre-existing NCOW-55 test apart from two assertion strings — which is why it "passed pre-fix", a fact two review passes had read as evidence of good control design. Also found: a false `status-poller.js` scope claim (index.js already has `handlers` in scope, so it alone could enrich the call), a false "setStatus()'s only input" exhaustiveness claim (three input shapes exist, not one), a self-contradiction ("narrower than" vs "orthogonal to" within 3 lines), and a real user-visible defect — an `{ok:false}` with no `error` key rendered the notification as literally **"Start failed: [object Object]"**. All 6 fixed via cleanup PR #61 (`ab2ec25`), 1 review pass, `approve`: the reviewer reproduced the new guard in both directions (it is the ONLY test of 476 that fails under the loosening, failing on the assertion its comment names), built a throwaway worktree at `905b8ad` to independently confirm the 474/474-under-loosening counterfactual, and reproduced the `[object Object]` string directly to prove both new tests bind. **The staleness sweep came back CLEAN — the first time in this campaign** (9 tray mentions across README/DESIGN/CLAUDE all still accurate; 14 tray-related comments elsewhere in `src/` none making claims about the error surface). Final npm test on merged dev: **476/476**. **2 follow-ups filed/edited with user approval**: **NCOW-59** (contain a throwing `Notification.isSupported()`) and a **scope extension to NCOW-58**. |
-| 26 | NCOW-57 | Done, 2026-08-07, wave 16 | Fixed a Windows AUMID **mismatch** — not the absent AUMID or portable-only gap the task was filed as. The app used Electron's generated fallback `electron.app.Claude Conduit` while electron-builder's NSIS installer stamps the shortcut with `appId` `com.evolvconsulting.claudeconduit`; those never matched, on **nsis** as much as portable. `src/main/index.js` now sets the AUMID to the appId on win32 unconditionally via a new pure `src/main/appUserModelId.js`, with a drift guard against `electron-builder.yml`'s `appId` (later extended to `win.appId`, which `AppInfo.id` actually prefers). Live-verified on winvm (all four values agree — installed shortcut, nsis runtime, portable runtime, source run — and Windows recorded acceptance under that AUMID, `LastNotificationAddedTime = 134305545388759018`) and on linuxvm (the app's own `Notify` captured on the session bus and traced to gnome-shell; raw capture preserved at `~/ncow57-evidence/dbus-capture-ncow57-fixpass.log`). 476 -> 485 tests, zero pre-existing test files modified. PR #62 `97f13aafa080aecdf24305a00f9f39b0e65d5d70` (3 review passes, 2 fix cycles) + cleanup PR #63 `903bca54456697d971b1c497b0128fd770a6578e` (2 review passes, 1 fix cycle). AC#1/#3 amended mid-flight by the user; AC#4 clarified. |
+| 25 | CCA-56 | Done, 2026-08-06, wave 15 | Extended the tray's error surface to cover a RESOLVED `{ok:false}` result, not just a thrown/rejected call — closing the more common real-world gap, since clicking tray Start on a fresh unconfigured install returned `{ok:false, error:{code:'NOT_CONFIGURED'}}` and the user saw nothing at all. `runAction()` now inspects the fulfilled value via `.then()` and, on `result.ok === false`, logs and calls the same `notifyFailure()` CCA-55 established, returning `result` unchanged; the `.catch()` limb untouched and `createTrayActions({ mutexes, handlers })`'s first argument unchanged (2 pre-existing regex identity guards require it). **AC#2 decided for the on-click notification over a manifest gate**: `setStatus()` carries no manifest data on any input path, and `not-installed` derives purely from `findApp()` returning null — orthogonal to whether `manifest.json` exists. **3 review passes (opus), 2 fix cycles.** Pass 1 confirmed AC 1/3/4/5 and withheld AC#2: the decision was right and its load-bearing facts true, but its illustration was false (it called a never-started-with-manifest state "the ordinary case right after Setup finishes"; `setup-view.js` wires the models step into `generateAndStart()`, which writes the manifest then immediately awaits `proxy.start()`, so the ordinary post-Setup state is `running`). Pass 2 confirmed ALL FIVE ACs but blocked on a new variant of this campaign's signature failure: **fix pass 1 corrected a false `pm2Control.stop()` claim in `tray.js` while leaving a VERBATIM DUPLICATE of it in the test file** — a correction that fixed an *instance* rather than the *claim*. Fix pass 2 corrected it and ran a mandatory claim sweep. Pass 3 approved: all 5 ACs independently confirmed, its own widened sweep found no third restatement, and it verified directly against source that of `stop()`'s three rejection paths only its own timeout carries `PM2_STOP_TIMEOUT` (`withTimeout` attaches the code inside its `setTimeout` callback only; `ensureConnected()` passes no `code` at all). Non-vacuity reproduced independently 4 times by 3 reviewers. Both fix passes proven comment-only by `esprima` token streams, reproduced independently (895 → 895 tokens, 0 diff ops; test file LCS = |A|, additions only). Merged as PR #60 (`905b8ad`), npm test 467 → 474. **Wave-level integration review found real material for the 15th consecutive wave** — 6 findings, headlined by **a comment claiming a strictness guarantee no test actually provided**: it said the test would fail if `result.ok === false` were loosened to `!result.ok`, and the reviewer DISPROVED it by making that exact edit and observing all 474 tests still pass. Nothing in the suite guarded that contract. Worse, the test that comment described was byte-identical to a pre-existing CCA-55 test apart from two assertion strings — which is why it "passed pre-fix", a fact two review passes had read as evidence of good control design. Also found: a false `status-poller.js` scope claim (index.js already has `handlers` in scope, so it alone could enrich the call), a false "setStatus()'s only input" exhaustiveness claim (three input shapes exist, not one), a self-contradiction ("narrower than" vs "orthogonal to" within 3 lines), and a real user-visible defect — an `{ok:false}` with no `error` key rendered the notification as literally **"Start failed: [object Object]"**. All 6 fixed via cleanup PR #61 (`ab2ec25`), 1 review pass, `approve`: the reviewer reproduced the new guard in both directions (it is the ONLY test of 476 that fails under the loosening, failing on the assertion its comment names), built a throwaway worktree at `905b8ad` to independently confirm the 474/474-under-loosening counterfactual, and reproduced the `[object Object]` string directly to prove both new tests bind. **The staleness sweep came back CLEAN — the first time in this campaign** (9 tray mentions across README/DESIGN/CLAUDE all still accurate; 14 tray-related comments elsewhere in `src/` none making claims about the error surface). Final npm test on merged dev: **476/476**. **2 follow-ups filed/edited with user approval**: **CCA-59** (contain a throwing `Notification.isSupported()`) and a **scope extension to CCA-58**. |
+| 26 | CCA-57 | Done, 2026-08-07, wave 16 | Fixed a Windows AUMID **mismatch** — not the absent AUMID or portable-only gap the task was filed as. The app used Electron's generated fallback `electron.app.Claude Conduit` while electron-builder's NSIS installer stamps the shortcut with `appId` `com.evolvconsulting.claudeconduit`; those never matched, on **nsis** as much as portable. `src/main/index.js` now sets the AUMID to the appId on win32 unconditionally via a new pure `src/main/appUserModelId.js`, with a drift guard against `electron-builder.yml`'s `appId` (later extended to `win.appId`, which `AppInfo.id` actually prefers). Live-verified on winvm (all four values agree — installed shortcut, nsis runtime, portable runtime, source run — and Windows recorded acceptance under that AUMID, `LastNotificationAddedTime = 134305545388759018`) and on linuxvm (the app's own `Notify` captured on the session bus and traced to gnome-shell; raw capture preserved at `~/ncow57-evidence/dbus-capture-ncow57-fixpass.log`). 476 -> 485 tests, zero pre-existing test files modified. PR #62 `97f13aafa080aecdf24305a00f9f39b0e65d5d70` (3 review passes, 2 fix cycles) + cleanup PR #63 `903bca54456697d971b1c497b0128fd770a6578e` (2 review passes, 1 fix cycle). AC#1/#3 amended mid-flight by the user; AC#4 clarified. |
 
 ## Not queued — needs a human / blocked
 
-- NCOW-7: PARKED pending NCOW-15 (own implementation notes, 2026-07-31) — rebuilding the
-  Setup wizard now would likely be thrown away once NCOW-13/15 land.
-- NCOW-11: open design question unresolved — where usage metrics come from against a stock,
+- CCA-7: PARKED pending CCA-15 (own implementation notes, 2026-07-31) — rebuilding the
+  Setup wizard now would likely be thrown away once CCA-13/15 land.
+- CCA-11: open design question unresolved — where usage metrics come from against a stock,
   database-free LiteLLM install is not yet established, so the work isn't scopeable yet.
-- NCOW-13: depends on NCOW-14, which is itself undecomposed — not resolvable until NCOW-14 is
+- CCA-13: depends on CCA-14, which is itself undecomposed — not resolvable until CCA-14 is
   split and at least partly landed.
-- NCOW-14: self-described as needing decomposition into subtasks before it's agent-sized; a
+- CCA-14: self-described as needing decomposition into subtasks before it's agent-sized; a
   deep multi-provider abstraction, not a single unit of work.
-- NCOW-15: same — self-described need to split into subtasks, plus undecided design
+- CCA-15: same — self-described need to split into subtasks, plus undecided design
   questions (single vs. multi-proxy, client-config-on-switch behavior) that need a human
   product decision first.
 
 ## Wave log
 
-- 2026-08-07 — **wave 16 settled (task: NCOW-57, Done)**: dispatch (conflict graph computed fresh via
+- 2026-08-07 — **wave 16 settled (task: CCA-57, Done)**: dispatch (conflict graph computed fresh via
   file-citation and pairwise-complete across the queue-order-first pick, so solo BY COMPUTATION —
-  NCOW-57 collides with NCOW-59 in `src/main/tray.js` and may enter README/DESIGN via its own AC#2,
-  which would collide with NCOW-58; it was also the sole live-app-verification item) → **precondition
+  CCA-57 collides with CCA-59 in `src/main/tray.js` and may enter README/DESIGN via its own AC#2,
+  which would collide with CCA-58; it was also the sole live-app-verification item) → **precondition
   probe** (the wave-15 handover's one unverified item resolved IN FAVOUR of doing the real work:
   linuxvm has a genuine active GNOME 50.1 Wayland session whose notification daemon is gnome-shell
   itself, so AC#4's absence escape hatch did not apply; winvm has an active console session) →
   implement → **task review 3 passes / 2 fix cycles** → merge (PR #62 `97f13aa`) → **wave-level
   integration review (8 findings — 16th consecutive wave with real material)** → 2 user-approved
-  follow-ups filed (NCOW-60, NCOW-61) → cleanup (PR #63 `903bca5`, 2 review passes / 1 fix cycle) →
+  follow-ups filed (CCA-60, CCA-61) → cleanup (PR #63 `903bca5`, 2 review passes / 1 fix cycle) →
   settlement.
 
-  **What the wave actually found, and it was not what the task was filed as.** NCOW-57 was written as
+  **What the wave actually found, and it was not what the task was filed as.** CCA-57 was written as
   "the app never calls `setAppUserModelId`, and portable installs no AUMID-bearing shortcut". Review
   pass 1 refused the implementer's conclusion that "nsis and portable behaved identically, therefore
   portable needs no mitigation", on the grounds that the instrument could not distinguish *both work*
@@ -758,36 +758,36 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   Pass 1 found a truncated Electron quote that elided "detect that **Squirrel** was used" — the
   load-bearing condition — plus a false "had no AUMID at all" claim stated in two places. Fix pass 1
   fixed those and introduced a NEW elision in the same file, in the text written to close the related
-  finding. The cleanup worker then fabricated a task ID for unfiled work, guessing `NCOW-60` — which
+  finding. The cleanup worker then fabricated a task ID for unfiled work, guessing `CCA-60` — which
   already existed as something unrelated — **inside the very branch that existed to fix fabricated
   specifics**. Each was caught by the next review, never by the pass that shipped it. The streak broke
   at the cleanup fix pass, the first in this wave whose fix introduced no fresh instance.
 
   **An incident, self-reported by a worker rather than concealed.** Running `npm test` on winvm
   overwrote the user's REAL `%APPDATA%\claude-conduit`. Cause: `engine-context-config-regen.test.js`
-  never threads `resolveWindowsAppDataOverrides` — the NCOW-23 class, fixed in production code and
+  never threads `resolveWindowsAppDataOverrides` — the CCA-23 class, fixed in production code and
   never in that test. It had already fired in an EARLIER wave without anyone noticing. Filed as
-  NCOW-60. The clobbered key was the fixture `nvapi-old-install`, never a live secret — which also
+  CCA-60. The clobbered key was the fixture `nvapi-old-install`, never a live secret — which also
   de-escalated a possible-live-key concern review pass 1 had raised about a pre-existing file on winvm.
 
   **Verification highlights.** Reviewers compared the Electron doc quote against upstream
   *programmatically* (byte-identical after whitespace normalization); re-resolved the linuxvm D-Bus bus
   names to PIDs themselves; found on winvm a surviving installer-stamped shortcut carrying exactly the
   appId; ran their own esprima token-stream diffs on `src/main/tray.js` (901 tokens both sides, streams
-  identical) to prove NCOW-59's code surface untouched; and the final cleanup reviewer swept **all 691
-  `NCOW-\d+` citations in the repo — 52 distinct IDs, all resolving to filed tasks, zero dangling.**
+  identical) to prove CCA-59's code surface untouched; and the final cleanup reviewer swept **all 691
+  `CCA-\d+` citations in the repo — 52 distinct IDs, all resolving to filed tasks, zero dangling.**
   The `win.appId` drift guard was hardened twice and then probed with eight adversarial mutations; six
   are caught, two exotic ones (a quoted key, a YAML anchor) survive silently and were deliberately
-  filed as follow-up on NCOW-61 rather than blocking a latent guard for a key that does not exist.
+  filed as follow-up on CCA-61 rather than blocking a latent guard for a key that does not exist.
 
 
-- 2026-08-06 — **wave 15 settled (task: NCOW-56, Done)**: dispatch (**the first wave in several
+- 2026-08-06 — **wave 15 settled (task: CCA-56, Done)**: dispatch (**the first wave in several
   needing a REAL conflict-graph computation** — 3 items were queued, and the file-citation method
   found the graph pairwise-complete, so the wave was solo by computation rather than by
-  construction. NCOW-56 and NCOW-57 genuinely collide in `src/main/tray.js`: NCOW-57's own
-  description names the `isSupported()` docstring at `tray.js:173-175` as its target. NCOW-58 was
-  ordered last on *content* grounds rather than file overlap — its AC#3 depends on NCOW-57's
-  resolution, and its AC#1 wording would have been stale-on-arrival once NCOW-56 widened the
+  construction. CCA-56 and CCA-57 genuinely collide in `src/main/tray.js`: CCA-57's own
+  description names the `isSupported()` docstring at `tray.js:173-175` as its target. CCA-58 was
+  ordered last on *content* grounds rather than file overlap — its AC#3 depends on CCA-57's
+  resolution, and its AC#1 wording would have been stale-on-arrival once CCA-56 widened the
   surface) → implement (worker, treehouse-leased worktree pinned at wave base `5b9e49e`; 7 new
   tests; 467 → 474) → **task-level review, 3 passes, 2 fix cycles**: pass 1 withheld AC#2 over a
   false illustration in the decision comment; pass 2 confirmed all 5 ACs but blocked on fix pass 1
@@ -796,11 +796,11 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   orchestrator's own bookkeeping commits, mandatory re-verify 474/474, PR #60, squash `905b8ad`) →
   wave-level integration review (**15th consecutive wave with real findings** — 6, headlined by a
   comment asserting a test guarantee that did not exist, disproved by experiment rather than by
-  reading) → 2 user-approved follow-ups (NCOW-59 filed; NCOW-58's scope extended) → cleanup
+  reading) → 2 user-approved follow-ups (CCA-59 filed; CCA-58's scope extended) → cleanup
   dispatch → cleanup review (opus, `approve`, first pass) → cleanup merge (PR #61, `ab2ec25`,
   474 → 476) → settlement (check-ac 1-5, final-summary, `-s Done`, plus a correction to this
   task's OWN earlier notes, which still carried the F3/F4 claims the cleanup had disproven in
-  source) → tracker update → handover. Queue is not empty (NCOW-57, NCOW-58, NCOW-59), so this is
+  source) → tracker update → handover. Queue is not empty (CCA-57, CCA-58, CCA-59), so this is
   a between-wave stop, taken on the user's explicit instruction after one heavy wave.
 
   **Lessons this wave, both new to the campaign's catalogue:**
@@ -815,8 +815,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
      — the F1 comment claimed a strictness guard that no test in 474 supplied, and only an
      experiment (applying the loosening and observing nothing fail) exposed it.
 
-- 2026-08-06 — **wave 14 settled (task: NCOW-55, Done)**: dispatch (recomputed the ready set
-  live rather than trusting the wave-13 handover — matched exactly, no drift; NCOW-55 was the
+- 2026-08-06 — **wave 14 settled (task: CCA-55, Done)**: dispatch (recomputed the ready set
+  live rather than trusting the wave-13 handover — matched exactly, no drift; CCA-55 was the
   only queued item, solo by construction) → implement (worker, in a treehouse-leased worktree
   pinned at wave-base `e9f0c4f`: attempted IPC-broadcast first, abandoned it after discovering
   it breaks 2 pre-existing identity-guard tests, pivoted to Electron's native `Notification`
@@ -828,16 +828,16 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   the orchestrator's own intervening backlog-bookkeeping commits, mandatory re-verify, PR #58,
   squash-merge `76a7c3c`) → wave-level integration review (found real material for the 14th
   consecutive wave: a fabricated pm2 error code and a mischaracterized test comment) →
-  3 user-approved follow-up tasks filed (**NCOW-56**, **NCOW-57**, **NCOW-58**) → cleanup
+  3 user-approved follow-up tasks filed (**CCA-56**, **CCA-57**, **CCA-58**) → cleanup
   dispatch (comment/test-data-only, zero production logic change — proven via `esprima`
   token-stream identity showing exactly 2 string-literal tokens differ) → cleanup review (opus,
   `approve`, first pass — reviewer independently re-derived the real pm2 timeout code from 4
   separate sources rather than trusting the worker's citation) → cleanup merge (PR #59,
   `66d5aa0`) → settlement (check-ac 1-6, final-summary, `-s Done`) → tracker update → handover.
-  Queue is not empty (NCOW-56/57/58 are ready by dependency), so this is a between-wave stop.
+  Queue is not empty (CCA-56/57/58 are ready by dependency), so this is a between-wave stop.
 
-- 2026-08-06 — **wave 13 settled (task: NCOW-53, Done)**: dispatch (recomputed the ready set
-  live rather than trusting the wave-12 handover — matched exactly, no drift; NCOW-53 was the
+- 2026-08-06 — **wave 13 settled (task: CCA-53, Done)**: dispatch (recomputed the ready set
+  live rather than trusting the wave-12 handover — matched exactly, no drift; CCA-53 was the
   only queued item, solo by construction) → file citations re-verified fresh against current
   `dev` before dispatch (all line numbers had drifted again from the wave-12 note, as this
   campaign now expects for this file pair every wave) → implement (worker, in a treehouse-leased
@@ -850,9 +850,9 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   reproduced 2 of the 3 non-vacuity reverts rather than trusting the worker's report) → serial
   merge (clean rebase since `dev` hadn't moved since dispatch, mandatory re-verify, PR #56,
   squash-merge `f20eb5d`) → wave-level integration review (found real material for the 13th
-  consecutive wave, this time in NCOW-53's OWN new comments rather than a later correction pass —
-  see the Resolved table's NCOW-53 row for the full list of corrected claims) → user-approved
-  follow-up task filed (**NCOW-55**, tray user-visible error surface for all 3 actions) →
+  consecutive wave, this time in CCA-53's OWN new comments rather than a later correction pass —
+  see the Resolved table's CCA-53 row for the full list of corrected claims) → user-approved
+  follow-up task filed (**CCA-55**, tray user-visible error surface for all 3 actions) →
   cleanup dispatch (direct worker follow-up, comment/test-comment text only, zero production
   logic change — proven via `esprima` token-stream identity on 3 files plus an isolated 11-token
   diff on the 4th, exactly matching one new guard assertion) → cleanup review (opus, `approve`,
@@ -860,11 +860,11 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   own reproduction rather than re-reading the worker's prose, including running a real Electron
   process to confirm the tray rejection is genuinely silent there, not just in the test's own
   assertion) → cleanup merge (PR #57, `9245a9d`) → settlement (check-ac 1-6, a correction to
-  NCOW-53's own task notes for a false non-vacuity evidence claim, final-summary, `-s Done`) →
-  tracker update → handover. Queue is not empty (NCOW-55 is ready by dependency), so this is a
+  CCA-53's own task notes for a false non-vacuity evidence claim, final-summary, `-s Done`) →
+  tracker update → handover. Queue is not empty (CCA-55 is ready by dependency), so this is a
   between-wave stop, not a campaign-complete stop — see the handover for wave 14's setup.
 
-- 2026-08-06 — **wave 12 settled (task: NCOW-49, Done)**: implemented in the treehouse-leased
+- 2026-08-06 — **wave 12 settled (task: CCA-49, Done)**: implemented in the treehouse-leased
   worktree pinned at wave-base `7be35cd`. Task-level review: pass 1 (opus, deeper scrutiny as a
   concurrency-primitive fix) `request_changes` on AC#1 alone — reproduced a transparent
   `.run`-forwarding wrapper (`new Proxy(realMutex,{})`, `Object.assign`, a copied `.run`
@@ -896,40 +896,40 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   the campaign's 4th instance of "a correction introduces a new false claim"** (after PR #45,
   PR #48/#50, wave 11's PR #53) — this time caught by integration review before merge could
   compound it further across another wave, rather than being forwarded stale for several waves
-  as happened with NCOW-49's own citation notes at wave 8-11. Fixed directly (narrow_findings,
+  as happened with CCA-49's own citation notes at wave 8-11. Fixed directly (narrow_findings,
   no new task) as cleanup PR #55 (`b148f4b`): 1 review pass, the reviewer specifically
   re-reproduced the NEW comment's exact claimed numbers fresh (not trusting the "already
   independently reproduced" framing) and matched them exactly. Final npm test on merged `dev`:
   457/457.
-  **The dispatch-time reasoning for going solo (NCOW-49's AC#8 might touch `mutex.js`,
-  colliding with NCOW-53's deferred AC#2) did not materialize** — NCOW-49 chose an ipc.js-only
+  **The dispatch-time reasoning for going solo (CCA-49's AC#8 might touch `mutex.js`,
+  colliding with CCA-53's deferred AC#2) did not materialize** — CCA-49 chose an ipc.js-only
   implementation for AC#8 throughout (both the initial pass and the fix pass), confirmed via
   identical blob SHA on `mutex.js` at every stage. See Frontier for what this changes (and
   doesn't change) for wave 13.
 
-- 2026-08-06 — **wave 12 dispatched (tasks: NCOW-49)**: ground-truth drift check found `dev` in
+- 2026-08-06 — **wave 12 dispatched (tasks: CCA-49)**: ground-truth drift check found `dev` in
   sync with `origin/dev` at `7be35cd`, clean, all wave-11 PRs merged, no leftover
   branches/worktrees/PRs, all 4 treehouse trees available — matched the wave-11 handover exactly,
-  no drift. Conflict graph recomputed fresh over the full ready set {NCOW-49, NCOW-53} rather
-  than trusted from the wave-11 dispatch note: reversed that note's "no edge NCOW-49 ↔ NCOW-53"
-  conclusion, since NCOW-49's own AC#8 (added after that note was written) explicitly names
+  no drift. Conflict graph recomputed fresh over the full ready set {CCA-49, CCA-53} rather
+  than trusted from the wave-11 dispatch note: reversed that note's "no edge CCA-49 ↔ CCA-53"
+  conclusion, since CCA-49's own AC#8 (added after that note was written) explicitly names
   `mutex.js` as a sanctioned implementation surface and `mutex.js` is a proven hub file for this
-  exact pairing (NCOW-50/NCOW-53 both touched it at wave 11). Treated as conflicting per this
+  exact pairing (CCA-50/CCA-53 both touched it at wave 11). Treated as conflicting per this
   skill's over-approximate-on-ambiguity rule — see Frontier for the full reasoning. Greedy over
-  confirmed queue order [NCOW-49, NCOW-53]: NCOW-49 added; NCOW-53 skipped (conflicts, already
-  in wave). **Wave 12 = {NCOW-49}, solo.** Wave base pinned at `7be35cd`.
+  confirmed queue order [CCA-49, CCA-53]: CCA-49 added; CCA-53 skipped (conflicts, already
+  in wave). **Wave 12 = {CCA-49}, solo.** Wave base pinned at `7be35cd`.
 
-- 2026-08-05/06 — **wave 11 (tasks: NCOW-50, NCOW-54)**: dispatched as recorded below, both
-  approved on their first task-level review pass (NCOW-50 given deeper scrutiny as a
-  concurrency-primitive fix; NCOW-54 standard), merged serially — NCOW-50 first per confirmed
-  queue order as PR #51 (`fe0ed9d`, rebased cleanly, npm test 439/439 post-rebase), NCOW-54
+- 2026-08-05/06 — **wave 11 (tasks: CCA-50, CCA-54)**: dispatched as recorded below, both
+  approved on their first task-level review pass (CCA-50 given deeper scrutiny as a
+  concurrency-primitive fix; CCA-54 standard), merged serially — CCA-50 first per confirmed
+  queue order as PR #51 (`fe0ed9d`, rebased cleanly, npm test 439/439 post-rebase), CCA-54
   second as PR #52 (`320a8ca`, also a clean rebase — expected, given the two tasks' file sets
   were confirmed fully disjoint at dispatch — npm test 440/440 post-rebase, composing cleanly
-  with NCOW-50's merge). Both worktrees released, both branches deleted local+remote.
+  with CCA-50's merge). Both worktrees released, both branches deleted local+remote.
   **The wave-level integration review found real material for the 11th consecutive wave.**
   Disposition, all with explicit user approval via AskUserQuestion before any task was created
   or amended: (a) 8 narrow doc/comment findings — 5 of them the SAME defect class at 5 different
-  sites (NCOW-50 added new, correct prose about apiKey's lock-scoping change adjacent to older
+  sites (CCA-50 added new, correct prose about apiKey's lock-scoping change adjacent to older
   prose that was now stale/contradictory, in mutex.js, ipc.js twice, engine-context.js, and
   DESIGN.md), plus an orphaned sentence fragment, stale test counts (435→440), and an optimistic
   "microseconds" claim softened to "milliseconds" — fixed directly as cleanup PR #53 (`7d6e5d1`);
@@ -938,15 +938,15 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   self-acquisition in engine-context.js (createDomainMutex is non-reentrant, so stacking
   IPC-level + engine-level locking on the same call self-deadlocks `mutexes.config` PERMANENTLY,
   not just for ~20s, wedging claudeCode+config+proxy forever via the uninstall alias) — **folded
-  into NCOW-49 as a new AC#8 rather than filed as a separate task**, on the reviewer's own
-  explicit recommendation, since NCOW-49 already reworks the exact `ipc.js`/`mutex.js` surface a
+  into CCA-49 as a new AC#8 rather than filed as a separate task**, on the reviewer's own
+  explicit recommendation, since CCA-49 already reworks the exact `ipc.js`/`mutex.js` surface a
   structural guard would live in and a separate task would have guaranteed a same-file conflict
   forcing it into a later solo wave; (c) several items explicitly assessed as needing NO action —
   most notably, the SAME reviewer's carried-forward finding #6 (about the two reworked tests
   using bare `await` instead of `withSafetyTimeout`) was itself WRONG as characterized: the
   reviewer verified `withSafetyTimeout` is this file's convention for calls expected to block
-  and proceed, not for exemption proofs, and the pre-existing exemption tests (NCOW-32's,
-  NCOW-47's) already use the identical bare-`await` pattern NCOW-50's new tests followed — acting
+  and proceed, not for exemption proofs, and the pre-existing exemption tests (CCA-32's,
+  CCA-47's) already use the identical bare-`await` pattern CCA-50's new tests followed — acting
   on that finding would have made the code LESS consistent with its own established convention,
   not more. **The cleanup branch itself needed one request_changes → fix → re-review cycle** (1
   of 2 allowed retries) — **the third time in this campaign a "correction" branch has introduced
@@ -961,32 +961,32 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   implementer's counts.
   **The integration reviewer also caught that a carried-forward correction had ITSELF gone
   stale without anyone re-checking it — the exact failure mode named in this campaign's own
-  standing lesson.** NCOW-49's wave-8 Implementation Note asserted its two
+  standing lesson.** CCA-49's wave-8 Implementation Note asserted its two
   `test/main/ipc-mutex.test.js` citations "are STILL ACCURATE" — that claim was already false
   by the time it was written (waves 9/10 had already moved the test file +468 lines via
   `c63eee1`) and was re-forwarded unverified through two more waves before this session's
   integration review finally re-measured it fresh. Net drift on `src/main/ipc.js` since wave 8's
   own measurement: +72 lines; on the test file: +109. Fresh, verified line numbers as of `dev` @
-  `320a8ca`/`7d6e5d1` are recorded directly on NCOW-49's own task notes — re-verify AGAIN at wave
+  `320a8ca`/`7d6e5d1` are recorded directly on CCA-49's own task notes — re-verify AGAIN at wave
   12's dispatch regardless, this file pair keeps moving every wave it's touched.
-  npm test 435 → 440 across the wave (435→439 NCOW-50, 439→440 NCOW-54; cleanup PR #53 changed
+  npm test 435 → 440 across the wave (435→439 CCA-50, 439→440 CCA-54; cleanup PR #53 changed
   no test count). Test-count references in CLAUDE.md/README.md updated in the same cleanup pass
   that fixed the doc drift, avoiding a separate count-only follow-up.
 
-- 2026-08-05 — **wave 11 dispatched (tasks: NCOW-50, NCOW-54)**: ground-truth drift check found
+- 2026-08-05 — **wave 11 dispatched (tasks: CCA-50, CCA-54)**: ground-truth drift check found
   dev in sync with origin/dev at `ece7a2d`, all wave-10 PRs merged, all 4 treehouse trees
   released and available, tracker matched the wave-10 handover exactly — no drift. Fresh
-  file-citation conflict read (see Frontier above) computed NCOW-53/NCOW-54's footprints for the
-  first time and confirmed the full graph: NCOW-49↔NCOW-50 (src/main/ipc.js +
-  test/main/ipc-mutex.test.js), NCOW-50↔NCOW-53 (src/main/mutex.js, a new edge), no other edges.
+  file-citation conflict read (see Frontier above) computed CCA-53/CCA-54's footprints for the
+  first time and confirmed the full graph: CCA-49↔CCA-50 (src/main/ipc.js +
+  test/main/ipc-mutex.test.js), CCA-50↔CCA-53 (src/main/mutex.js, a new edge), no other edges.
   **Deliberately deviated from mechanical greedy-by-queue-order**, which would have produced
-  {NCOW-49, NCOW-53, NCOW-54} and deferred NCOW-50 a third consecutive wave — exactly what the
-  wave-10 handover's carried-forward countervailing note warned against. Selected {NCOW-50,
-  NCOW-54} instead: the only other conflict-free pairing, since NCOW-50 conflicts with both
-  other ready tasks. NCOW-49 and NCOW-53 (confirmed mutually disjoint) deferred to wave 12.
+  {CCA-49, CCA-53, CCA-54} and deferred CCA-50 a third consecutive wave — exactly what the
+  wave-10 handover's carried-forward countervailing note warned against. Selected {CCA-50,
+  CCA-54} instead: the only other conflict-free pairing, since CCA-50 conflicts with both
+  other ready tasks. CCA-49 and CCA-53 (confirmed mutually disjoint) deferred to wave 12.
   Wave base pinned at `ece7a2d` (`ece7a2da366c991911b071082db79e170dde9dd2`).
 
-- 2026-08-05 — **wave 10 (tasks: NCOW-52)**, a solo wave as predicted (all three remaining tasks
+- 2026-08-05 — **wave 10 (tasks: CCA-52)**, a solo wave as predicted (all three remaining tasks
   pairwise-conflicting via `src/main/ipc.js` and/or `test/main/ipc-mutex.test.js`), merged as PR
   #49 (`d4a4115`), plus integration-review follow-up cleanup PR #50 (`410e40b`). npm test 425 →
   435. Session note: the worker was interrupted mid-implementation by an account weekly API-limit
@@ -997,7 +997,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   defect** — the first time in this campaign a review cycle was needed for something other than a
   wrong/unproven claim. The task-level reviewer's own independent call-chain census (deliberately
   not trusting the worker's) found all 6 raw pm2.* callbacks in pm2Control.js correctly accounted
-  for on the first pass — contrast NCOW-48, rejected twice in this exact hazard family for missing
+  for on the first pass — contrast CCA-48, rejected twice in this exact hazard family for missing
   one call in the chain. The one blocking finding: the new AC#8 shutdown-integration test's 10s
   inner `pm2CallTimeoutMs` produced a stray, uncleared `setTimeout` that made node's test runner
   wait out the full 10s before that file could exit — measured 137ms (dev) → 10,143ms (this
@@ -1010,7 +1010,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   both. Full suite duration returned to baseline (~8s).
   **Wave-level integration review found real material for the 10th consecutive wave, and this
   time found two defects the merge itself introduced** — a pattern with real precedent this
-  campaign (see wave 8's NCOW-50/NCOW-51). Filed with user approval: **NCOW-53** — NCOW-52's new
+  campaign (see wave 8's CCA-50/CCA-51). Filed with user approval: **CCA-53** — CCA-52's new
   `PM2_STOP_TIMEOUT`/`PM2_START_TIMEOUT`/`PM2_LOG_TAIL_TIMEOUT` are all independently verified
   correct at the IPC boundary by both task-level review passes, but neither review pass followed
   the result past `ipc.js` to where a human would actually see it: `dashboard-view.js`'s `#stop-btn`
@@ -1018,14 +1018,14 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   log-tail path has the same shape plus never resets its own "already started" flag on failure,
   and the tray's Stop action has literally no error surface at all — `mutex.js`'s deliberate
   `.catch(() => {})` absorbs the rejection with not even a console log. Net effect: a wedged Stop
-  is now a silently dead button forever, arguably worse than pre-NCOW-52 in one respect (that
-  froze the whole app, which was at least obvious). **NCOW-54** — NCOW-52's own launchBus
+  is now a silently dead button forever, arguably worse than pre-CCA-52 in one respect (that
+  froze the whole app, which was at least obvious). **CCA-54** — CCA-52's own launchBus
   leak-prevention `bus.close()` reads pm2's own `Client.sub`, a shared mutable slot, at
   callback-fire time rather than a captured value; if a timed-out call's callback fires late AFTER
   a retry has already succeeded and reassigned that slot, the "cleanup" closes the retry's live,
   in-use bus instead of the actually-stale one — reproduced empirically, and genuinely reachable
   through the shipped UI's real navigate-away/back unmount cycle, not just a contrived test shape.
-  This is a defect NCOW-52 itself introduced (the pre-fix code had no close-on-timeout behavior at
+  This is a defect CCA-52 itself introduced (the pre-fix code had no close-on-timeout behavior at
   all). Also approved: fixing two narrow doc-staleness items directly (no task) — `DESIGN.md`
   §7.4's pm2-timeout census and `pm2Control.js`'s own top-of-file JSDoc still said "three codes",
   now six. **That cleanup itself needed one review-found correction, the same failure class this
@@ -1037,40 +1037,40 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   same pass: an invented channel name (`proxy:startLogTail` vs. the real `proxy:start-log-tail`,
   already spelled correctly elsewhere in the very same file). Fixed and re-approved on the second
   pass, which independently re-reproduced the corrected claim live rather than just reading it.
-  Live finding recorded for wave 11, not yet acted on: NCOW-50's own AC#6 (fix `mutex.js`'s header
+  Live finding recorded for wave 11, not yet acted on: CCA-50's own AC#6 (fix `mutex.js`'s header
   to mention `nim-key.enc`) already appears satisfied by wave 8's cleanup PR #45 — needs
   re-verification at dispatch, not a blind skip.
 
-- 2026-08-05 — **wave 9 (tasks: NCOW-51, NCOW-48)**, the first 2-task wave since wave 6, merged as
+- 2026-08-05 — **wave 9 (tasks: CCA-51, CCA-48)**, the first 2-task wave since wave 6, merged as
   PR #46 (`65635f5`) and PR #47 (`4668ddc`), plus integration-review follow-up PR #48
-  (`c63eee1`). npm test 416 → 425. **Ordering note: NCOW-51 was dispatched and merged FIRST
+  (`c63eee1`). npm test 416 → 425. **Ordering note: CCA-51 was dispatched and merged FIRST
   despite sitting 4th in the Queue table**, because the user-confirmed principle (docs-only first)
-  is the live tie-break and the table's numbering predated NCOW-50/51 being filed. NCOW-49 and
-  NCOW-50 were both correctly skipped — the NCOW-48/49/50 trio is pairwise-conflicting via
+  is the live tie-break and the table's numbering predated CCA-50/51 being filed. CCA-49 and
+  CCA-50 were both correctly skipped — the CCA-48/49/50 trio is pairwise-conflicting via
   `test/main/ipc-mutex.test.js` and `src/main/ipc.js`, exactly as waves 7 and 8 predicted.
   **Both tasks were rejected on their first review pass, and in both cases the rejection was
-  load-bearing rather than stylistic.** NCOW-48's first attempt was *inert*: it bounded pm2.delete
+  load-bearing rather than stylistic.** CCA-48's first attempt was *inert*: it bounded pm2.delete
   and pm2.dump but not `pm2.list`, which sits one call earlier inside the same function, so the
   canonical wedge never reached either bound — the reviewer reproduced the original wave-7
-  three-domain freeze against the "fixed" branch. NCOW-51's first attempt documented a **Clear Key
+  three-domain freeze against the "fixed" branch. CCA-51's first attempt documented a **Clear Key
   button that has never existed in the app**, four times, twice of them in production source.
-  **Test-count ownership was assigned at dispatch** (NCOW-48 owned `CLAUDE.md:51`/`README.md:330`,
-  NCOW-51 was barred from them) specifically to prevent a predictable one-line rebase conflict —
+  **Test-count ownership was assigned at dispatch** (CCA-48 owned `CLAUDE.md:51`/`README.md:330`,
+  CCA-51 was barred from them) specifically to prevent a predictable one-line rebase conflict —
   it worked, and unlike waves 6 and 7 no separate count-cleanup PR was needed. Merge order put
-  NCOW-48 second so its mandatory post-rebase run confirmed the true 425 in-branch.
+  CCA-48 second so its mandatory post-rebase run confirmed the true 425 in-branch.
   **The wave-level integration review found real material for the 9th consecutive wave.** Its
-  sharpest finding: `DESIGN.md`'s acceptance criterion #5 — which NCOW-51 *edited this very wave*
-  — promises `--purge` "leaves no trace under ~/.config/claude-conduit/", but NCOW-48 made that
+  sharpest finding: `DESIGN.md`'s acceptance criterion #5 — which CCA-51 *edited this very wave*
+  — promises `--purge` "leaves no trace under ~/.config/claude-conduit/", but CCA-48 made that
   conditionally unkeepable. Probe-confirmed: a Purge that times out returns an error with the
   **entire config directory still present, including `litellm.env`'s plaintext NVIDIA key**, while
   the Claude Code CLI keys were already reverted. Causality was *attributed*, not asserted —
   reverting only `pm2Control.js` turns the observable failure back into a permanent silent hang.
-  Neither per-task reviewer could see it: NCOW-48's never read DESIGN.md, NCOW-51's had no
+  Neither per-task reviewer could see it: CCA-48's never read DESIGN.md, CCA-51's had no
   bounded-failure mode to test against. **Second integration finding, and an orchestrator error
-  worth recording plainly: the merge shipped the exact false claim NCOW-51's review had classified
+  worth recording plainly: the merge shipped the exact false claim CCA-51's review had classified
   BLOCKING in the same wave.** `ipc-mutex.test.js` described the wedge killing "Set Key/Clear Key";
   that framing originated in the *wave-8* integration review's correction #2 and was forwarded
-  verbatim into NCOW-48's dispatch brief, while NCOW-51's reviewer independently disproved the
+  verbatim into CCA-48's dispatch brief, while CCA-51's reviewer independently disproved the
   premise days later in the same wave — **nobody reconciled the two.** A campaign that carries
   corrections forward between waves needs to re-check them against the current wave's own findings.
   **The narrow follow-up (PR #48) itself needed two passes, because its first attempt introduced
@@ -1083,10 +1083,10 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   during review and should not be re-derived from the knob name: the bounded worst-case three-lock
   hold is **~75s** (connect 30s + three 15s stages), not 15s and not the ~60s accepted mid-review;
   and the reviewer ruled **against** a shorter bound for the 5s status poll. Filed with explicit
-  user approval: **NCOW-52**. Two further candidates were presented and **declined for now** —
+  user approval: **CCA-52**. Two further candidates were presented and **declined for now** —
   surfacing uninstall's partial state (needs a result-shape change) and `apikey:clear` having no
-  UI caller at all; both remain recorded in NCOW-48's and NCOW-51's notes.
-- 2026-08-05 — **wave 8 (tasks: NCOW-47)**, a solo wave forced by the conflict graph, merged as
+  UI caller at all; both remain recorded in CCA-48's and CCA-51's notes.
+- 2026-08-05 — **wave 8 (tasks: CCA-47)**, a solo wave forced by the conflict graph, merged as
   PR #44 (`81b5eb9`) with doc cleanup PR #45 (`ec0f8e9`). npm test 410 -> 416.
   **This wave cost 3 review passes and 2 fix cycles — the first task in this campaign to exhaust
   more than one — and every rejection was on AC#4 alone, a single code comment.** Both rejections
@@ -1108,34 +1108,34 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   Used at every pass from fix pass 1 onward; pass 3 strengthened it to full AST comparison. This is
   strictly better than reading a diff and asserting the changed lines "look like comments."
   **Wave-level integration review found real material for the 8th consecutive wave, and this time
-  found a hazard the merge itself introduced** — proven causal by a pre-NCOW-47 counterfactual probe
+  found a hazard the merge itself introduced** — proven causal by a pre-CCA-47 counterfactual probe
   (delete only `DOMAIN_MUTEX_ALIASES.apiKey`, re-run the identical sequence, the freeze vanishes).
   `apiKey.validateAndSave` awaits up to two sequential 10s NVIDIA round trips BEFORE it writes, so
-  NCOW-47 made `config` the app's first network-bound-holder lock; composed with NCOW-45's
+  CCA-47 made `config` the app's first network-bound-holder lock; composed with CCA-45's
   deliberate hold-and-wait, an Uninstall click during a slow Set Key reserves claudeCode+config+proxy
   and holds two of them for the whole network window, killing the window AND TRAY Start/Stop/Restart,
   testConnection, log tail, update install and all of claudeCode for ~20s with no feedback. Bounded,
-  self-releasing, non-corrupting, app stays quittable. Filed with user approval as NCOW-50.
+  self-releasing, non-corrupting, app stays quittable. Filed with user approval as CCA-50.
   **The structural lesson from that finding, worth more than the finding: the alias table encodes
   only WHICH lock a domain needs, never HOW LONG it will hold it, and nothing in the merged design
-  would prompt someone adding a fourth alias to ask who transitively waits on it.** NCOW-47 fell
+  would prompt someone adding a fourth alias to ask who transitively waits on it.** CCA-47 fell
   into that gap in good faith, and every prior wave's review had correctly focused on the *uninstall
-  handler* being unbounded (NCOW-48) rather than on a long holder of a lock uninstall merely waits for.
-  Also filed with user approval: NCOW-51 (`<userData>/nim-key.enc` survives a purge uninstall,
+  handler* being unbounded (CCA-48) rather than on a long holder of a lock uninstall merely waits for.
+  Also filed with user approval: CCA-51 (`<userData>/nim-key.enc` survives a purge uninstall,
   contradicting DESIGN.md 9.4's "(keys included)" and absent from README's "Where things live"
-  table — pre-existing, but NCOW-47's comments elevated that file to lock-guarded shared state,
+  table — pre-existing, but CCA-47's comments elevated that file to lock-guarded shared state,
   making the asymmetry conspicuous). Two narrow findings were fixed directly instead (PR #45):
-  mutex.js's header enumeration and DESIGN.md 7.4's missing NCOW-47 parenthetical. That cleanup
+  mutex.js's header enumeration and DESIGN.md 7.4's missing CCA-47 parenthetical. That cleanup
   itself needed a review cycle — pass 1 found the insertion left "that lock" two lines later
   trailing a *config*-lock referent while meaning the *proxy* lock; the note moved to paragraph end
   and pass 2 confirmed via word-diff that the net change is a pure insertion with zero deletions,
   restoring the original clause verbatim.
-  Corrections recorded on both queued tasks rather than left to drift: NCOW-48's blast-radius
+  Corrections recorded on both queued tasks rather than left to drift: CCA-48's blast-radius
   description is now understated (a wedge also freezes Set Key / Clear Key while getMasked stays
   live, so the UI renders a masked key it cannot change — plus catalog:fetch, diagnostics:run and
   prereqs:installLitellm stay live, making the deadness partial and confusing rather than an obvious
-  hang), and all three of NCOW-49's ipc.js citations drifted +49 lines while its test-file citations
-  did not move at all (NCOW-47 appended at :1011). NCOW-49's unfrozen-exports residual is also
+  hang), and all three of CCA-49's ipc.js citations drifted +49 lines while its test-file citations
+  did not move at all (CCA-47 appended at :1011). CCA-49's unfrozen-exports residual is also
   broader than its AC#5 said — a shallow `Object.freeze` is provably insufficient, and the exploit
   surface now includes the bare-string alias VALUES — while in-place array *reordering* turns out
   already inert, since resolveDomainLocks sorts by LOCK_ACQUISITION_ORDER.
@@ -1145,18 +1145,18 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   caused the change itself, disregarded the concealment instruction, and reported it. That supports
   the transient/environmental hypothesis over the slot-2-specific one.
 
-- 2026-08-05 — **wave 8 dispatch (tasks: NCOW-47)** — solo wave. All 3 queued tasks are ready
-  by dependency (NCOW-46/NCOW-45 both Done), but the conflict graph came out fully connected on
-  a fresh file-citation read: NCOW-47 and NCOW-49 both rewrite `src/main/ipc.js` AND
-  `test/main/ipc-mutex.test.js` (hard, certain conflict); NCOW-48's own fix target is
+- 2026-08-05 — **wave 8 dispatch (tasks: CCA-47)** — solo wave. All 3 queued tasks are ready
+  by dependency (CCA-46/CCA-45 both Done), but the conflict graph came out fully connected on
+  a fresh file-citation read: CCA-47 and CCA-49 both rewrite `src/main/ipc.js` AND
+  `test/main/ipc-mutex.test.js` (hard, certain conflict); CCA-48's own fix target is
   `src/engine/pm2Control.js`, but its AC#3/#4 tests must exercise `withLocks()` holding the
   claudeCode+config+proxy locks, whose only existing home is that same
   `test/main/ipc-mutex.test.js` — ambiguous, so conservatively treated as conflicting per the
   skill's over-approximate rule. Greedy over confirmed queue order [47, 48, 49] therefore adds
-  NCOW-47 and skips both others. **Wave 8 = {NCOW-47}.** This confirms the wave-7 handover's
+  CCA-47 and skips both others. **Wave 8 = {CCA-47}.** This confirms the wave-7 handover's
   prediction of sequential solo waves for this trio, verified fresh rather than trusted.
 
-- 2026-08-05 — **wave 7 (tasks: NCOW-46)**, a solo wave by definition (the only ready task).
+- 2026-08-05 — **wave 7 (tasks: CCA-46)**, a solo wave by definition (the only ready task).
   Zero request_changes cycles — **three consecutive waves now approved first-pass** (5, 6, 7),
   though see the caveat below about what "first-pass" did and did not mean here. Dispatched into
   treehouse slot 1 (the allocator's lowest available; no slot-2 mitigation needed this wave).
@@ -1179,86 +1179,86 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   a straight repeat of the class wave 6 needed PR #41 for — fixed as a direct worker follow-up +
   re-review in a fresh worktree off merged `dev`, along with `CLAUDE.md:69`'s now-incomplete
   "per-domain mutex" (singular) description, merged as PR #43 (985389a); (b) two new-task-worthy
-  hazards and (c) three residuals in NCOW-46's own fix — all proposed to the user via
-  AskUserQuestion, all three approved, filed as **NCOW-47** (apiKey is the last IPC domain with a
+  hazards and (c) three residuals in CCA-46's own fix — all proposed to the user via
+  AskUserQuestion, all three approved, filed as **CCA-47** (apiKey is the last IPC domain with a
   real mutating concern and zero locks, while the encrypted key it writes is read inside the
-  `config` lock at `engine-context.js:320`), **NCOW-48** (a wedged `uninstall.run` now freezes
+  `config` lock at `engine-context.js:320`), **CCA-48** (a wedged `uninstall.run` now freezes
   claudeCode+config+proxy, and `pm2.delete`/`pm2.dump` at `pm2Control.js:508-518` have no timeout
-  at all — NCOW-45 widened the blast radius without bounding what hangs), and **NCOW-49**
+  at all — CCA-45 widened the blast radius without bounding what hangs), and **CCA-49**
   (identity dedupe misses two *distinct* functions sharing one chain — reproduced, handler never
   entered after 80 ticks; `LOCK_ACQUISITION_ORDER`'s actual *order* is unchecked, so moving
   `claudeDesktop` to the front leaves the whole suite green despite `ipc.js:117-121` claiming
   otherwise; and both exported constants are unfrozen, so a consumer can change real lock
   resolution *after* the assertion has passed). The integration reviewer also cleared `prereqs`
-  and `diagnostics` as genuinely needing no lock, with reasoning, so NCOW-47 closes that family
+  and `diagnostics` as genuinely needing no lock, with reasoning, so CCA-47 closes that family
   rather than opening another instance of it.
-  **This drains the queue as confirmed at init: NCOW-32 through NCOW-46 are all Done.** The three
+  **This drains the queue as confirmed at init: CCA-32 through CCA-46 are all Done.** The three
   new tasks are the next round's work.
 
-- 2026-08-04 — wave 1 dispatched (tasks: NCOW-34, NCOW-33, NCOW-36, NCOW-35): ground-truth
+- 2026-08-04 — wave 1 dispatched (tasks: CCA-34, CCA-33, CCA-36, CCA-35): ground-truth
   drift check found no leftover branches/worktrees/PRs from prior init; treehouse pool had 3
   available (unleased) trees (grew to 4 on demand for this wave, all leased/branched off the
-  same pinned wave-base SHA e0b528c). File-citation conflict read found a new NCOW-32↔NCOW-35
+  same pinned wave-base SHA e0b528c). File-citation conflict read found a new CCA-32↔CCA-35
   conflict via src/main/index.js not previously noted.
-- 2026-08-04 — wave 1 settled (tasks: NCOW-34, NCOW-33, NCOW-36, NCOW-35, all Done): all four
-  implemented by parallel Sonnet workers, reviewed by an Opus reviewer per task. NCOW-34 and
-  NCOW-33 approved on the first pass. NCOW-36 and NCOW-35 each needed one request_changes ->
+- 2026-08-04 — wave 1 settled (tasks: CCA-34, CCA-33, CCA-36, CCA-35, all Done): all four
+  implemented by parallel Sonnet workers, reviewed by an Opus reviewer per task. CCA-34 and
+  CCA-33 approved on the first pass. CCA-36 and CCA-35 each needed one request_changes ->
   fix -> re-review cycle (1 of the 2 allowed retries each, well within the fix-cycle budget):
-  NCOW-36's first fix patched only the exact reported shape and review found it still leaked
-  on adjacent ones; the re-fix made the guard structurally throw-proof instead. NCOW-35's first
+  CCA-36's first fix patched only the exact reported shape and review found it still leaked
+  on adjacent ones; the re-fix made the guard structurally throw-proof instead. CCA-35's first
   fix's behavioral test was solid but didn't yet prove AC#2's specific claim (the tray's
   identity vs the shared mutex, seen from index.js's own call site); the re-fix added a
   narrowly-scoped static check for exactly that. All four merged serially via rebase + mandatory
-  re-verify (npm test) + squash-merge + worktree/branch cleanup: NCOW-34 (PR #24, 059f888),
-  NCOW-33 (PR #25, 8145984), NCOW-36 (PR #26, 8431df3), NCOW-35 (PR #27, 362202d — test count
+  re-verify (npm test) + squash-merge + worktree/branch cleanup: CCA-34 (PR #24, 059f888),
+  CCA-33 (PR #25, 8145984), CCA-36 (PR #26, 8431df3), CCA-35 (PR #27, 362202d — test count
   grew 333 -> 343 across the four merges as each built on the previous). A mandatory wave-level
   integration review over the cumulative diff then found 3 small, narrow, non-blocking
   cross-task issues (verdict: narrow_findings, no new task needed): (F1) engine-context.js's
-  carve-out comment said the restart holds the lock "for up to 60s" while NCOW-34's own new
+  carve-out comment said the restart holds the lock "for up to 60s" while CCA-34's own new
   DESIGN.md/README.md text correctly said "60s+"/"a minute or more" (the critical section can
-  genuinely exceed 60s) -- three-way disagreement on the same fact; (F2) NCOW-34's new README
+  genuinely exceed 60s) -- three-way disagreement on the same fact; (F2) CCA-34's new README
   paragraph had a dangling "as described above" that pointed at text that only exists in
-  DESIGN.md, not README; (F3) NCOW-36 had inserted two helper functions between
+  DESIGN.md, not README; (F3) CCA-36 had inserted two helper functions between
   regenerateStaleConfig's JSDoc block and the function itself, orphaning the doc. A direct
   follow-up worker fixed all three (pure prose/comment corrections + pure code motion verified
   byte-identical via function-body hashing), reviewed and approved, merged as PR #28 (e9fe0a7,
-  trailers on all of NCOW-34/33/36). Final suite: 343/343 passing on merged dev.
+  trailers on all of CCA-34/33/36). Final suite: 343/343 passing on merged dev.
   Non-blocking follow-up candidates surfaced during review, NOT yet proposed to the user or
   created as tasks (per campaign convention -- task creation needs explicit approval): (a)
   harden configGen's adjacent "restart-failed" branch and autoUpdate.js:100 with the same
-  safeStringify() pattern NCOW-36 introduced; (b) guard the tray call site in index.js against
+  safeStringify() pattern CCA-36 introduced; (b) guard the tray call site in index.js against
   a post-spread onStart/onStop/onRestart key override (the most realistic accidental-regression
-  shape found during NCOW-35's review); (c) soften a test comment that still slightly overstates
+  shape found during CCA-35's review); (c) soften a test comment that still slightly overstates
   what the tray's mutex-identity checks jointly prove. These will be proposed to the user (via
   AskUserQuestion, not created unilaterally) before the next wave, per this skill's Task-write
   concurrency rule.
 - 2026-08-04 — between waves 1 and 2: proposed all 3 wave-1 follow-up candidates to the user
-  via AskUserQuestion; all 3 approved. Created NCOW-37 (harden 2 remaining unguarded
-  interpolation sites), NCOW-38 (guard tray call site against post-spread override), NCOW-39
+  via AskUserQuestion; all 3 approved. Created CCA-37 (harden 2 remaining unguarded
+  interpolation sites), CCA-38 (guard tray call site against post-spread override), CCA-39
   (soften overstated test comment) — each with concrete file/line references re-verified
   against current source (not assumed from the review notes) and dependencies on their
   originating wave-1 task. Committed + pushed (404fb68).
-- 2026-08-04 — wave 2 dispatched (tasks: NCOW-39, NCOW-37): ground-truth drift check found
+- 2026-08-04 — wave 2 dispatched (tasks: CCA-39, CCA-37): ground-truth drift check found
   dev in sync with origin/dev, all wave-1 PRs merged, all 4 treehouse trees released and
   available, tracker matched the handover exactly -- no drift. Fresh file-citation conflict
-  read (see Frontier above) found NCOW-38 and NCOW-32 both conflict with a wave-2 member and
+  read (see Frontier above) found CCA-38 and CCA-32 both conflict with a wave-2 member and
   with each other, so they're deferred to solo waves 3 and 4.
-- 2026-08-04 — wave 2 settled (tasks: NCOW-39, NCOW-37, both Done): NCOW-37 approved on the
-  first review pass. NCOW-39 needed one request_changes -> fix -> re-review cycle (1 of 2
+- 2026-08-04 — wave 2 settled (tasks: CCA-39, CCA-37, both Done): CCA-37 approved on the
+  first review pass. CCA-39 needed one request_changes -> fix -> re-review cycle (1 of 2
   allowed retries): pass 1 found the first softening of the "close the chain honestly" comment
   had replaced one overstatement with a narrower, still-false one (the reviewer empirically
   reproduced a private-handlers-shadow passing the full suite, and cross-checked 2 more gaps
-  already recorded in NCOW-35's own review notes); the re-fix correctly scoped the claim to
+  already recorded in CCA-35's own review notes); the re-fix correctly scoped the claim to
   what each check actually proves and listed all 4 known residual gaps as siblings, approved on
   pass 2 with 2 low-severity residuals accepted (narrow, zero blast radius). Both merged
   serially via rebase + mandatory re-verify (npm test) + squash-merge + worktree/branch
-  cleanup: NCOW-39 (PR #29, c86f908), NCOW-37 (PR #30, 6c5ecaf — test count grew 343 -> 348). A
+  cleanup: CCA-39 (PR #29, c86f908), CCA-37 (PR #30, 6c5ecaf — test count grew 343 -> 348). A
   mandatory wave-level integration review over the cumulative diff found no cross-task
   conflicts (disjoint file sets, no stale references, no duplicate/contradictory
   implementations) but verdict `needs_new_task`: it surfaced 2 real, previously-untracked
   follow-up candidates that only become visible at wave level --
   (Task A) autoUpdate.js's checkForUpdates() catch and its darwin-path error interpolation
-  remain unguarded (the same class NCOW-37 just fixed elsewhere in the same file), rejecting
+  remain unguarded (the same class CCA-37 just fixed elsewhere in the same file), rejecting
   on 4/5 and 3/4 hostile shapes respectively despite the module's own "Always resolves"/
   "never throw" doc comments now reading as overstated for two sites 30-55 lines below;
   bounded severity confirmed (index.js:209 already has a real .catch(), so the practical
@@ -1266,38 +1266,38 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   safeReadProperty() was extracted from describeThrownValue() but describeThrownValue()
   still carries 2 inline copies of the same guard (dead duplication, behavior-preserving to
   collapse), and the newly-exported safeStringify() has zero consumers.
-  (Task B) NCOW-39's new comment documents 4 residual tray-wiring gaps; NCOW-38 (queued,
+  (Task B) CCA-39's new comment documents 4 residual tray-wiring gaps; CCA-38 (queued,
   wave 3) covers only 1 of them (the post-spread key override). The other 3 -- no `handlers`
   single-binding check, property-level mutation of `mutexes.proxy` (verified a REAL
-  serialization break per NCOW-35's own review notes), and parameter shadowing -- have no
-  covering task at all. Separately, NCOW-39's review pass 2 explicitly deferred 2 low-severity
-  comment-accuracy residuals as "worth folding into NCOW-38's edit of this same block when it
-  lands" -- but NCOW-38's current ACs say nothing about touching this comment, so that
-  deferral is at risk of being silently lost unless NCOW-38 is amended.
+  serialization break per CCA-35's own review notes), and parameter shadowing -- have no
+  covering task at all. Separately, CCA-39's review pass 2 explicitly deferred 2 low-severity
+  comment-accuracy residuals as "worth folding into CCA-38's edit of this same block when it
+  lands" -- but CCA-38's current ACs say nothing about touching this comment, so that
+  deferral is at risk of being silently lost unless CCA-38 is amended.
   Per campaign convention, Task A and Task B are proposed to the user (AskUserQuestion) before
-  any task is created or NCOW-38 is amended -- not created unilaterally. Final suite: 348/348
+  any task is created or CCA-38 is amended -- not created unilaterally. Final suite: 348/348
   passing on merged dev (wave-integration reviewer's own run).
 - 2026-08-04 — between waves 2 and 3: proposed Task A and Task B (from the wave-2 integration
-  review) plus amending NCOW-38 to the user via AskUserQuestion; all 3 approved. Created
-  NCOW-40 (Task A: harden autoUpdate.js's 2 remaining unguarded sites, plus fold in the
+  review) plus amending CCA-38 to the user via AskUserQuestion; all 3 approved. Created
+  CCA-40 (Task A: harden autoUpdate.js's 2 remaining unguarded sites, plus fold in the
   describeThrownValue()/safeReadProperty() duplication cleanup and the unused safeStringify()
-  export) and NCOW-41 (Task B: cover the other 3 tray-wiring gaps NCOW-38 doesn't). Added
-  NCOW-38 AC#4 so its edit of the shared comment block also folds in NCOW-39 review pass 2's
-  2 accepted residuals, rather than that deferral being silently lost. Also set NCOW-41's
-  dependencies to NCOW-35,NCOW-38 (not just NCOW-35) -- both tasks edit the same
+  export) and CCA-41 (Task B: cover the other 3 tray-wiring gaps CCA-38 doesn't). Added
+  CCA-38 AC#4 so its edit of the shared comment block also folds in CCA-39 review pass 2's
+  2 accepted residuals, rather than that deferral being silently lost. Also set CCA-41's
+  dependencies to CCA-35,CCA-38 (not just CCA-35) -- both tasks edit the same
   comment/single-binding-check block in test/main/engine-context-config-regen.test.js, and
-  NCOW-38's new AC#4 requires it land first; this is a genuine landing-order requirement, not
+  CCA-38's new AC#4 requires it land first; this is a genuine landing-order requirement, not
   just a same-wave scheduling conflict, so it was formalized as a real dependency rather than
   left as a conflict-graph note only. Committed + pushed (43b5103, 5d2982d).
-- 2026-08-04 — wave 3 dispatched (tasks: NCOW-40, NCOW-38): ready set recomputed fresh
-  ({NCOW-38, NCOW-32, NCOW-40} ready; NCOW-41 blocked on NCOW-38). Fresh file-citation
-  conflict read (see Frontier above) found NCOW-32 conflicts with both NCOW-40
-  (src/main/autoUpdate.js) and NCOW-38 (src/main/index.js) but NCOW-40/NCOW-38 are
-  conflict-free with each other. Wave 3 = {NCOW-40, NCOW-38}; NCOW-32 deferred to a solo
+- 2026-08-04 — wave 3 dispatched (tasks: CCA-40, CCA-38): ready set recomputed fresh
+  ({CCA-38, CCA-32, CCA-40} ready; CCA-41 blocked on CCA-38). Fresh file-citation
+  conflict read (see Frontier above) found CCA-32 conflicts with both CCA-40
+  (src/main/autoUpdate.js) and CCA-38 (src/main/index.js) but CCA-40/CCA-38 are
+  conflict-free with each other. Wave 3 = {CCA-40, CCA-38}; CCA-32 deferred to a solo
   wave 4.
-- 2026-08-04 — wave 3 settled (tasks: NCOW-40, NCOW-38, both Done): both approved on the
-  first review pass (no fix cycles needed this wave). NCOW-40's reviewer ran a from-scratch
-  159-case-run adversarial probe and a 61-shape behavior-preservation differential; NCOW-38's
+- 2026-08-04 — wave 3 settled (tasks: CCA-40, CCA-38, both Done): both approved on the
+  first review pass (no fix cycles needed this wave). CCA-40's reviewer ran a from-scratch
+  159-case-run adversarial probe and a 61-shape behavior-preservation differential; CCA-38's
   reviewer independently reproduced the guarded regression live. Both reviewers also each
   independently encountered and disregarded a SUSPICIOUS INJECTED INSTRUCTION mid-task/review
   -- a fake "system-reminder"-styled message falsely claiming src/main/index.js had been
@@ -1306,40 +1306,40 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   conceal it, and reported it transparently -- flagged to the user at the time, recorded here
   for the record. No actual file changes resulted from either incident. Both branches merged
   serially via rebase + mandatory re-verify (npm test) + squash-merge + worktree/branch
-  cleanup: NCOW-40 (PR #31, 7fbcc9e — test count grew 348 -> 356), NCOW-38 (PR #32, 0f74ed4 —
+  cleanup: CCA-40 (PR #31, 7fbcc9e — test count grew 348 -> 356), CCA-38 (PR #32, 0f74ed4 —
   grew 356 -> 358). A mandatory wave-level integration review over the cumulative diff found no
   cross-task conflicts (disjoint files, no hidden coupling between autoUpdate.js/tray.js) but
-  verdict `needs_new_task`: (1) the severity-bounding argument NCOW-40's reviewer used to defer
+  verdict `needs_new_task`: (1) the severity-bounding argument CCA-40's reviewer used to defer
   2 residuals ("index.js:209's backstop makes any gap safe") was itself falsified -- that
   backstop has the identical unguarded-err.message-read bug, and the reviewer empirically
   reproduced the full chain (updateCheck.js's unguarded err.name -> autoUpdate.js's darwin path
   with no try/catch -> index.js:209's backstop itself throwing) actually producing an
   unhandled-rejection shape in 8 of 10 hostile-shape probes, not just a "missed status
-  broadcast" as assumed; (2) NCOW-38's new guard is fail-open on a block-truncation edge case (a
+  broadcast" as assumed; (2) CCA-38's new guard is fail-open on a block-truncation edge case (a
   nested '});' between the spread and an override key makes findKeyAfterTraySpread() return
   undefined the same way "no override" does), reproduced live -- the exact regression it exists
   to catch can slip through green in that shape; (3) a low-severity comment-wording issue
   (dangling contrast, "is now CLOSED" premature given (2)). Per campaign convention, findings
   (1)/(2) proposed to the user (AskUserQuestion) before task creation/amendment -- both
-  approved. Filed NCOW-42 for finding (1) (depends on NCOW-40). Folded finding (2) plus the
-  wording fix into NCOW-41 as new AC#7/#8 (NCOW-41 was already the natural owner of this
+  approved. Filed CCA-42 for finding (1) (depends on CCA-40). Folded finding (2) plus the
+  wording fix into CCA-41 as new AC#7/#8 (CCA-41 was already the natural owner of this
   comment/test region). Final suite: 358/358 passing on merged dev.
-- 2026-08-05 — wave 4 dispatched (tasks: NCOW-42, NCOW-41): ground-truth drift check found dev
+- 2026-08-05 — wave 4 dispatched (tasks: CCA-42, CCA-41): ground-truth drift check found dev
   in sync with origin/dev, all wave-3 PRs merged, all 4 treehouse trees released and available,
   tracker matched the handover exactly -- no drift. Fresh file-citation conflict read (see
-  Frontier above) resolved the prior restore's ambiguity over NCOW-41's footprint: read against
+  Frontier above) resolved the prior restore's ambiguity over CCA-41's footprint: read against
   test/main/engine-context-config-regen.test.js and test/main/tray-actions.test.js's actual
-  content and the precedent set by NCOW-35/38/39 (all three test-file-only, zero production
-  source edits in this exact region), NCOW-41's 8 ACs all mirror that same test-only shape --
-  no source-level guard in index.js/engine-context.js is implicated. This makes NCOW-41
-  conflict-free with both NCOW-42 and NCOW-32, while NCOW-42 and NCOW-32 do conflict with each
+  content and the precedent set by CCA-35/38/39 (all three test-file-only, zero production
+  source edits in this exact region), CCA-41's 8 ACs all mirror that same test-only shape --
+  no source-level guard in index.js/engine-context.js is implicated. This makes CCA-41
+  conflict-free with both CCA-42 and CCA-32, while CCA-42 and CCA-32 do conflict with each
   other via both src/main/autoUpdate.js and src/main/index.js, confirming the prior restore's
-  prediction. Wave 4 = {NCOW-42, NCOW-41}, the first 2-task wave since wave 2 and the
-  possibility the prior handover explicitly flagged. NCOW-32 deferred to a solo wave 5.
-- 2026-08-05 — wave 4 settled (tasks: NCOW-42, NCOW-41, both Done): NCOW-42 approved on the
+  prediction. Wave 4 = {CCA-42, CCA-41}, the first 2-task wave since wave 2 and the
+  possibility the prior handover explicitly flagged. CCA-32 deferred to a solo wave 5.
+- 2026-08-05 — wave 4 settled (tasks: CCA-42, CCA-41, both Done): CCA-42 approved on the
   first review pass -- reviewer ran a from-scratch 281-assertion adversarial probe (7 sections,
   zero unhandled rejections/uncaught exceptions anywhere in the chain) and reproduced
-  non-vacuity via targeted file reverts. NCOW-41 needed one request_changes -> fix -> re-review
+  non-vacuity via targeted file reverts. CCA-41 needed one request_changes -> fix -> re-review
   cycle (1 of 2 allowed retries): pass 1 found the delivered AC#2 test had INVERTED POLARITY --
   it demonstrated the mutexes.proxy mutation bug exists rather than catching it, proven by
   injecting the exact mutation and showing the suite still passed 362/362; the reviewer also
@@ -1350,99 +1350,99 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   2 independently re-injected the same mutation plus a computed-key handlers variant and
   confirmed both now correctly fail, with no false positive against the real call-site read,
   an equality check, or a property spread -- approved. Both merged serially via rebase +
-  mandatory re-verify (npm test) + squash-merge + worktree/branch cleanup: NCOW-42 (PR #33,
-  4d56a19 -- test count grew 358 -> 377), NCOW-41 (PR #34, 78ad549 -- grew 377 -> 382). A
+  mandatory re-verify (npm test) + squash-merge + worktree/branch cleanup: CCA-42 (PR #33,
+  4d56a19 -- test count grew 358 -> 377), CCA-41 (PR #34, 78ad549 -- grew 377 -> 382). A
   mandatory wave-level integration review over the cumulative diff independently re-probed all
-  4 of NCOW-41's guard families against the real MERGED src/main/index.js with 7 fresh hostile
+  4 of CCA-41's guard families against the real MERGED src/main/index.js with 7 fresh hostile
   mutations (property mutation on both identifiers, parameter shadowing, nested re-declaration,
   quoted-key/method-shorthand post-spread overrides, block-truncation) -- all correctly
-  detected, confirming NCOW-41's guards still genuinely fire against post-NCOW-42 index.js, not
+  detected, confirming CCA-41's guards still genuinely fire against post-CCA-42 index.js, not
   merely happen to pass. Verdict `needs_new_task`: found a real, previously-unsurveyed residual
   -- src/main/index.js's config-regen backstop (~line 97) has the identical unguarded
-  err.message-read bug NCOW-42 just fixed at the auto-update backstop, but in the DIFFERENT
-  config-regen/NCOW-30/31 chain, never touched by NCOW-36/37/40/42. Also reconfirmed (twice
-  already known, from NCOW-41's own reviews) that identifierPropertyIsAssigned() is one property-
+  err.message-read bug CCA-42 just fixed at the auto-update backstop, but in the DIFFERENT
+  config-regen/CCA-30/31 chain, never touched by CCA-36/37/40/42. Also reconfirmed (twice
+  already known, from CCA-41's own reviews) that identifierPropertyIsAssigned() is one property-
   access level deep only, missing Object.assign()/Object.defineProperty()/destructuring-
   assignment/logical-assignment spellings of the same mutation. Plus 2 trivial doc-staleness
   items (CLAUDE.md's test count stuck at 178; a tray comment block stating its "covers every
   gap" conclusion twice). Per campaign convention, all four proposed to the user via
-  AskUserQuestion: approved filing the config-regen backstop finding as NCOW-43 (depends on
-  NCOW-42) and the guard-widening finding as NCOW-44 (depends on NCOW-41); approved fixing the
+  AskUserQuestion: approved filing the config-regen backstop finding as CCA-43 (depends on
+  CCA-42) and the guard-widening finding as CCA-44 (depends on CCA-41); approved fixing the
   two trivial items directly (narrow_findings path) rather than as tasks. A direct follow-up
   worker fixed both (pure prose/doc corrections, zero behavior change, npm test unchanged at
-  382/382), reviewed and approved, merged as PR #35 (2fb2682, trailers on both NCOW-42/41).
+  382/382), reviewed and approved, merged as PR #35 (2fb2682, trailers on both CCA-42/41).
   Final suite: 382/382 passing on merged dev.
-  **Security note, recorded for continuity**: during NCOW-41's own implementation (before this
+  **Security note, recorded for continuity**: during CCA-41's own implementation (before this
   settlement), a suspicious injected-instruction message appeared a THIRD time in the same
   treehouse worktree slot (`~/.treehouse/claude-conduit-163fa4/2/claude-conduit`) that produced
   it twice during wave 3 -- flagged directly to the user at the time per the wave-3 handover's
   own escalation note. The orchestrator independently re-verified the worktree (clean git
   status, branch byte-identical to origin) before dispatching the reviewer into it; neither
-  NCOW-41's reviewer (either pass) nor the wave-4 integration reviewer encountered the pattern
+  CCA-41's reviewer (either pass) nor the wave-4 integration reviewer encountered the pattern
   again. See Critical context below.
-- 2026-08-05 — wave 5 dispatched (tasks: NCOW-32, NCOW-44): ground-truth drift check found dev
+- 2026-08-05 — wave 5 dispatched (tasks: CCA-32, CCA-44): ground-truth drift check found dev
   in sync with origin/dev at 70424ee, all wave-4 PRs merged, all 4 treehouse trees available
   (none leased), tracker matched the handover exactly -- no drift. Fresh file-citation conflict
-  read (see Frontier above) confirmed NCOW-32 ↔ NCOW-43 conflict via src/main/index.js (NCOW-32
+  read (see Frontier above) confirmed CCA-32 ↔ CCA-43 conflict via src/main/index.js (CCA-32
   needs new domain->lock wiring for the 'uninstall'/'update' ipc.js domains, very likely touching
-  index.js's registerIpcHandlers block; NCOW-43 touches the config-regen backstop a few lines
-  away in the same file) and confirmed NCOW-44 is test-file-only
+  index.js's registerIpcHandlers block; CCA-43 touches the config-regen backstop a few lines
+  away in the same file) and confirmed CCA-44 is test-file-only
   (test/main/engine-context-config-regen.test.js) and conflict-free with both siblings. Wave 5 =
-  {NCOW-32, NCOW-44}; NCOW-43 deferred to a solo wave 6. Wave base pinned at 70424ee
+  {CCA-32, CCA-44}; CCA-43 deferred to a solo wave 6. Wave base pinned at 70424ee
   (`70424ee72be1b23e91c6d62237f03cb229967b05`). Treehouse leasing note: the first lease request
-  for NCOW-44 landed on the flagged slot 2 (`~/.treehouse/claude-conduit-163fa4/2/claude-conduit`)
+  for CCA-44 landed on the flagged slot 2 (`~/.treehouse/claude-conduit-163fa4/2/claude-conduit`)
   -- per the wave-4 handover's recommendation, this lease was explicitly returned unused and
   re-requested, landing on slot 3 instead. Slot 2 was left available and untouched all of wave 5.
-- 2026-08-05 — wave 5 settled (tasks: NCOW-32, NCOW-44, both Done): both approved on the first
-  review pass (no fix cycles needed this wave). NCOW-32's reviewer ran the campaign's now-standard
+- 2026-08-05 — wave 5 settled (tasks: CCA-32, CCA-44, both Done): both approved on the first
+  review pass (no fix cycles needed this wave). CCA-32's reviewer ran the campaign's now-standard
   adversarial reproduction (reverting only src/main/ipc.js while keeping the new tests) and
   confirmed 4 of 5 new tests fail against unpatched ipc.js, all pass against the fix -- also
   independently swept for and ruled out a lock-ordering deadlock (update:install holds the proxy
   lock across quitAndInstall(), but the shuttingDown latch short-circuits before-quit first).
-  NCOW-44's reviewer went further than the worker's own claim with a per-branch ablation (each of
+  CCA-44's reviewer went further than the worker's own claim with a per-branch ablation (each of
   the 4 new regex branches individually replaced with `false`), confirming every branch is
   independently load-bearing, not just collectively. Both merged serially via rebase + mandatory
-  re-verify (npm test) + squash-merge + worktree/branch cleanup: NCOW-32 (PR #36, 365fc53 -- test
-  count grew 382 -> 387), NCOW-44 (PR #37, e79d8fff -- grew 387 -> 388, confirmed to still pass
-  clean against real index.js post-NCOW-32-merge for a structural reason, not luck). A mandatory
-  wave-level integration review over the cumulative diff independently re-confirmed NCOW-44's
+  re-verify (npm test) + squash-merge + worktree/branch cleanup: CCA-32 (PR #36, 365fc53 -- test
+  count grew 382 -> 387), CCA-44 (PR #37, e79d8fff -- grew 387 -> 388, confirmed to still pass
+  clean against real index.js post-CCA-32-merge for a structural reason, not luck). A mandatory
+  wave-level integration review over the cumulative diff independently re-confirmed CCA-44's
   guard genuinely passes against merged index.js (zero Object.assign/defineProperty/??=/||=/&&=
   anywhere in that file, verified directly) and found no naming/contract collision between the
   two PRs' disjoint changes. Verdict `needs_new_task`: found a real, previously-unsurveyed gap --
   src/engine/uninstall.js touches THREE mutex domains (proxy via pm2Control.remove(), config via
   fs.rmSync(configDir) on purge, claudeCode via removeClaudeCodeSettings()), all three already
-  independently mutexed, but NCOW-32's DOMAIN_MUTEX_ALIASES can only express a single alias
+  independently mutexed, but CCA-32's DOMAIN_MUTEX_ALIASES can only express a single alias
   target per domain, so only the proxy half is actually covered -- not a regression (uninstall
-  had zero locking before NCOW-32), but a real, distinct gap the merged view made visible. Also
+  had zero locking before CCA-32), but a real, distinct gap the merged view made visible. Also
   flagged 4 narrow doc/comment staleness items (CLAUDE.md's test count, ipc.js's alias comment
   overstating uninstall's coverage, engine-context.js's primary mutex-construction comment
   omitting uninstall/update, DESIGN.md's matching enumeration gap). Per campaign convention, both
-  proposed to the user via AskUserQuestion: approved filing the multi-domain gap as NCOW-45
-  (depends on NCOW-32) and fixing the 4 doc items directly (narrow_findings path) rather than as
+  proposed to the user via AskUserQuestion: approved filing the multi-domain gap as CCA-45
+  (depends on CCA-32) and fixing the 4 doc items directly (narrow_findings path) rather than as
   a task. A direct follow-up worker fixed all four (pure prose/comment corrections, zero behavior
   change, npm test unchanged at 388/388), reviewed and approved (reviewer additionally confirmed
   byte-for-byte, via comment-stripped diffing against dev, that both touched .js files carry zero
-  logic changes), merged as PR #38 (6c7ba049, trailers on both NCOW-32/44). Final suite: 388/388
+  logic changes), merged as PR #38 (6c7ba049, trailers on both CCA-32/44). Final suite: 388/388
   passing on merged dev.
-- 2026-08-05 — wave 6 dispatched (tasks: NCOW-43, NCOW-45): ground-truth drift check found dev
+- 2026-08-05 — wave 6 dispatched (tasks: CCA-43, CCA-45): ground-truth drift check found dev
   in sync with origin/dev at ceca8dd, all wave-5 PRs (including the cleanup PR #38) merged, all
   4 treehouse trees available (none leased), tracker matched the handover exactly -- no drift.
-  Fresh file-citation conflict read (see Frontier above) found NCOW-43 and NCOW-45 fully
-  disjoint -- NCOW-43 confirmed to still target src/main/index.js's config-regen backstop
-  (untouched by NCOW-32's merge, which landed entirely in ipc.js instead) plus
-  test/main/index.test.js; NCOW-45 targets src/main/ipc.js/src/engine/uninstall.js plus
+  Fresh file-citation conflict read (see Frontier above) found CCA-43 and CCA-45 fully
+  disjoint -- CCA-43 confirmed to still target src/main/index.js's config-regen backstop
+  (untouched by CCA-32's merge, which landed entirely in ipc.js instead) plus
+  test/main/index.test.js; CCA-45 targets src/main/ipc.js/src/engine/uninstall.js plus
   test/main/ipc-mutex.test.js. No edge between them -- the first wave since wave 2 where both
-  ready tasks landed in the same wave with zero greedy-drop. Wave 6 = {NCOW-43, NCOW-45}. Wave
+  ready tasks landed in the same wave with zero greedy-drop. Wave 6 = {CCA-43, CCA-45}. Wave
   base pinned at ceca8dd (`ceca8dd65cc4e52ade9f39267d429764343ca9f6`). Treehouse leasing: the
-  first lease for NCOW-45 landed on the flagged slot 2 three times in a row (the pool's
+  first lease for CCA-45 landed on the flagged slot 2 three times in a row (the pool's
   allocator deterministically returns the lowest-numbered available slot, so repeated
   return-and-retry just kept re-landing there once slot 1 was taken) -- accepted it this time
   rather than looping forever, with the worker explicitly briefed on the security note. Zero
   injected-instruction incidents resulted.
-- 2026-08-05 — wave 6 settled (tasks: NCOW-43, NCOW-45, both Done): both approved on the first
-  review pass (no fix cycles needed -- the second wave in a row with zero retries). NCOW-43's
+- 2026-08-05 — wave 6 settled (tasks: CCA-43, CCA-45, both Done): both approved on the first
+  review pass (no fix cycles needed -- the second wave in a row with zero retries). CCA-43's
   reviewer ran a 21-case adversarial sweep of describeThrownValue() and independently reproduced
-  the exact unhandledRejection the fix prevents. NCOW-45's reviewer, given proportionally more
+  the exact unhandledRejection the fix prevents. CCA-45's reviewer, given proportionally more
   scrutiny as the campaign's first real concurrency primitive (a genuine multi-lock mechanism,
   not a single-lock wrap or a comment), ran deep stress tests: the exact last-domain-competitor
   race the worker's own fix pass had caught once already (confirmed still fixed), a starvation
@@ -1452,8 +1452,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   domain via instrumented mutex decorators (byte-for-byte unchanged). Found the mechanism
   actually STRONGER than documented (atomic single-tick reservation makes even two
   opposite-order multi-lock callers safe). Both merged serially via rebase + mandatory
-  re-verify (npm test) + squash-merge + worktree/branch cleanup: NCOW-43 (PR #39, 5287a3a --
-  test count grew 388 -> 394), NCOW-45 (PR #40, 83f4cc67 -- grew 394 -> 400). A mandatory
+  re-verify (npm test) + squash-merge + worktree/branch cleanup: CCA-43 (PR #39, 5287a3a --
+  test count grew 388 -> 394), CCA-45 (PR #40, 83f4cc67 -- grew 394 -> 400). A mandatory
   wave-level integration review over the cumulative diff independently ran its own behavioral
   probes (a throwing multi-lock handler releasing all locks with zero unhandled rejections, two
   concurrent multi-lock invocations settling without deadlock, queue-race fairness) and
@@ -1469,16 +1469,16 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   found the two individual reviews' shared doc-staleness flag (CLAUDE.md's test count) plus
   4 more items neither individual review had scope to see together: README.md's own
   longer-stale count, and two engine-context.js comments plus one DESIGN.md passage all
-  describing NCOW-32's uninstall alias as proxy-only, now incomplete post-NCOW-45. Per campaign
+  describing CCA-32's uninstall alias as proxy-only, now incomplete post-CCA-45. Per campaign
   convention, both proposed to the user via AskUserQuestion: approved filing the multi-lock
-  hardening gap as NCOW-46 (depends on NCOW-45) and fixing the 5 doc items directly (a
+  hardening gap as CCA-46 (depends on CCA-45) and fixing the 5 doc items directly (a
   consolidated-survey task for the ~25+ remaining lower-severity unguarded-err.message sites
   elsewhere in the repo was also proposed and explicitly declined for this round, left for a
   future inventory pass). A direct follow-up worker fixed all five doc items (pure
   prose/comment corrections, zero behavior change, npm test unchanged at 400/400), reviewed and
   approved (reviewer additionally confirmed byte-for-byte, via comment-stripped diffing against
   dev, that engine-context.js carries zero logic changes), merged as PR #41 (87c4bb64, trailers
-  on both NCOW-43/45). Final suite: 400/400 passing on merged dev.
+  on both CCA-43/45). Final suite: 400/400 passing on merged dev.
 
 ## Not queued — needs a human / blocked
 
@@ -1491,18 +1491,18 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 - **A new file-conflict finding this round, worth remembering for future waves in this same
   cluster**: `src/main/index.js` already destructures `mutexes` from `createEngineContext()`
   and uses it in more than one place (the autoUpdate `stopProxyForShutdown` wiring AND the
-  tray creation block after NCOW-35's merge) — any future task touching either of those two
+  tray creation block after CCA-35's merge) — any future task touching either of those two
   regions conflicts with the other via this one file, even when they're in different
   "clusters." Don't rely on cluster labels alone for this file; always do the file-citation
-  read. **Confirmed a third time at wave 4**: NCOW-42 and NCOW-32 collide via this same file
+  read. **Confirmed a third time at wave 4**: CCA-42 and CCA-32 collide via this same file
   yet again (startup-backstop region vs. mutex-wiring region) plus autoUpdate.js. This file
   (and autoUpdate.js) are firmly standing hub files for this cluster. The inverse also held
-  true this wave: NCOW-41's own region of a hub-adjacent test file was genuinely disjoint from
+  true this wave: CCA-41's own region of a hub-adjacent test file was genuinely disjoint from
   everything else and did NOT inherit hub-file conflict status just because sibling tasks in
   the same cluster happened to touch production hub files — the file-citation read, not the
   cluster label, decides it either way. **Reversed at wave 5**: the pre-implementation
-  prediction that NCOW-32 would touch `index.js` (and thus conflict with NCOW-43) turned out
-  wrong once NCOW-32 actually landed — it solved the problem entirely inside `ipc.js` via a
+  prediction that CCA-32 would touch `index.js` (and thus conflict with CCA-43) turned out
+  wrong once CCA-32 actually landed — it solved the problem entirely inside `ipc.js` via a
   generic domain-alias mechanism, touching `index.js` not at all. This is not a failure of the
   file-citation method (over-approximating from the task description before implementation
   exists is the correct conservative call, and it cost only one wave of parallelism, never a
@@ -1510,28 +1510,28 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   implemented is provisional and must be re-checked against what the branch actually touched,
   not carried forward as settled fact into the next wave's planning.
 - **`src/main/mutex.js` is now confirmed a hub file for this cluster too, not just `ipc.js`**:
-  wave 11's fresh conflict read found NCOW-50 (header comment, AC#6) and NCOW-53 (the
+  wave 11's fresh conflict read found CCA-50 (header comment, AC#6) and CCA-53 (the
   deliberate `.catch(() => {})` at line 53, AC#2) both touch it despite otherwise-disjoint
   primary files (`engine-context.js` vs. `dashboard-view.js`/`tray.js`). Same lesson as
   `index.js`/`autoUpdate.js` above: a small shared file with a header comment PLUS live logic
   in the same module is a conflict source even when neither task considers it their "main"
   target.
 - **`test/main/engine-context-config-regen.test.js` is a firmly established hub file for the
-  tray-mutex-identity sub-cluster** — NCOW-35 → NCOW-39 → NCOW-38 → NCOW-41 → NCOW-44 have each
+  tray-mutex-identity sub-cluster** — CCA-35 → CCA-39 → CCA-38 → CCA-41 → CCA-44 have each
   edited it in sequence, each carefully reading and preserving the prior edit's accurate parts.
-- **Review-fix cycles keep earning their keep**: wave 1 (NCOW-36, NCOW-35) and wave 4
-  (NCOW-41) each needed exactly one `request_changes` → fix → re-review cycle, all closing
-  cleanly on the second pass. Wave 5 (NCOW-32, NCOW-44) needed none — both approved first-pass,
+- **Review-fix cycles keep earning their keep**: wave 1 (CCA-36, CCA-35) and wave 4
+  (CCA-41) each needed exactly one `request_changes` → fix → re-review cycle, all closing
+  cleanly on the second pass. Wave 5 (CCA-32, CCA-44) needed none — both approved first-pass,
   the first wave since wave 3 with zero retries. The pattern that makes retries succeed when
   needed: the reviewer's finding names a *specific, reproducible* case, and the fix pass is
   handed that finding verbatim.
 - **Wave-level integration review has now found something real in every single wave (1-11)**,
   ranging from small prose fixes to a genuinely serious composed defect (wave 3) to a
   cross-chain residual only visible once two isolated diffs were viewed together (wave 4,
-  NCOW-43's own genesis; wave 5, NCOW-45's own genesis; wave 6, NCOW-46's own genesis; waves 8
-  and 10, real defects the wave's own merge introduced — NCOW-50/51 and NCOW-53/54
+  CCA-43's own genesis; wave 5, CCA-45's own genesis; wave 6, CCA-46's own genesis; waves 8
+  and 10, real defects the wave's own merge introduced — CCA-50/51 and CCA-53/54
   respectively; wave 11, a proven-but-not-yet-live re-entrancy deadlock hazard, folded into
-  NCOW-49 rather than filed separately). Never skip or shortcut this step even when every
+  CCA-49 rather than filed separately). Never skip or shortcut this step even when every
   individual review approved cleanly — this campaign's evidence is that it will keep finding
   real things.
 - **Wave-11 integration review also disproved one of its OWN carried-forward findings before
@@ -1553,7 +1553,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   it is a structural property of writing corrections under less scrutiny than original claims.
 - **A carried-forward correction went stale UNNOTICED for two full waves before this session's
   integration review caught it — the exact "a forwarded correction is an unverified claim by the
-  next dispatch" scenario, now with a concrete measured cost.** NCOW-49's wave-8 note claimed its
+  next dispatch" scenario, now with a concrete measured cost.** CCA-49's wave-8 note claimed its
   `test/main/ipc-mutex.test.js` citations "are STILL ACCURATE"; that claim was already false
   when written (wave 9's `c63eee1` had already moved the file), and nobody re-verified it before
   forwarding it through waves 9 and 10 into wave 11, where net drift had reached +72
@@ -1562,7 +1562,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   that receives it, and this is now the second concrete campaign incident of exactly that (the
   first being wave 9's "Set Key/Clear Key" framing that outlived its own disproof by days).
 - **A carried-forward priority warning was acted on at wave 11, not just repeated a third time.**
-  NCOW-50 was deferred at wave 9's dispatch, deferred again at wave 10's dispatch (both times
+  CCA-50 was deferred at wave 9's dispatch, deferred again at wave 10's dispatch (both times
   the countervailing note was written down and carried forward, not acted on), and the wave-10
   handover explicitly warned against a third deferral. Wave 11 broke the pattern by deliberately
   choosing the non-default conflict-free pairing. Generalize: when a carried-forward note names
@@ -1573,7 +1573,7 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   read this as the pattern going away; when a fix cycle IS needed (waves 1, 4), the pattern that
   makes it succeed is unchanged: the reviewer's finding names a specific, reproducible case, and
   the fix pass is handed that finding verbatim.
-- **Concurrency primitives get proportionally deeper review, and it paid off at wave 6.** NCOW-45
+- **Concurrency primitives get proportionally deeper review, and it paid off at wave 6.** CCA-45
   introduced this campaign's first genuine multi-lock mechanism (not a single-lock wrap, not a
   comment). Its reviewer was explicitly briefed to treat it with more skepticism than a typical
   task and ran real stress tests (starvation, two-concurrent-callers, fault-path lock release,
@@ -1596,8 +1596,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   transparently) works regardless of which slot is leased.
 - **A suspicious injected instruction appeared THREE times in waves 3-4, all tied to treehouse
   slot 2** (`~/.treehouse/claude-conduit-163fa4/2/claude-conduit`): twice during wave 3 (the
-  NCOW-38 worker and reviewer, both right after a `git checkout -- src/main/index.js` revert),
-  and once during wave 4 (the NCOW-41 worker, right after its own `perl -i` sanity-check edit).
+  CCA-38 worker and reviewer, both right after a `git checkout -- src/main/index.js` revert),
+  and once during wave 4 (the CCA-41 worker, right after its own `perl -i` sanity-check edit).
   Pattern: a fake "system-reminder"/"Note:"-styled message falsely claiming a file was
   "intentionally modified... by the user or a linter" and instructing silence about it. All
   three agents independently verified via git (diff/status/sha256) that no modification
@@ -1622,8 +1622,8 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
   `name` succeeded immediately. If launching worker/reviewer agents ever fails with a
   pane-related error again, drop the `name` parameter before troubleshooting further.
 - **Embedding literal apostrophes inside a single-quoted bash argument silently corrupts the
-  text** (e.g. `--desc 'NCOW-52's fix...'`) rather than erroring — happened twice while filing
-  NCOW-53/NCOW-54 in wave 10, producing "NCOW-52s", "engine-context.jss", "retrys" with the
+  text** (e.g. `--desc 'CCA-52's fix...'`) rather than erroring — happened twice while filing
+  CCA-53/CCA-54 in wave 10, producing "CCA-52s", "engine-context.jss", "retrys" with the
   apostrophe simply dropped. Use a heredoc (`$(cat <<'EOF' ... EOF)`) assigned to a shell
   variable, then pass `"$VAR"` as the argument for any Backlog CLI text field containing an
   apostrophe or a backtick-quoted code span. Extended at wave 11: the same technique (write to

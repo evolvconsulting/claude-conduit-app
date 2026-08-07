@@ -5,10 +5,10 @@ Desktop and the Claude Code CLI route to NVIDIA NIM models.
 
 **Where behaviour is defined.** `DESIGN.md` is the v1 spec and its section numbers are
 cited throughout the code — but it is no longer the whole story. Post-v1 decisions live in
-Backlog tasks (NCOW-2 onward), and where the two disagree, the task wins and DESIGN.md
-should be corrected. NCOW-4 already reversed a documented v1 decision this way.
+Backlog tasks (CCA-2 onward), and where the two disagree, the task wins and DESIGN.md
+should be corrected. CCA-4 already reversed a documented v1 decision this way.
 
-**NCOW-12 (rebrand to Claude Conduit) has landed.** The product name, config directory
+**CCA-12 (rebrand to Claude Conduit) has landed.** The product name, config directory
 (`claude-conduit`), electron-builder identity, and every in-repo URL/slug now reflect the
 new name; README documents the persisted-state migration decisions (config dir, pm2 app
 name, Electron userData/encrypted key, Claude Desktop entry) and `src/engine/
@@ -16,22 +16,29 @@ configDirMigration.js` / `userDataMigration.js` implement the ones that migrate.
 GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-conduit`) is
 now done — it was performed manually out of band, and `REPO_URL` and the git remote both
 point at the new location.
-**NCOW-14 is still pending**: it will drop the NVIDIA-only framing so NIM becomes one
+**CCA-14 is still pending**: it will drop the NVIDIA-only framing so NIM becomes one
 provider among several — don't invest in new NVIDIA-specific abstractions (the pm2 app name
-`litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by NCOW-12
+`litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by CCA-12
 for exactly this reason; see README).
 
 **Three-repo split (2026-08-07).** This repo was renamed again, `evolvconsulting/
 claude-conduit` → `evolvconsulting/claude-conduit-app` (GitHub redirects the old name;
 the local remote is updated; the in-repo URL sweep and live auto-update verification are
-NCOW-63). It is now one of three sibling repos: **`claude-conduit-docs`** holds the v2
+CCA-63). It is now one of three sibling repos: **`claude-conduit-docs`** holds the v2
 design — spec `docs/specs/claude-conduit-v2-architecture.md` plus ADRs, maintained with
 the `lore` CLI, and is where cross-repo sessions run from — and
 **`claude-conduit-gateway`** holds the hosted AWS gateway (LiteLLM on ECS Fargate,
 virtual-key auth, Langfuse to the evolv-ultra instance, Bedrock ApplyGuardrail hooks,
 email-code key broker; backlog prefix CCG). v2 design decisions are recorded as ADRs in
 the docs repo; this repo's Backlog stays authoritative for app behaviour. The app-side
-hosted-connection work is NCOW-62, gated behind NCOW-14/15.
+hosted-connection work is CCA-62, gated behind CCA-14/15.
+
+**Backlog prefix migration (2026-08-07): NCOW → CCA, numbering preserved.** `NCOW-N` and
+`CCA-N` are the same task — an `NCOW-46` citation in an old code comment, error string,
+commit message, or `archive/handovers/` file is today's `CCA-46`. Everything *live*
+(backlog/, this file, README, DESIGN.md, docs/, the backlog-handover skill) now says CCA;
+source comments and string literals were deliberately left as historical citations — do
+not "fix" them in bulk, and cite CCA-N in anything new.
 
 <!-- BACKLOG.MD GUIDELINES START -->
 <!-- backlog.md-instructions-version: 1.48.0 -->
@@ -97,16 +104,16 @@ step that could produce it, and the packaging allowlist copies it straight off d
 ## Safe manual testing (load-bearing)
 
 `NIM_PROXY_TEST_HOME` **combined with `--dev`** redirects every path the app touches — its
-config dir, `~/.claude`, Claude Desktop's `configLibrary`, and (since NCOW-12)
+config dir, `~/.claude`, Claude Desktop's `configLibrary`, and (since CCA-12)
 `secretStore.js`'s encrypted-key file — under a fake home. It is the only way to click
 destructive buttons without hitting this machine's real Claude Desktop/Code config or its
 real encrypted NVIDIA key. Never remove it. It is ignored without `--dev`, so it can never
 engage in a real end-user launch of a packaged build (nothing about the packaged binary
 itself prevents passing `--dev` — a controlled test launch of the raw executable with
 `NIM_PROXY_TEST_HOME` set is exactly as safe as a source `--dev` run, and was used to verify
-NCOW-12's AC#8).
+CCA-12's AC#8).
 
-NOTE (NCOW-12): this redirects the one file this app itself writes into Electron's userData
+NOTE (CCA-12): this redirects the one file this app itself writes into Electron's userData
 directory (`nim-key.enc`), but NOT Electron's *own* internal `--user-data-dir` (Chromium's
 session/GPU/network cache) — that always lands under the real
 `~/Library/Application Support/<productName>/` (or platform equivalent) on every launch,
@@ -114,7 +121,7 @@ packaged or dev, because it's set by Electron itself before any app code runs. T
 disposable Chromium housekeeping, never anything sensitive this app writes, and is safe to
 delete after a manual test run.
 
-NOTE (NCOW-23): Windows parity was not automatic. `paths.js`'s win32 branches each resolve as
+NOTE (CCA-23): Windows parity was not automatic. `paths.js`'s win32 branches each resolve as
 `opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...)` (same shape for
 `LOCALAPPDATA`) — correct for a real, unmodified Windows run, since `APPDATA`/`LOCALAPPDATA`
 can legitimately differ from `homedir/AppData/...` under folder redirection or a roaming
@@ -182,7 +189,7 @@ to `Runtime.exceptionThrown`, or renderer errors stay completely invisible.
   ever touches its own dedicated entry, after a full backup, with explicit consent.
 - **Uninstall never touches Claude Desktop as a side effect** — that is a separate,
   individually confirmed opt-in in the Uninstall view.
-- **Closing the window hides it; quitting stops the proxy** (NCOW-4 — this reversed the
+- **Closing the window hides it; quitting stops the proxy** (CCA-4 — this reversed the
   original "the proxy outlives the app" design, so treat any comment still claiming that
   as stale). The stop hangs off the single `before-quit` handler in `index.js`, which
   cancels the quit, stops the proxy, then re-issues it behind a latch — remove the latch
@@ -191,10 +198,10 @@ to `Runtime.exceptionThrown`, or renderer errors stay completely invisible.
 - **Never `pm2 kill` from this app.** pm2 runs against the shared default `PM2_HOME`
   (`~/.pm2`), so killing the daemon would stop every unrelated app the user supervises.
   Stop the `litellm-nim` app only; the daemon is not ours — even when *this app itself*
-  was the one that bootstrapped it (`pm2Control.js`'s `spawnDaemon()`, NCOW-22): the
+  was the one that bootstrapped it (`pm2Control.js`'s `spawnDaemon()`, CCA-22): the
   moment it exists it's exactly as shared as one that pre-existed, since anything else on
   the machine using the default `PM2_HOME` can register apps against it afterward, and
-  this app has no reliable, race-free way to prove it hasn't. **NCOW-24 nuance:** that
+  this app has no reliable, race-free way to prove it hasn't. **CCA-24 nuance:** that
   daemon is still detached and long-lived by pm2's own design regardless of who started
   it, so it can keep running after this app quits or is even uninstalled — on win32/linux
   `spawnDaemon()` hands it a private copy of the interpreter (`resolveDaemonInterpreter()`)

@@ -1,13 +1,13 @@
 # Spec: `claude-conduit` — Route Claude Desktop (Cowork) & Claude Code through LiteLLM → NVIDIA NIM
 
 > **⚠️ This is the v1 spec, not the current source of truth.** It described the app as
-> originally built and shipped. Decisions made since then live in Backlog tasks (NCOW-2
+> originally built and shipped. Decisions made since then live in Backlog tasks (CCA-2
 > onward) and **override this document where they conflict**; sections corrected that way
-> are marked with the task ID (see §7.4). **NCOW-12 has landed**: the product is now
+> are marked with the task ID (see §7.4). **CCA-12 has landed**: the product is now
 > **Claude Conduit** and the repository is `claude-conduit` — every `claude-nim-proxy` /
 > "NIM Proxy Manager" reference below has been updated to match (the hypothetical CLI
 > wizard this spec describes was never built; see §2/§11 for what that means for this
-> document). **NCOW-14** is still pending and will invalidate the sections below that
+> document). **CCA-14** is still pending and will invalidate the sections below that
 > assume NVIDIA NIM is the only possible upstream. Check the backlog before treating
 > anything below as current.
 
@@ -273,7 +273,7 @@ values for the in-app form. `status` MAY read (never write) `configLibrary/` and
 
 ### 6.1 `config.yaml`
 
-> **NCOW-8:** `model_name` values below were renamed from their original provider-neutral
+> **CCA-8:** `model_name` values below were renamed from their original provider-neutral
 > aliases to `claude-sonnet-4-5`/`claude-haiku-4-5`, because clients validate/expect
 > Anthropic-shaped model IDs and rejected the original aliases as invalid model
 > identifiers. The underlying upstream model is unaffected — only the client-facing
@@ -380,7 +380,7 @@ module.exports = {
 `pm2 status litellm-nim` · `pm2 logs litellm-nim` · `pm2 restart litellm-nim` (after any manual
 edit of `config.yaml`) · `pm2 stop litellm-nim`. The `restart` subcommand is a thin wrapper.
 
-#### 7.4 Proxy lifetime relative to the GUI (NCOW-4)
+#### 7.4 Proxy lifetime relative to the GUI (CCA-4)
 
 Closing the manager's window **hides** it and leaves the proxy running, so Claude Desktop
 and Claude Code keep working while the manager is out of the way.
@@ -395,7 +395,7 @@ Code CLI have no proxy to route to until it is started again.
 The pm2 **daemon** is never killed. It runs against the shared default `PM2_HOME`
 (`~/.pm2`), so killing it would stop unrelated apps the user supervises with pm2. Only the
 `litellm-nim` app is stopped, and the stop is bounded by a timeout so a wedged pm2 cannot
-make the app unquittable. (As of NCOW-48, widened by NCOW-52, that before-quit stop is not
+make the app unquittable. (As of CCA-48, widened by CCA-52, that before-quit stop is not
 the app's only bounded pm2 call: `pm2Control.js`'s `listApps()`, `deleteAppIfPresent()`,
 `save()`, `stop()`, `startOrRestart()`'s `pm2.start`, and `startLogTail()`'s
 `pm2.launchBus` are separately bounded by their own `pm2CallTimeoutMs`, default 15s,
@@ -419,26 +419,26 @@ effect completed — see 9.4 and acceptance criterion 5 for what that means for 
 specifically.)
 
 **Tray Start/Stop/Restart failures on this path are now surfaced to the user, not just
-returned (NCOW-55, extended by NCOW-56).** Before NCOW-55, only `onStop` had a `.catch()`
-at all (added by NCOW-53), and even there the trail was just `console.error` — invisible
+returned (CCA-55, extended by CCA-56).** Before CCA-55, only `onStop` had a `.catch()`
+at all (added by CCA-53), and even there the trail was just `console.error` — invisible
 in a packaged build, where stderr goes nowhere anyone reads. `onStart`/`onRestart` had no
 `.catch()` at all, so a wedge there was an unhandled rejection in the main process with no
-trail whatsoever — worse than `onStop`'s pre-NCOW-53 silence (see `src/main/tray.js`'s
+trail whatsoever — worse than `onStop`'s pre-CCA-53 silence (see `src/main/tray.js`'s
 `createTrayActions()` doc comment). `createTrayActions()` now also shows a native OS
-notification (Electron's `Notification` API) for that case, and — since NCOW-56 — for a
+notification (Electron's `Notification` API) for that case, and — since CCA-56 — for a
 *resolved* `{ok:false}` result too (e.g. the `NOT_CONFIGURED` and `HEALTH_CHECK_TIMEOUT`
 codes `engine-context.js`'s proxy handlers can resolve with), which previously resolved in
 total silence. This section is about the pm2 lifecycle itself, not the UI layer that
 reports its failures, so the known platform caveats (Windows AUMID/portable-build gap,
-macOS notification-permission/signing — documented by NCOW-57) are documented once, in
+macOS notification-permission/signing — documented by CCA-57) are documented once, in
 README.md's "Tray notifications on Start/Stop/Restart failures" section, rather than
 duplicated here.
 
-**The before-quit stop is deliberately not serialized against the proxy mutex (NCOW-31,
-NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions share one
+**The before-quit stop is deliberately not serialized against the proxy mutex (CCA-31,
+CCA-34).** Since CCA-31, the window/tray Start, Stop, and Restart actions share one
 per-domain lock (`mutexes.proxy`, set up in `src/main/engine-context.js`) so clicking them in
-quick succession queues instead of racing — and, since NCOW-32, Uninstall and an update
-install share that same lock too. (As of NCOW-45, Uninstall also acquires the `config` and
+quick succession queues instead of racing — and, since CCA-32, Uninstall and an update
+install share that same lock too. (As of CCA-45, Uninstall also acquires the `config` and
 `claudeCode` locks alongside `proxy`.) `src/main/shutdown.js`'s before-quit stop reaches
 `pm2Control` directly instead, on purpose: a background restart can hold that lock for 60s+,
 and queueing the quit-time stop behind it is precisely how a wedged pm2 would make the app
@@ -447,24 +447,24 @@ background restart" remains unserialized, by choice, while the window/tray Stop 
 paths are serialized. See `engine-context.js`'s own comment at the mutex's construction site
 for the full reasoning, including the pre-existing, out-of-scope edge case it leaves behind (a
 quit landing in `startOrRestart()`'s `deleteAppIfPresent()` → `pm2.start()` gap). (As
-of NCOW-47, the `config` lock also covers the encrypted NVIDIA key, so `apiKey`'s
-`clear` aliases onto it too; as of NCOW-50, `validateAndSave` no longer does — it
+of CCA-47, the `config` lock also covers the encrypted NVIDIA key, so `apiKey`'s
+`clear` aliases onto it too; as of CCA-50, `validateAndSave` no longer does — it
 acquires that same lock directly, scoped to just its secretStore.save() step.)
 
-**The daemon itself can still be running after quit — corrected by NCOW-24.** If
+**The daemon itself can still be running after quit — corrected by CCA-24.** If
 `ensureConnected()` (`pm2Control.js`) had to bootstrap a pm2 daemon itself (`spawnDaemon()`,
-NCOW-22), that daemon is detached and long-lived by pm2's own design, independent of this
+CCA-22), that daemon is detached and long-lived by pm2's own design, independent of this
 app's `before-quit` handling above — stopping `litellm-nim` does not, and should not, stop
-the supervisor that (potentially) also supervises other things. NCOW-22 originally spawned
+the supervisor that (potentially) also supervises other things. CCA-22 originally spawned
 that daemon using `process.execPath` — this app's own installed binary — as its Node
 interpreter (`ELECTRON_RUN_AS_NODE`), which meant the daemon kept that binary open for as
-long as it ran, indefinitely. NCOW-24's wave-6 review found this live on both platforms:
+long as it ran, indefinitely. CCA-24's wave-6 review found this live on both platforms:
 on macOS the daemon reparented to pid 1 and `lsof` still showed it holding the app's own
 Electron Framework binary; on Windows, `Win32_Process` showed the daemon running as
 `electron.exe ...\node_modules\pm2\lib\Daemon.js` under the app's own exe.
 
 On win32 this is not just a cosmetic surprise, though **the original characterization of
-which half was blocked was wrong — corrected below (NCOW-24 fix pass #2) after an
+which half was blocked was wrong — corrected below (CCA-24 fix pass #2) after an
 independent reviewer re-verified both live against a real packaged NSIS build.**
 
 - **Update: NOT blocked.** A silent NSIS reinstall (electron-updater's Windows update
@@ -645,7 +645,7 @@ report "not detectable" rather than guessing).
    directory, outside this config directory entirely — see `secretStore.js`), and nothing in
    the uninstall path deletes it. Without `--purge`, keep the config directory and print the
    path. **This is the successful-uninstall outcome, not the "purge selected" outcome
-   (NCOW-48):** step 2's pm2 calls are now bounded (`pm2CallTimeoutMs`, default 15s —
+   (CCA-48):** step 2's pm2 calls are now bounded (`pm2CallTimeoutMs`, default 15s —
    `PM2_LIST_TIMEOUT`/`PM2_DELETE_TIMEOUT`/`PM2_SAVE_TIMEOUT`), and a wedged pm2 daemon makes
    `uninstall.run()` reject with one of those codes *before step 4 ever runs* — so on that
    path `--purge` deletes nothing at all, and the whole config directory, including
@@ -673,10 +673,10 @@ implemented by `src/engine/diagnostics.js`'s `runDiagnostics()`) rather than a s
 no `claude-conduit` executable exists in this repo; the section heading is v1-spec language kept
 for the request/response shapes below, which the implementation still follows exactly.
 
-**Timeouts (NCOW-16, NCOW-17).** Checks 1–3 and 9 are non-model calls and fail fast (proxy alive:
+**Timeouts (CCA-16, CCA-17).** Checks 1–3 and 9 are non-model calls and fail fast (proxy alive:
 5s; NIM catalog reachability: 10s; auth-enforced: 30s; CLI config coherent: local file read, no
 network wait). Checks 4, 5, 6, 7 and 8 each exercise a real model completion and share a 60s
-**interactive-reasonable** timeout — confirmed live (NCOW-16) that simply raising this number (90s,
+**interactive-reasonable** timeout — confirmed live (CCA-16) that simply raising this number (90s,
 180s, even 300s were all tried) does not reliably out-wait a congested shared/free NIM endpoint, and
 for an interactive coding-assistant proxy a model that takes minutes to answer isn't "slow but
 fine". A check that hits its timeout reports an accurate *"Timed out after 60s — {{MODEL}} is
@@ -813,7 +813,7 @@ Acceptance criteria (all must hold):
 5. `uninstall` **on success**: settings.json equals pre-install content except the removed keys;
    pm2 app gone; `--purge` leaves no trace under `~/.config/claude-conduit/` (the encrypted
    NVIDIA key at `<userData>/nim-key.enc` lives outside that directory and is untouched either
-   way — see 9.4). This is a success-path guarantee only (NCOW-48): if a pm2 call in step 2
+   way — see 9.4). This is a success-path guarantee only (CCA-48): if a pm2 call in step 2
    times out, `uninstall.run` fails observably instead of completing — clause 1 above still
    holds (the settings.json edit happens first, before any pm2 call), but clause 2 does not
    (the pm2 app is not guaranteed gone) and clause 3 fails completely (`--purge` leaves the

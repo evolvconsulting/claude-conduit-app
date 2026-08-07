@@ -11,8 +11,8 @@ confirms them.
   a "Default" entry on first-ever access (before any user configuration).
 - `default-entry.example.json` — the corresponding `configLibrary/<Default's id>.json`, which
   `LZ()` writes as `{}` initially.
-- `meta.after-apply.json` — `_meta.json` after this app's planned NCOW-1.7 writer creates and
-  applies its own dedicated entry (named "Claude Conduit" since NCOW-12; "NIM Proxy Manager"
+- `meta.after-apply.json` — `_meta.json` after this app's planned CCA-1.7 writer creates and
+  applies its own dedicated entry (named "Claude Conduit" since CCA-12; "NIM Proxy Manager"
   before it), per the revised approach in FINDINGS.md (never touching the pre-existing
   "Default" entry).
 - `nim-proxy-entry.example.json` — the corresponding gateway config content for that entry.

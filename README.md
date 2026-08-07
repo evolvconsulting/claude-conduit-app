@@ -116,7 +116,7 @@ that's the same warning one step earlier — the file is unsigned, not damaged.
 
 ### Linux
 
-Both x86-64 (`amd64`) and arm64 (`aarch64`) builds are published (since NCOW-25) — pick
+Both x86-64 (`amd64`) and arm64 (`aarch64`) builds are published (since CCA-25) — pick
 the pair matching your machine's `uname -m`. The arm64 artifacts carry an `-arm64` suffix
 (`Claude-Conduit-<version>-arm64.AppImage`,
 `claude-conduit_<version>_arm64.deb`); the x86-64 ones are unsuffixed, unchanged from
@@ -219,7 +219,7 @@ the shared one at `~/.pm2` and killing it would take down anything else you supe
 with pm2.
 
 **Quitting mid-restart is deliberately not queued behind the Start/Stop/Restart lock
-(NCOW-31, NCOW-34).** The window/tray Start, Stop, and Restart buttons share one lock so
+(CCA-31, CCA-34).** The window/tray Start, Stop, and Restart buttons share one lock so
 clicking them in quick succession queues instead of racing. Quitting skips that lock on
 purpose: a background restart can hold it for a minute or more, and making the quit-time
 stop wait its turn would risk leaving a wedged pm2 in charge of whether the app can
@@ -227,7 +227,7 @@ close at all — the one outcome this app will not allow. The quit-time stop ins
 to pm2 directly and relies on its own timeout: `shutdown.js` bounds the stop at 15 seconds,
 so a wedged pm2 can't hold up the exit either way.
 
-**A pm2 daemon process can keep running after you quit (NCOW-24).** If no pm2 daemon
+**A pm2 daemon process can keep running after you quit (CCA-24).** If no pm2 daemon
 existed yet the first time this app needed one, it started one itself — and, like any pm2
 daemon, that process is detached and outlives whatever started it by design. In practice
 this means a background process can still be running after you quit, even after you
@@ -248,7 +248,7 @@ things that follow from it:
   outright. *Uninstalling* is the case that genuinely was (and, on a fresh install that was
   never subsequently updated, still can be) blocked: it deregisters the app and deletes
   every other file while silently leaving that locked, multi-hundred-MB binary behind,
-  still running, with no way to discover it through the UI. Since NCOW-24, the daemon's own
+  still running, with no way to discover it through the UI. Since CCA-24, the daemon's own
   copy of the interpreter means it's never *this app's own installed binary* left behind —
   only that daemon-owned copy under `~/.pm2/daemon-interpreter/` (see the table below),
   which is never cleaned up by uninstalling, no matter how many times you run it.
@@ -265,7 +265,7 @@ is exactly why it never runs that command itself (see CLAUDE.md).
 
 Clicking **Start**, **Stop**, or **Restart** from the tray menu can fail two different
 ways, and both now raise a native OS notification instead of failing silently
-(NCOW-55, extended by NCOW-56):
+(CCA-55, extended by CCA-56):
 
 - **A wedged/thrown call** — the underlying pm2 operation times out or otherwise rejects
   (see DESIGN.md §7.4 for the pm2 timeout codes this can surface).
@@ -288,17 +288,17 @@ out of scope when this was decided. So tray Start stays enabled whenever status 
 as any other click, surfacing the `NOT_CONFIGURED` notification above — visibly wrong
 instead of silently inert.
 
-**Known platform caveats (NCOW-57):**
+**Known platform caveats (CCA-57):**
 
 - **Windows** — the app's AppUserModelID now matches the Start Menu shortcut the NSIS
   installer creates, so a `nsis` install's notifications are correctly attributed on the
   AUMID half. There is a second half electron-builder leaves open on **both** Windows
   targets: Electron pairs that AUMID with a ToastActivatorCLSID, and electron-builder
-  writes none for `nsis` or `portable` (`electron-builder.yml`'s NCOW-57 comment: a
+  writes none for `nsis` or `portable` (`electron-builder.yml`'s CCA-57 comment: a
   `ToastActivator`/`CLSID` grep over `node_modules/app-builder-lib/templates/nsis/` returns
   zero hits). This app's toasts are plain informational notifications that never register
   an activation handler, so the gap isn't exercised today — but it isn't closed either, and
-  NCOW-61 is open to decide it. Separately, and specific to **portable**: that build
+  CCA-61 is open to decide it. Separately, and specific to **portable**: that build
   installs no Start Menu shortcut at all, so even the AUMID half has nothing to be paired
   with.
 - **macOS** — builds are ad-hoc signed, not signed with a full Apple Developer ID; whether
@@ -318,8 +318,8 @@ instead of silently inert.
 | `~/.config/claude-conduit/` (macOS/Linux), `%APPDATA%\claude-conduit\` (Windows) | config.yaml, litellm.env, ecosystem.config.cjs, manifest.json, logs/ |
 | `~/.claude/settings.json` | Claude Code CLI env keys (only the documented ones) |
 | Claude Desktop's `Claude-3p/configLibrary/` | A dedicated "Claude Conduit" entry, created only with your explicit consent, and only after a full backup |
-| `~/.pm2/daemon-interpreter/` (win32/linux only) | A private copy of this app's own runtime, created the first time this app bootstraps a pm2 daemon (NCOW-24). ~227 MiB (the executable plus `icudtl.dat`/`snapshot_blob.bin`/`v8_context_snapshot.bin`/`libffmpeg.so` on Linux), measured live. Survives quitting *and* uninstalling this app — nothing removes it, because the daemon that may still be using it outlives this app's own lifecycle (see `src/engine/uninstall.js`'s comment on why cleaning it up from there isn't safe). |
-| Electron's userData directory (`nim-key.enc`) | Your NVIDIA API key, encrypted at rest by the OS (`secretStore.js`; see "Upgrading from NIM Proxy Manager" below for how this file itself migrates). **Survives this app's own Uninstall flow, including Purge** — `src/engine/uninstall.js`'s delete set is the settings-file keys, the `litellm-nim` pm2 app (not guaranteed either, if that same pm2 call is the one that times out), and, only when Purge is selected **and the uninstall completes successfully**, the `~/.config/claude-conduit/` (macOS/Linux) / `%APPDATA%\claude-conduit\` (Windows) config directory — a pm2 call timing out (NCOW-48) makes the whole uninstall fail before that directory delete is ever reached, so a Purge that fails there leaves the config directory (and everything in it) exactly as it was, same as an unselected Purge; it never calls `secretStore.clear()` — that function's only caller anywhere in the app is the `apiKey.clear` IPC handler, and no shipped UI currently invokes it, so nothing in the app deletes `nim-key.enc`. A successful Purge deletes `litellm.env`'s *derived* copy of the key, not this original; see "Uninstalling" below for how to remove the original by hand. |
+| `~/.pm2/daemon-interpreter/` (win32/linux only) | A private copy of this app's own runtime, created the first time this app bootstraps a pm2 daemon (CCA-24). ~227 MiB (the executable plus `icudtl.dat`/`snapshot_blob.bin`/`v8_context_snapshot.bin`/`libffmpeg.so` on Linux), measured live. Survives quitting *and* uninstalling this app — nothing removes it, because the daemon that may still be using it outlives this app's own lifecycle (see `src/engine/uninstall.js`'s comment on why cleaning it up from there isn't safe). |
+| Electron's userData directory (`nim-key.enc`) | Your NVIDIA API key, encrypted at rest by the OS (`secretStore.js`; see "Upgrading from NIM Proxy Manager" below for how this file itself migrates). **Survives this app's own Uninstall flow, including Purge** — `src/engine/uninstall.js`'s delete set is the settings-file keys, the `litellm-nim` pm2 app (not guaranteed either, if that same pm2 call is the one that times out), and, only when Purge is selected **and the uninstall completes successfully**, the `~/.config/claude-conduit/` (macOS/Linux) / `%APPDATA%\claude-conduit\` (Windows) config directory — a pm2 call timing out (CCA-48) makes the whole uninstall fail before that directory delete is ever reached, so a Purge that fails there leaves the config directory (and everything in it) exactly as it was, same as an unselected Purge; it never calls `secretStore.clear()` — that function's only caller anywhere in the app is the `apiKey.clear` IPC handler, and no shipped UI currently invokes it, so nothing in the app deletes `nim-key.enc`. A successful Purge deletes `litellm.env`'s *derived* copy of the key, not this original; see "Uninstalling" below for how to remove the original by hand. |
 
 The generated proxy master key lives in `litellm.env`, never in `manifest.json`.
 
@@ -356,7 +356,7 @@ directory itself.
 
 ## Upgrading from NIM Proxy Manager
 
-This app was previously named **NIM Proxy Manager** (repository `nvidia-cowork`). NCOW-12
+This app was previously named **NIM Proxy Manager** (repository `nvidia-cowork`). CCA-12
 renamed it to **Claude Conduit**. Everything visible — window title, menu bar, tray, About,
 installer, desktop entry — updates automatically the moment you run the new build. Here is
 what happens to everything else, and what (if anything) you need to do:
@@ -364,12 +364,12 @@ what happens to everything else, and what (if anything) you need to do:
 | Persisted state | Decision | What you'll see |
 |---|---|---|
 | Config directory (`~/.config/claude-nim-proxy` → `claude-conduit`) | **Migrates automatically**, no action needed | The first launch after upgrading moves the whole directory — config.yaml, litellm.env (your proxy master key), manifest.json, logs — to its new name, and repairs the absolute paths baked into the generated launcher files. Your proxy configuration and port survive untouched. |
-| pm2 app name (`litellm-nim`) | **Left as-is**, no action needed | Still `litellm-nim` in `pm2 status`/`pm2 logs`. It's an internal identifier tied to the underlying litellm+NIM proxy, not the product name, and NCOW-14 (multi-provider support) is a more natural point to revisit it — changing it once there beats changing it twice. Your running proxy process is unaffected either way. |
+| pm2 app name (`litellm-nim`) | **Left as-is**, no action needed | Still `litellm-nim` in `pm2 status`/`pm2 logs`. It's an internal identifier tied to the underlying litellm+NIM proxy, not the product name, and CCA-14 (multi-provider support) is a more natural point to revisit it — changing it once there beats changing it twice. Your running proxy process is unaffected either way. |
 | Encrypted NVIDIA API key (Electron's userData directory) | **Best-effort copy**, may need one re-entry | Electron stores this file under a directory named after the app, so the rename moves it too. The app copies the encrypted blob forward automatically. On **Windows** this reliably still decrypts (the OS keys it to your user account, not the app). On **macOS** it is expected to **not** decrypt — the OS Keychain entry backing it is scoped to the app's name, which just changed — so **the Setup wizard will most likely ask you to re-enter your NVIDIA key once** after upgrading. This is safe and expected, never a crash: a failed decrypt is always treated as "no key stored yet." |
 | Claude Desktop's third-party inference entry | **Renamed in place, next time you click Apply** | The entry this app created is normally tracked by its own internal id (recorded in `manifest.json`), so upgrading reuses it rather than creating a duplicate. If that id record is missing — e.g. `manifest.json` was lost to a purge-uninstall — Apply falls back to looking the entry up by its old name instead of creating a second one. Its *label* inside Claude Desktop's picker still reads "NIM Proxy Manager" until you next use this app's **Apply Gateway Config** button (Claude Desktop page) — at that point, as part of that same already-consented write, it's relabelled to "Claude Conduit". Purely cosmetic either way; the gateway keeps working regardless. |
 
 You do need to **download and install the new build** — there is no auto-update yet
-(that's NCOW-10, sequenced after this rename on purpose). Uninstalling the old build first
+(that's CCA-10, sequenced after this rename on purpose). Uninstalling the old build first
 is not required; installing the new one over it is fine.
 
 ---
@@ -435,7 +435,7 @@ Use the app's **Uninstall** page. It stops and removes the pm2 app, removes the 
 CLI env keys it added, and lets you either keep or purge the config directory. Reverting
 Claude Desktop is a separate, individually confirmed opt-in — it's never a side effect.
 
-**An uninstall can fail partway through.** Its pm2 calls are bounded (NCOW-48) so a wedged
+**An uninstall can fail partway through.** Its pm2 calls are bounded (CCA-48) so a wedged
 pm2 daemon makes it fail observably instead of hanging — the Uninstall page shows the raw
 error (e.g. "pm2 list timed out after 15000ms") with no further explanation. If a **Purge**
 reports a pm2-related error (the kind these bounded calls actually produce), it has **not**

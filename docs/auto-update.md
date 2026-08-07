@@ -1,8 +1,8 @@
 # Auto-update mechanism — how a shipped build learns a new version exists
 
-Decided and implemented under **NCOW-10.1**, 2026-08-01. This is the record of *why* the
+Decided and implemented under **CCA-10.1**, 2026-08-01. This is the record of *why* the
 update story looks the way it does; `docs/distribution.md` (owned by a sibling task,
-NCOW-10.2, and not edited here) covers the release/publish side — how a Release gets cut and
+CCA-10.2, and not edited here) covers the release/publish side — how a Release gets cut and
 what it must contain. This document is the consuming side: what a running app does with that
 Release once it exists.
 
@@ -12,9 +12,9 @@ Release once it exists.
 
 **Mechanism:** [`electron-updater`](https://www.npmjs.com/package/electron-updater), reading
 the `latest.yml` / `latest-mac.yml` / `latest-linux.yml` files electron-builder already emits
-next to every published Release (confirmed working under NCOW-9 — see
+next to every published Release (confirmed working under CCA-9 — see
 `docs/distribution.md`'s "Packaging hardening" section). No second feed, no separate update
-server, no build-config changes on top of what NCOW-9 already produces.
+server, no build-config changes on top of what CCA-9 already produces.
 
 Why this over the alternatives:
 
@@ -34,13 +34,13 @@ Why this over the alternatives:
 
 | Platform | Mechanism | Silent install? | Notes |
 |---|---|---|---|
-| Windows (NSIS) | electron-updater, GitHub provider | **Yes** | No certificate required for electron-updater to download, verify (via its own hash check against `latest.yml`), and install an NSIS update. Real end-to-end verification against a published Release is NCOW-10.3, not this task. |
+| Windows (NSIS) | electron-updater, GitHub provider | **Yes** | No certificate required for electron-updater to download, verify (via its own hash check against `latest.yml`), and install an NSIS update. Real end-to-end verification against a published Release is CCA-10.3, not this task. |
 | Linux (AppImage) | electron-updater, GitHub provider | **Yes** | Same mechanism; electron-updater replaces the running AppImage in place. The `deb` target has no update mechanism at all — Debian/Ubuntu users on the `.deb` are expected to re-download, exactly like today. |
 | macOS | GitHub Releases API check only (no electron-updater) | **No — notify-only** | See "Why macOS is notify-only" below. The app tells the user a newer version exists and links to the Release page; it never downloads or installs anything on macOS. |
 
 ## Why macOS is notify-only (final — do not re-litigate)
 
-This supersedes an older, stale implementation note on the parent task (NCOW-10) that assumed
+This supersedes an older, stale implementation note on the parent task (CCA-10) that assumed
 a fully signed macOS path. **That assumption was wrong for this campaign and the "ship
 unsigned, macOS notify-only" decision below is final** — confirmed by the user, not up for
 re-derivation here.
@@ -160,11 +160,11 @@ double-invocation guard.
 
 - **Real end-to-end verification** — installing an old build and watching it actually fetch,
   download, and apply an update against a live published GitHub Release — is a separate
-  follow-on task, **NCOW-10.3**. Nothing here has been exercised against a real Release feed;
+  follow-on task, **CCA-10.3**. Nothing here has been exercised against a real Release feed;
   every test uses injected fakes (see `test/engine/updateCheck.test.js` and
   `test/main/autoUpdate.test.js`).
 - **`docs/distribution.md`** — release-cutting, asset naming, `SHA256SUMS`, the CI release
-  workflow — is owned by NCOW-10.2 and intentionally untouched here.
+  workflow — is owned by CCA-10.2 and intentionally untouched here.
 - **macOS code signing/notarization** and the eventual switch of macOS onto the same
   electron-updater path Windows/Linux use — tracked as a revisit trigger in
   `docs/distribution.md`, not in scope for this task.

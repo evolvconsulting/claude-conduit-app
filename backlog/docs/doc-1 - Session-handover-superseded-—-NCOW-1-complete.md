@@ -1,6 +1,6 @@
 ---
 id: doc-1
-title: Session handover (superseded) — NCOW-1 complete
+title: Session handover (superseded) — CCA-1 complete
 type: guide
 created_date: '2026-07-31 20:02'
 updated_date: '2026-07-31 21:57'
@@ -8,12 +8,12 @@ updated_date: '2026-07-31 21:57'
 Read this before doing anything else. It covers where the project stands, the one
 outstanding decision, and the traps that cost the most time to find.
 
-## Status: NCOW-1 and all ten subtasks are Done
+## Status: CCA-1 and all ten subtasks are Done
 
 The app is feature-complete and packaged for all three platforms. `npm test` is 101/101,
 and the full UI has passed **three consecutive clean end-to-end runs (50/50 assertions,
 0 failures)** against the real NVIDIA API, a real litellm+pm2 proxy, and a sandboxed fake
-home. NCOW-1.8 (renderer/tray/wizard) and NCOW-1.10 (packaging) were finished in the most
+home. CCA-1.8 (renderer/tray/wizard) and CCA-1.10 (packaging) were finished in the most
 recent session; read their Implementation Notes for full detail — this document does not
 repeat them.
 
@@ -57,7 +57,7 @@ latter holds regenerable icon intermediates, rebuildable with `npm run icons`; o
 - `README.md` — user-facing: prerequisites, per-platform install with the Gatekeeper and
   SmartScreen workarounds, measured artifact sizes, usage, gotchas, building from source.
 - `DESIGN.md` — the behavioural source of truth; section numbers are cited in the code.
-- `docs/reverse-engineering/claude-desktop-config/` — the NCOW-1.6 spike findings and
+- `docs/reverse-engineering/claude-desktop-config/` — the CCA-1.6 spike findings and
   fixtures for Claude Desktop's undocumented local 3P config format.
 - `electron-builder.yml` — packaging config, with the reasoning kept as real comments
   (electron-builder's schema rejects `//` keys, which is why it is not in package.json).
@@ -104,6 +104,6 @@ that needs user approval). Candidates to raise with the user:
 - Merge `feat/nim-proxy-manager` into `dev` (command above) and push to `origin`. Until
   then the work exists only on this machine — ask before pushing.
 - Launch-test the Windows and Linux artifacts. They were built successfully but never run —
-  no such machine was available. This is stated explicitly in NCOW-1.10's notes rather than
+  no such machine was available. This is stated explicitly in CCA-1.10's notes rather than
   papered over.
 - Consider a versioning/release flow if distribution moves beyond personal use.
