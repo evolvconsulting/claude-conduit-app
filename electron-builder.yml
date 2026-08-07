@@ -56,6 +56,38 @@ dmg:
 
 win:
   icon: build/icon.ico
+  # NCOW-57: `portable` installs no Start Menu shortcut at all (electron-builder's
+  # own glossary: "runs directly without writing to the registry or creating
+  # Start menu entries"), and Electron's notifications doc says Windows toasts
+  # need exactly such a shortcut carrying an AppUserModelID + ToastActivatorCLSID
+  # — on paper, a reason `portable` could behave worse than `nsis` (whose
+  # installer writes that shortcut+AUMID itself via `WinShell::SetLnkAUMI`).
+  # Live-verified on winvm instead of accepted on that reasoning alone: both a
+  # silently-installed `nsis` build and the standalone `portable` exe were run
+  # (`--dev` + `NIM_PROXY_TEST_HOME`), and the tray's real onStart() failure
+  # path was invoked in each real, running, packaged process (Node inspector
+  # attached to the main process; `app.isPackaged` confirmed `true` in both).
+  # Both produced IDENTICAL results at the one level this VM could confirm
+  # objectively: Windows accepted the Notification call and recorded it under
+  # the SAME per-app entry (`HKCU\...\Notifications\Settings\electron.app.Claude
+  # Conduit` — Electron's own default AUMID, derived from productName, not
+  # from anything a Start Menu shortcut provides), with `LastNotificationAddedTime`
+  # advancing to match each test's timestamp for both configurations equally.
+  # No portable-specific degradation was observed at that level — the
+  # shortcut/CLSID requirement documented above appears to matter for toast
+  # *activation* (clicking it to refocus a not-currently-running app), which
+  # this app's simple informational notifyFailure() calls don't use, not for
+  # whether the toast is created and accepted at all. Pixel-level "did a
+  # banner actually render on screen" could NOT be confirmed for either
+  # configuration in this VM despite repeated attempts (single screenshots, an
+  # 8-10 frame burst spanning the toast's expected banner duration, opening
+  # Notification Center, and minimizing every window first to rule out
+  # fullscreen-app suppression) — plausibly a limitation of this VM's display/
+  # compositor rather than of either build target, but not independently
+  # confirmed either. Net: no code-level exclusion for `portable` — nothing
+  # observed singles it out — and the tray's console.error diagnostic trail
+  # (tray.js) fires unconditionally regardless, so a wedged Start/Stop/Restart
+  # is never silent even if a given desktop suppresses the toast banner itself.
   target:
     - target: nsis
       arch: [x64]

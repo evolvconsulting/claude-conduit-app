@@ -221,6 +221,32 @@ function createTray(opts, deps = {}) {
  * own guidance; a platform/session where it's unsupported just falls back to
  * the console.error trail alone, same as before this task.
  *
+ * NCOW-57 correction: the claim immediately above is narrower in practice
+ * than it reads. `Notification.isSupported()` reports whether the platform
+ * has a notification API at all — it does NOT detect every condition that
+ * can leave a toast never actually visible to the user. Two documented gaps
+ * per Electron's/Microsoft's own docs (see appUserModelId.js and
+ * electron-builder.yml's `win.target` comment for the Windows one in detail):
+ * (1) on Windows, `isSupported()` returns `true` regardless of whether this
+ * process has a usable AppUserModelID/Start-Menu-shortcut pairing bound to
+ * it; (2) on macOS, it returns `true` even when the user has denied
+ * notification permission or has Do Not Disturb on (not independently
+ * re-verified live in this task — this is documented Electron/macOS
+ * behavior, unchanged by this task's fix). What WAS live-verified on
+ * winvm/linuxvm as part of NCOW-57: `createTrayActions()`'s real onStart()
+ * failure path, invoked in real running processes (a silently-installed
+ * `nsis` build, the standalone `portable` exe, and a Linux source `--dev`
+ * run), reaches the real OS notification pipeline in all three — Windows
+ * accepted and recorded the call identically for both packaged
+ * configurations (see electron-builder.yml), and a `dbus-monitor` capture on
+ * Linux showed the real `org.freedesktop.Notifications.Notify` call reaching
+ * gnome-shell with the expected title/body. Pixel-level "a human would see a
+ * banner" could not be confirmed on winvm despite repeated attempts (see
+ * electron-builder.yml's comment) or on linuxvm (GNOME 50 denies the Shell
+ * screenshot API entirely) — the dbus/registry evidence is what NCOW-57's
+ * record relies on instead. The console.error trail below remains the one
+ * fallback that is NOT contingent on any of this.
+ *
  * NCOW-56: NCOW-55 above only covers a THROWN/REJECTED handlers.proxy.*()
  * call (a genuine pm2-level wedge, e.g. PM2_START_TIMEOUT/PM2_STOP_TIMEOUT).
  * The wave-14 integration review found a second, actually more common
