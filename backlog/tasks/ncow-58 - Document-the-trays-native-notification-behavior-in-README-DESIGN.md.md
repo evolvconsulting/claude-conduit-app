@@ -4,7 +4,7 @@ title: Document the tray's native notification behavior in README/DESIGN.md
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 13:54'
+updated_date: '2026-08-07 14:02'
 labels: []
 dependencies:
   - NCOW-55
@@ -130,4 +130,60 @@ That same line asserts `485 tests`. Wave 17's sibling branches add tests (NCOW-5
 its own), so the count goes stale on merge. The worker was explicitly instructed NOT to bump it, since
 the final number is unknowable from inside a single branch. This belongs to the wave's post-merge
 cleanup, not to this task.
+
+## Wave-17 review pass 1 verdict — REQUEST_CHANGES (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `docs/NCOW-58-tray-notify-docs` @ `16c35195ff3e5b771f16f9ef29c0d926401569ae` against wave base
+`20ffa60add5d7e281a2f39610adcec1ee987b489`. Independently re-ran `npm test`: 485/485.
+
+**AC#1-#5 CONFIRMED**, each against source the reviewer opened itself rather than the implementer's
+summary. Notably it closed the two second-hand-sourcing gaps the implementer had flagged honestly:
+`NOT_CONFIGURED` confirmed at `src/main/engine-context.js:412` and `HEALTH_CHECK_TIMEOUT` at
+`src/engine/pm2Control.js:703` (passed through by `engine-context.js:420`; `restart` inherits both via
+`engine-context.js:427`) — so AC#4 no longer rests on tray.js's comment. It also verified the macOS
+caveat against the pinned Electron `docs/tutorial/notifications.md` @ v43.2.0 and judged the README's
+hedge to neither overstate nor understate it, and confirmed AC#5's quoted dashboard condition verbatim
+at `src/renderer/views/dashboard-view.js:94` plus the `getStatus()` shape at `pm2Control.js:746-757`.
+
+**AC#6 NOT CONFIRMED — three blocking findings, one of which nobody else had seen.**
+
+- **B1 (DESIGN.md:422-424) — false counterfactual.** "Before NCOW-55, a thrown/rejected
+  `handlers.proxy.*()` call reached only `console.error`" is true of `onStop` ONLY, and only since
+  NCOW-53. The reviewer read the pre-NCOW-55 source directly (`git show 76a7c3c^:src/main/tray.js`
+  lines 151-156): `onStart` and `onRestart` had NO `.catch()` at all, so a rejection there reached
+  nothing and became an unhandled main-process rejection. `src/main/tray.js:189-193` already says this
+  and calls it "worse than onStop's pre-NCOW-53 silence"; the new prose flattens it and understates the
+  pre-fix state.
+- **B2 (README.md:374-375)** — the AC#6 rewrite inverts the forbidden dependency, as already recorded.
+- **B3 (README.md:374) — THE PROPOSED REMEDY WAS ITSELF INSUFFICIENT, and this is the wave's best catch.**
+  Keeping `# 485 tests, no network access` preserves a SECOND false protection: `npm test` really does
+  make a live network call. `test/engine/nvidiaKey.test.js:83` is gated
+  `{ skip: process.env.CI ? 'no network in CI' : false }`, so it RUNS whenever `CI` is unset — the
+  ordinary local invocation this very README line documents. Observed in the reviewer's own run with
+  `CI` empty: `ok 129 - validateApiKey: LIVE - a garbage key against the real NVIDIA API is genuinely
+  rejected (network test)`, `duration_ms: 300.35725`. Since this branch rewrote that exact clause
+  (`no network` -> `no network access`), it is this branch's to get right. This is the
+  "fix the claim, not the instance" class landing on AC#6's own line — the fourth consecutive wave in
+  which a pass shipped a fresh instance of the class it was closing.
+  Recommended: `# 485 tests`, or `# 485 tests (one live NVIDIA API check unless CI is set)`.
+
+**S1 (should-fix, README.md:288-292) — truncated condition.** The Windows caveat renders Electron's
+two-part requirement as "the shortcut a Windows toast is meant to pair with", dropping the
+ToastActivatorCLSID co-requirement — which is open on BOTH Windows targets, not portable-only
+(`electron-builder.yml:119-127`). So "a real, currently open gap for that build only" is wrong in scope.
+Fixing it now also makes the section survive either NCOW-61 resolution and removes a doc edit from that
+task's plate, which NCOW-61's own text anticipates.
+
+**N1-N3 (nits)**: DESIGN.md:430 says NCOW-57 "tracked by" these caveats when it resolved them (and the
+open CLSID half belongs to NCOW-61); a one-column comment misalignment at README.md:375; Linux listed
+under "Known platform caveats" though its bullet is a positive verification.
+
+**ID citation sweep: CLEAN.** NCOW-55 (x3), NCOW-56 (x3), NCOW-57 (x2), NCOW-60 (x1) — all resolve to
+real filed tasks. Trailer `Refs NCOW-58.` correct. No fabricated IDs.
+
+**Claim sweep**: the old "no network or real config touched" text survives nowhere outside campaign
+records that quote it deliberately. But B1's false counterfactual is a NEW claim this branch introduced,
+in DESIGN.md only — a fix pass must not reintroduce it in README.
+
+Fix pass 1 dispatched into the same worktree with all findings verbatim.
 <!-- SECTION:NOTES:END -->
