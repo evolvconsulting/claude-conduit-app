@@ -4,6 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: To Do
 assignee: []
 created_date: '2026-08-07 13:00'
+updated_date: '2026-08-07 13:25'
 labels: []
 dependencies:
   - NCOW-57
@@ -39,3 +40,34 @@ Primary files: `src/main/appUserModelId.js`, `src/main/index.js`, `electron-buil
 - [ ] #4 The claim that electron-builder writes no ToastActivatorCLSID for either Windows target is re-verified against the then-current app-builder-lib, not carried forward on trust
 - [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Note from the wave-16 cleanup review (2026-08-07) — two latent findings that share this task's file
+
+Both were judged follow-up rather than merge blockers, and this task is their natural home because it
+already touches `test/main/app-user-model-id.test.js`. Recorded here rather than added as acceptance
+criteria unilaterally.
+
+1. **Two residual silent bypasses in the `win.appId` drift guard.** After two rounds of hardening, the
+   reviewer invented eight further adversarial mutations; six are caught (CRLF, trailing whitespace on
+   `win:`, tab-indented `appId`, single-quoted drift value with trailing comment, flow mapping
+   `win: { appId: ... }`, and both of the originally-demonstrated comment bypasses). **Two survive
+   silently:** a quoted key (`  "appId": com.DRIFT`) and an anchored scalar
+   (`appId: &wid com.DRIFT`). The reviewer characterized both against the real parser — `yaml.load()`
+   returns `win.appId === "com.DRIFT"` for each, so electron-builder WOULD honor them. Neither styling
+   appears anywhere in `electron-builder.yml` today and `win.appId` does not exist in the repo at all,
+   which is why this is latent rather than urgent.
+2. **A one-word overstatement in the guard's own comment**, `test/main/app-user-model-id.test.js`
+   (near the `WIN_BLOCK` sanity assert). The comment says the assert makes a future regression that
+   "empties" WIN_BLOCK fail loudly, but the assert is `WIN_BLOCK !== null` — an empty-string WIN_BLOCK
+   still skips silently, proved by simulating `return ''` with a real drift present (9/0 green).
+   Not reachable via a YAML edit today. `assert.ok(WIN_BLOCK, ...)` or a `.trim() !== ''` check would
+   make the sentence exactly true.
+
+Also worth carrying into this task: the timing guidance "This method should be called early (before
+showing notifications)" at `app.md:1159` belongs to `setToastActivatorCLSID` — i.e. to THIS task's API,
+not to `setAppUserModelId`. A wave-16 comment mis-transplanted that sentence onto the AUMID call and
+had to be corrected; if this task implements the CLSID call, the guidance genuinely does apply.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: NCOW-57
 title: Verify and fix tray notification deliverability on Windows and Linux
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 12:11'
+updated_date: '2026-08-07 13:25'
 labels: []
 dependencies:
   - NCOW-55
@@ -19,15 +19,41 @@ NCOW-55 gave the tray a native OS Notification for wedged Start/Stop/Restart cal
 `Notification.isSupported()` (the guard NCOW-55 added before constructing a Notification) does not detect either of these conditions — it returns `true` on Windows regardless of AUMID/shortcut state, and also returns `true` on macOS when the user has denied notification permission or has Do Not Disturb on. So NCOW-55's own docstring claim that "a platform/session where it's unsupported just falls back to the console.error trail alone" is narrower in practice than it reads: there are real, currently-unhandled cases where a notification silently fails to appear with no fallback trail at all.
 
 This has never been verified live on Windows or Linux (only informally reasoned about from documentation).
+
+---
+
+**CORRECTION (2026-08-07, wave-16 settlement) — two statements above are FALSE as written, and this
+task's own work is what established that. They are left in place rather than rewritten so the
+original reasoning stays legible, but do not carry them forward:**
+
+1. **"in production Electron auto-calls `app.setAppUserModelId()`" is wrong for this app.** Electron's
+   actual sentence (v43.2.0 `docs/tutorial/notifications.md:107-109`, fetched and verified
+   independently by three separate agents) is: "In production, Electron will also **detect that
+   Squirrel was used** and will automatically call `app.setAppUserModelId()` with the correct value."
+   The Squirrel condition is load-bearing. This app packages with electron-builder `nsis`/`portable`,
+   not Squirrel.Windows, so the automatic call NEVER fires here — packaged or not. The dev-vs-production
+   framing above is therefore the wrong axis entirely.
+
+2. **The real defect was an AUMID MISMATCH, not an absent AUMID.** Electron's `GetRawAppUserModelID()`
+   (`shell/common/application_info_win.cc:55-70`) always generates `electron.app.<ProductName>` when
+   nothing set one explicitly, so the running app always had *an* AUMID — `electron.app.Claude Conduit`.
+   What it lacked was one MATCHING the AUMID electron-builder's NSIS installer stamps onto the Start
+   Menu shortcut (`com.evolvconsulting.claudeconduit`, via
+   `app-builder-lib/templates/nsis/include/installer.nsh:200`'s `WinShell::SetLnkAUMI "${APP_ID}"`).
+   That mismatch affected the **nsis** target exactly as much as the portable one — so framing this as
+   a portable-only gap, as the text above does, was also wrong.
+
+**Also note:** this task closed only the AppUserModelID half of Electron's two-part Windows
+requirement. The ToastActivatorCLSID half is tracked separately as NCOW-61.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 app.setAppUserModelId() is called appropriately for Windows dev/source runs — either matching Electron's own guidance or deliberately deviating from it with the deviation and its reason documented in the code — so that a Windows dev run's tray notification is accepted and recorded by Windows under an AUMID matching the installed Start Menu shortcut. AMENDED 2026-08-07 (user decision, wave 16): the original wording said "so tray notifications actually appear on a Windows dev run"; pixel-level banner capture proved unobtainable on winvm across four capture strategies, so the standard is acceptance-plus-AUMID-correctness, matching the dispensation already granted to AC#4 for Linux.
-- [ ] #2 Decide and implement a mitigation for the portable Windows build target (electron-builder.yml's win.target includes portable, which installs no Start Menu shortcut/AUMID) — either exclude notifications from that target gracefully, or document why it's an accepted gap
-- [ ] #3 Live-verified on winvm that a wedged tray Start/Stop/Restart notification is ACCEPTED AND RECORDED BY WINDOWS under an AUMID matching the installed Start Menu shortcut, in both the nsis-installed and portable configurations, and that the portable target's missing-shortcut gap is documented. AMENDED 2026-08-07 (user decision, wave 16): the original wording required "a real, visible Windows toast notification"; pixel-level banner capture is unobtainable in this VM, so visible-banner proof is replaced by OS-recorded acceptance plus AUMID correctness.
-- [ ] #4 Live-verified on a Linux desktop environment: a wedged tray action produces a real, visible notification, or the absence is confirmed and documented. CLARIFIED 2026-08-07 (user decision, wave 16): a captured org.freedesktop.Notifications.Notify call accepted by gnome-shell — the actual renderer — satisfies "visible" on a host where pixel proof is environmentally impossible (GNOME 50 denies the Shell Screenshot API; no gnome-screenshot/grim installed).
-- [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 app.setAppUserModelId() is called appropriately for Windows dev/source runs — either matching Electron's own guidance or deliberately deviating from it with the deviation and its reason documented in the code — so that a Windows dev run's tray notification is accepted and recorded by Windows under an AUMID matching the installed Start Menu shortcut. AMENDED 2026-08-07 (user decision, wave 16): the original wording said "so tray notifications actually appear on a Windows dev run"; pixel-level banner capture proved unobtainable on winvm across four capture strategies, so the standard is acceptance-plus-AUMID-correctness, matching the dispensation already granted to AC#4 for Linux.
+- [x] #2 Decide and implement a mitigation for the portable Windows build target (electron-builder.yml's win.target includes portable, which installs no Start Menu shortcut/AUMID) — either exclude notifications from that target gracefully, or document why it's an accepted gap
+- [x] #3 Live-verified on winvm that a wedged tray Start/Stop/Restart notification is ACCEPTED AND RECORDED BY WINDOWS under an AUMID matching the installed Start Menu shortcut, in both the nsis-installed and portable configurations, and that the portable target's missing-shortcut gap is documented. AMENDED 2026-08-07 (user decision, wave 16): the original wording required "a real, visible Windows toast notification"; pixel-level banner capture is unobtainable in this VM, so visible-banner proof is replaced by OS-recorded acceptance plus AUMID correctness.
+- [x] #4 Live-verified on a Linux desktop environment: a wedged tray action produces a real, visible notification, or the absence is confirmed and documented. CLARIFIED 2026-08-07 (user decision, wave 16): a captured org.freedesktop.Notifications.Notify call accepted by gnome-shell — the actual renderer — satisfies "visible" on a host where pixel proof is environmentally impossible (GNOME 50 denies the Shell Screenshot API; no gnome-screenshot/grim installed).
+- [x] #5 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -519,3 +545,15 @@ no file under `backlog/`, so merging cannot clobber the main checkout's amended 
 Tree confirmed clean; reviewer deliberately used a scratchpad backup rather than `git checkout --`
 to avoid the snag class fix pass 2 hit.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed a Windows AppUserModelID MISMATCH — not, as this task was originally filed, an absent AUMID or a portable-only gap. The running app used Electron's generated fallback `electron.app.Claude Conduit` while electron-builder's NSIS installer stamps the Start Menu shortcut with `appId` = `com.evolvconsulting.claudeconduit`; those never matched, on the nsis target as much as the portable one. `src/main/index.js` now calls `app.setAppUserModelId('com.evolvconsulting.claudeconduit')` on win32 unconditionally — packaged and dev alike — via a new pure, unit-testable `src/main/appUserModelId.js`, with a drift guard asserting the runtime constant equals `electron-builder.yml`'s `appId` (later extended to catch a `win:`-scoped override, which is what `app-builder-lib`'s `AppInfo.id` getter actually prefers).
+
+Verified live on both platforms, not inferred. winvm (Windows 11 Pro, active console session): both targets built and driven through the real `createTrayActions().onStart()` failure path inside the real running process via CDP, plus a genuinely unpackaged `--dev` run (`isPackaged: false` read over the wire); the installed shortcut's `System.AppUserModel.ID`, the nsis runtime, the portable runtime and the source-run all read `com.evolvconsulting.claudeconduit`, and Windows itself recorded acceptance under that AUMID (`HKCU\...\Notifications\Settings\com.evolvconsulting.claudeconduit`, `LastNotificationAddedTime = 134305545388759018`). linuxvm (GNOME 50.1 Wayland, active session): the app's own `org.freedesktop.Notifications.Notify` captured on the session bus and traced through to gnome-shell, with bus names re-resolved to PIDs by two independent reviewers and the raw capture preserved on that host at `~/ncow57-evidence/dbus-capture-ncow57-fixpass.log`. Every app run used `NIM_PROXY_TEST_HOME` + `--dev`.
+
+Portable's missing-shortcut gap is documented in `electron-builder.yml` as real and open — including, explicitly, what the evidence CANNOT distinguish (acceptance vs. visible rendering; creation vs. activation, since electron-builder writes no ToastActivatorCLSID for either target). AC#1 and AC#3 were amended by the repo owner mid-flight: pixel-level toast capture proved unobtainable on winvm across four strategies, so the standard became OS-recorded acceptance under a matching AUMID — the same dispensation AC#4 already had for Linux.
+
+Tests 476 -> 485, zero pre-existing test files modified. Merged as PR #62 (`97f13aafa080aecdf24305a00f9f39b0e65d5d70`) after 3 review passes and 2 fix cycles, followed by cleanup PR #63 (`903bca54456697d971b1c497b0128fd770a6578e`) closing 6 of the 8 wave-level integration-review findings after 2 further review passes. Two findings became their own tasks: NCOW-60 (npm test overwrites the real Windows config dir) and NCOW-61 (the ToastActivatorCLSID half of the same Windows requirement, which this task did not close).
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-07 11:49'
+updated_date: '2026-08-07 13:25'
 labels: []
 dependencies: []
 priority: high
@@ -41,3 +42,25 @@ This is agent-resolvable without a Windows host: the fix and its guard are both 
 - [ ] #4 npm test passes on macOS, and the win32 resolution path is proven correct by a test that simulates a win32 environment (a real Windows host is not required)
 - [ ] #5 All pre-existing tests continue to pass unmodified
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Note from the wave-16 cleanup review (2026-08-07) — relevant to this task's scope
+
+`README.md:331` reads `npm test              # 485 tests, no network or real config touched`. The
+wave-16 cleanup branch edited that exact line (to bump the count) and left the second half standing.
+**That second half is false on Windows, and this task is why** — the review recommends this task's
+fix restore the claim's truth rather than leave a doc line asserting a protection that does not hold.
+Consider whether that belongs in this task's acceptance criteria; it is recorded here rather than
+added to them unilaterally.
+
+Also confirmed at wave-16 settlement, independently of the original report: the wave-16 integration
+review swept the whole suite and found NO other offenders — only three test files reference
+`src/engine/paths` at all (`test/main/engine-context-config-regen.test.js`, `test/engine/paths.test.js`,
+`test/engine/configGen.test.js`), and the latter two are safe (`paths.test.js` passes an explicit
+`platform:` on every win32 case and performs no filesystem writes; `configGen.test.js` uses
+`fs.mkdtempSync` roots with no platform branch). The other three `createEngineContext` consumers are
+safe because `engine-context.js`'s own `resolveWindowsTestOverrides()` applies the override
+internally. **This task's scope as filed is correct.**
+<!-- SECTION:NOTES:END -->
