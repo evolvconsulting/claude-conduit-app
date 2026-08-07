@@ -21,6 +21,18 @@ provider among several — don't invest in new NVIDIA-specific abstractions (the
 `litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by NCOW-12
 for exactly this reason; see README).
 
+**Three-repo split (2026-08-07).** This repo was renamed again, `evolvconsulting/
+claude-conduit` → `evolvconsulting/claude-conduit-app` (GitHub redirects the old name;
+the local remote is updated; the in-repo URL sweep and live auto-update verification are
+NCOW-63). It is now one of three sibling repos: **`claude-conduit-docs`** holds the v2
+design — spec `docs/specs/claude-conduit-v2-architecture.md` plus ADRs, maintained with
+the `lore` CLI, and is where cross-repo sessions run from — and
+**`claude-conduit-gateway`** holds the hosted AWS gateway (LiteLLM on ECS Fargate,
+virtual-key auth, Langfuse to the evolv-ultra instance, Bedrock ApplyGuardrail hooks,
+email-code key broker; backlog prefix CCG). v2 design decisions are recorded as ADRs in
+the docs repo; this repo's Backlog stays authoritative for app behaviour. The app-side
+hosted-connection work is NCOW-62, gated behind NCOW-14/15.
+
 <!-- BACKLOG.MD GUIDELINES START -->
 <!-- backlog.md-instructions-version: 1.48.0 -->
 <CRITICAL_INSTRUCTION>
