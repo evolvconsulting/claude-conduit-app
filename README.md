@@ -261,6 +261,56 @@ deliberately, once you know it's fine for everything else you supervise with pm2
 affects all of that too. This app can never make that judgment call on your behalf, which
 is exactly why it never runs that command itself (see CLAUDE.md).
 
+### Tray notifications on Start/Stop/Restart failures
+
+Clicking **Start**, **Stop**, or **Restart** from the tray menu can fail two different
+ways, and both now raise a native OS notification instead of failing silently
+(NCOW-55, extended by NCOW-56):
+
+- **A wedged/thrown call** — the underlying pm2 operation times out or otherwise rejects
+  (see DESIGN.md §7.4 for the pm2 timeout codes this can surface).
+- **A resolved `{ok:false}` result** — the more common case in practice. Clicking tray
+  **Start** on a freshly installed, unconfigured app resolves `NOT_CONFIGURED` ("Run setup
+  first."); a start that begins but never reports healthy resolves `HEALTH_CHECK_TIMEOUT`.
+
+Both paths always log to the console, and — when the OS notification API is available
+(`Notification.isSupported()`) — also show a toast titled "Claude Conduit" with the
+failure's message (falling back to its error code, then a fixed string, if no message is
+present).
+
+**Tray Start stays enabled even with no manifest**, unlike the dashboard's own Start
+button (`#start-btn`), which is disabled whenever setup hasn't been completed
+(`disabled = status === 'running' || !manifest`). This is a deliberate trade-off, not an
+oversight: the tray's status callback only ever carries `{status, pid?, uptime?,
+restarts?}`, with nothing about manifest presence, and threading that through was ruled
+out of scope when this was decided. So tray Start stays enabled whenever status isn't
+`running`, and clicking it on an unconfigured install round-trips through the same handler
+as any other click, surfacing the `NOT_CONFIGURED` notification above — visibly wrong
+instead of silently inert.
+
+**Known platform caveats (NCOW-57):**
+
+- **Windows** — the app's AppUserModelID now matches the Start Menu shortcut the NSIS
+  installer creates, so a `nsis` install's notifications are correctly attributed on the
+  AUMID half. There is a second half electron-builder leaves open on **both** Windows
+  targets: Electron pairs that AUMID with a ToastActivatorCLSID, and electron-builder
+  writes none for `nsis` or `portable` (`electron-builder.yml`'s NCOW-57 comment: a
+  `ToastActivator`/`CLSID` grep over `node_modules/app-builder-lib/templates/nsis/` returns
+  zero hits). This app's toasts are plain informational notifications that never register
+  an activation handler, so the gap isn't exercised today — but it isn't closed either, and
+  NCOW-61 is open to decide it. Separately, and specific to **portable**: that build
+  installs no Start Menu shortcut at all, so even the AUMID half has nothing to be paired
+  with.
+- **macOS** — builds are ad-hoc signed, not signed with a full Apple Developer ID; whether
+  that's enough for notifications to fire at all is not yet verified either way.
+  Notification permission and Do Not Disturb state also aren't checked before a
+  notification is shown.
+- **Linux** — verified live: a wedged action's notification reaches the desktop's
+  notification service (confirmed via a `dbus-monitor` capture against GNOME).
+- On every platform, the console log trail fires regardless of whether the OS actually
+  displays a notification, so a wedged or failed action is never completely silent even
+  where the toast itself is suppressed or unsupported.
+
 ### Where things live
 
 | Path | What |
@@ -328,7 +378,7 @@ is not required; installing the new one over it is fine.
 
 ```sh
 npm install
-npm test              # 485 tests, no network or real config touched
+npm test              # 485 tests (one live NVIDIA API check unless CI is set)
 npm run dev           # run from source
 npm run icons         # regenerate icons from build/icon.svg
 ```
