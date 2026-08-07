@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 05:44'
+updated_date: '2026-08-07 05:54'
 labels: []
 dependencies:
   - NCOW-55
@@ -307,4 +307,100 @@ hardcoded fixture from that same test file (confirmed by grep), present both bef
 which also proves this bug had already fired at least once in an earlier wave. It was never a real
 secret. The worker did not modify that test file (AC#5 forbids touching pre-existing tests) and did
 not re-run `npm test` on either remote host afterward.
+
+## Wave-16 review verdict (opus, pass 2): request_changes — confirmed AC #2, #4, #5
+
+Reviewer re-verified independently rather than inheriting pass 1's conclusions, and corroborated
+the fix worker's remote evidence FIRST-HAND rather than on trust.
+
+**AC#2 CONFIRMED.** Every load-bearing citation re-checked in this worktree's own node_modules:
+`grep -rn "SetLnkAUMI" node_modules/app-builder-lib/` hits ONLY
+`templates/nsis/include/installer.nsh` (lines 200, 209, 225, 232, 240) — nothing for portable;
+`APP_ID: appInfo.id` at `out/targets/nsis/NsisTarget.js:160`; `ToastActivator|CLSID` across the
+nsis templates returns zero hits, so "no ToastActivatorCLSID for either target" is true. The gap
+is named real, open and unmitigated at `electron-builder.yml:59-66` and
+`src/main/appUserModelId.js:71-79`. Glossary quote gone.
+
+**AC#4 CONFIRMED, first-hand.** Reviewer read the preserved capture over ssh (66 lines) and then
+resolved the bus names live itself via `GetConnectionUnixProcessID`: `:1.33` -> 2373 =
+`/usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications`, `:1.24` -> 2198 =
+`/usr/bin/gnome-shell --mode=ubuntu`. Every PID in the worker's claim checked out.
+
+**AC#5 CONFIRMED.** Reviewer's own npm test: 485/485. `git diff --diff-filter=M` over `test/` is
+empty — zero pre-existing test files modified.
+
+**AC#1 NOT CONFIRMED (narrowly).** The implementation half is fully verified
+(`src/main/index.js:20-22`, `src/main/appUserModelId.js:104`). Two wording problems block it:
+(a) `src/main/appUserModelId.js:80-87` misquotes Electron's dev callout by dropping its argument —
+the real recipe at v43.2.0 is `app.setAppUserModelId(process.execPath)`, so the branch's rendering
+("This function is the second half only") is false, since the branch deliberately supplies the
+appId instead. **This is a verbatim recurrence of pass 1's B1 class, introduced BY THE FIX PASS,
+in the same file, in text written to close the related non-blocking finding.**
+(b) The reviewer found live on winvm that the dev configuration that actually worked required a
+pin AND an explicit AUMID stamp: `%APPDATA%\...\Start Menu\Programs\Electron.lnk` (target
+`...\node_modules\electron\dist\electron.exe`) carries
+`System.AppUserModel.ID = com.evolvconsulting.claudeconduit`. Control reads
+(`File Explorer.lnk` -> `Microsoft.Windows.Explorer`, `OneDrive.lnk` -> `Microsoft.SkyDrive.Desktop`)
+show these are explicitly stamped, so a bare "Pin to Start" does NOT yield the appId. That
+prerequisite is documented nowhere in the branch — a developer following the committed comment
+would not reproduce the working setup.
+
+**AC#3 NOT CONFIRMED.** Judged on its own terms (the user's AC#4 dispensation was explicitly not
+extended to it): the branch does not demonstrate a VISIBLE toast in either configuration, and says
+so itself at `electron-builder.yml:88-96`. What IS established is AUMID correctness plus OS
+acceptance, and the reviewer corroborated that independently: the winvm registry key
+`HKCU\...\Notifications\Settings\com.evolvconsulting.claudeconduit` still exists, and its
+`LastNotificationAddedTime` (`REG_QWORD 0x1dd262e944317ea` = 134305545388759018) matches the
+worker's reported value digit for digit, decoding to 2026-08-07T05:35:38Z. Reviewer deliberately
+did NOT rebuild winvm: pixel proof was already established unobtainable in that VM, and no rebuild
+converts "accepted" into "visible".
+
+**Findings.** BLOCKING: `src/main/appUserModelId.js:80-87` (the misquote above). NON-BLOCKING:
+`test/main/app-user-model-id.test.js:109`'s drift regex `/^appId:\s*(\S+)\s*$/m` captures the
+quotes on a legitimately quoted YAML value — reviewer proved it by quoting the value and watching
+the test fail; it fails SAFE (never a false pass), so it is a false-alarm risk only. NIT (host
+hygiene, not the branch): winvm cleanup left `Electron.lnk` pinned to a now-deleted path plus the
+notification registry key.
+
+**Scope: CLEAN.** README/DESIGN still have zero notification mentions (NCOW-58 unpre-empted).
+Reviewer ran the esprima token-stream diff on `tray.js` ITSELF: 901 tokens both sides, streams
+byte-identical — so NCOW-59's tray.js code surface is untouched. electron-builder.yml is
+comment-only. No drive-bys. No relative git refs anywhere in committed text.
+
+**Pass-1 findings status.** B1 genuinely fixed (full Squirrel sentence, exactly doc lines 107-109).
+B2 genuinely fixed in both places; reviewer verified `GetRawAppUserModelID()` is exactly
+`application_info_win.cc:55-70` and `kAppUserModelIDFormat[] = L"electron.app.$1"` is line 24.
+B3 genuinely fixed. B4 genuinely fixed. Dev-recipe non-blocking PARTIALLY fixed (now mentioned but
+mis-stated — the blocking finding). tray.js recap non-blocking genuinely fixed. Nit fixed.
+
+**Failure-class check.** (1) Instance-vs-claim: **FAIL** — old claims swept clean, but the fix pass
+introduced a NEW false claim of the same class (appears once, not restated). (2) Bogus guard: PASS.
+(3) Fabricated specifics: PASS, strongly — reviewer independently reproduced the registry timestamp
+exactly, both Electron source citations at the named tag and line ranges, all three node_modules
+citations, and successfully executed the `System.AppUserModel.ID` COM read. (4) False
+counterfactual: **PASS — it was OBSERVED, not inferred**; `git show 7448bc2:electron-builder.yml`
+records the original pass observing `electron.app.Claude Conduit` live. (5) Relative git refs: PASS.
+
+**Test verification (reviewer's own), 8 experiments each with restore.** Baseline new file 9/9;
+revert fn to `return false` -> 2 fail; restore the `win32 && !isPackaged` gate -> 1 fail; delete
+the index.js call site -> 2 fail; drift the yml appId -> 1 fail; drift the constant -> 1 fail;
+**delete the appId line entirely (vacuity probe) -> 2 fail** (so the drift guard is not vacuous);
+quote the yml value -> 1 fail (the fails-safe false alarm above). Novelty: `grep -rn "appId" test/`
+hits only the new file. Worktree confirmed restored, `git status --porcelain` empty, HEAD
+`6779c3c00c1c6f5add4c7285c6123f2c92e2611a`.
+
+**Incident adjudicated: REAL, and genuinely PRE-EXISTING.** Mechanism confirmed statically —
+`src/engine/paths.js:59-62`'s win32 branch is `opts.appData ?? process.env.APPDATA ?? path.join(homedir, ...)`,
+so a homedir-only override loses to `%APPDATA%`, which is always set on Windows.
+`test/main/engine-context-config-regen.test.js:90` calls `paths.resolveConfigDir({homedir: homeDir})`
+with no `appData`, then `generateAll()` writes config.yaml/litellm.env/run.js/manifest.json into the
+REAL config dir; line 256 does the same and overwrites the real manifest.json. **De-escalation
+confirmed:** `nvidiaApiKey: 'nvapi-old-install'` is a hardcoded fixture at that file's line 100
+(also `configGen.test.js:534`) — no live key was ever written. **Not introduced here:** the file is
+byte-identical to the wave base and last changed in `e79d8ff`. **One correction to the worker's
+account:** `createEngineContext()` DOES thread the overrides correctly via `engine-context.js`'s
+`resolveWindowsTestOverrides()`; the bug is solely the test's own two direct `resolveConfigDir`
+calls. Recommended follow-up scope is narrow: thread `paths.resolveWindowsAppDataOverrides(homeDir)`
+into both call sites (lines 90, 256); the reviewer's sweep found NO other offenders suite-wide, and
+it suggests a cheap suite-wide guard since CLAUDE.md documents this class as recurring.
 <!-- SECTION:NOTES:END -->
