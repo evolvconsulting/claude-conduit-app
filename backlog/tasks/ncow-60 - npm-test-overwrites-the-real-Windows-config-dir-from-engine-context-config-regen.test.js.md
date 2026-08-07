@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-07 14:51'
+updated_date: '2026-08-07 15:13'
 labels: []
 dependencies: []
 priority: high
@@ -316,4 +316,88 @@ pass-1 reviewer had warned that this guard scans every test file, and the throw 
 sharper than the blindness it replaced.
 
 Review pass 2 dispatched into the same worktree, against the rebased tree that will actually merge.
+
+## Wave-17 review pass 2 verdict — REQUEST_CHANGES, but ALL FIVE ACs CONFIRMED
+
+Reviewed `c59e93f68f29548a72953197589c5a746a6a61d7` (rebased onto dev, so the tree that would actually
+merge). `npm test`: `# tests 493 / # pass 493 / # fail 0`. **AC#1-#5 all CONFIRMED.** The
+`request_changes` is driven by ONE claim-accuracy defect, not an unmet criterion.
+
+### B1 (BLOCKING) — a fresh instance of the class, inside the very gap list F2 asked for
+
+The guard's documented gap list claimed a bare backtick in a regex literal "is reported as a loud scan
+failure that names the file and line rather than being silently skipped". **Measured false.** The throw
+fires only when a file's count of bare backticks outside strings/comments is ODD. Two regex literals each
+carrying one bare backtick pair with each other, and an offending call BETWEEN them is silently missed with
+the span blanked and no throw. When the throw does fire and a real template literal follows, it names the
+TEMPLATE's line, not the regex's (probe: stray at line 2 with 40 lines between, throw reported "line 44").
+**Not hypothetical**: `test/renderer/dashboard-view.test.js` already carries FOUR bare backticks in two
+regex literals — an even count, which is the only reason the suite is green. One edit flips that file
+between silently-blind and loud.
+The reviewer judged tolerate-and-recover the better remedy on measured grounds, not taste: the throw bought
+a diagnostic that forced an edit to an unrelated pre-existing test, imposed a suite-wide source-FORMATTING
+constraint on every future test author, can name innocent code, and does not fire in the even-count case
+that carries the same blindness.
+
+### S1 (should-fix) — `require.main === module` can silently disable the whole guard
+
+PROVEN, not theorized: under `node --test --experimental-test-isolation=none` WITH MORE THAN ONE FILE, test
+files load in the runner's own process, so `require.main !== module`, the guard's `test()` calls never
+register, and with both call sites reverted the suite reports `# tests 4 / # pass 4 / # fail 0` — the guard
+appears as a bare `ok` with ZERO subtests and the suite is GREEN WITH THE BUG PRESENT. Default mode
+correctly reports `not ok`. Single-file isolation=none still works, which is why it is easy to miss.
+Safe today (this project pins `npm test` to plain `node --test`, and the guard's comment is honestly scoped
+to "default discovery"), but fragile in exactly this campaign's signature way.
+
+### S3 (should-fix) — the F8 class was not swept
+Two references to a NON-EXISTENT identifier `CALL_RE` remain; the matcher is `callRegex()`. Both predate the
+fix pass, so a missed sweep rather than a fresh instance — but F8 was precisely a dangling-reference fix.
+
+### S2 and N1-N5: message/CLAUDE.md guidance (moot under tolerate-and-recover), plus five wording nits.
+
+## What pass 2 CONFIRMED as correct — recorded so no later pass "re-fixes" it
+
+**F1's mechanism is CLOSED and measured far more strongly than claimed.** The reviewer injected a canary at
+EVERY line boundary of all 37 scanned files via an in-memory `fs.readFileSync` shim (zero disk writes) —
+12,870 positions. 181 not detected, and ALL 181 were classified by an independent lexer as landing inside a
+real block comment or template literal, i.e. correct behavior. **GENUINE BLIND POSITIONS: 0.** Live blind
+area today is 87 non-whitespace code chars across 15 lines, all within-line, none reaching EOF — against
+pass 1's ~45 lines with to-EOF spans. The same-line residual IS accurately disclosed, and was confirmed
+present in four shapes and absent in three others. 4 of those 15 partially-blind lines are in
+`test/main/app-user-model-id.test.js`, which NCOW-61 will touch.
+
+**F3 CLOSED both halves by the reviewer's own mutation**: injecting a new export made the drift test fail
+naming it, and REMOVING `resolveWindowsAppDataOverrides` made it fail naming it as stale.
+**F4 + boundary tightening CLOSED**: `{platform: process.platform, homedir}`, `{homedir, appData: undefined}`
+and `{homedir, localAppData: null}` are all now flagged; all three survived pass 1's guard.
+**F2's survivor list verified accurate in the forward direction** (all 7 real), and everything the file
+claims to catch was confirmed caught. **F5, F6, F7, F9 CLOSED.** AC#3 non-vacuity re-proven against the
+final guard: `# pass 492 / # fail 1`, the guard naming `:97` and `:320` exactly, and all three new scanner
+tests fail against the pre-fix stripper.
+
+**The pre-existing-test modification is NOT an AC#5 violation.** The reviewer extracted both regex literals
+byte-for-byte: compiled `.flags` identical, compiled `.source` NOT identical, but matching behavior
+identical across 10 targeted cases plus 300,000 randomized inputs over an alphabet containing backtick,
+backslash, `u`, `0`, `6` — and the regex is consumed only as an `assert.throws` validator, which uses
+`.test()` and never `.source`. Fix pass 2 was nonetheless told to REVERT it, because tolerate-and-recover
+removes its only justification and restores that test to genuinely unmodified.
+
+**The "no parser" reasoning is substantively right, with a new supporting datum**: esprima 4 cannot parse
+this suite at all (`parseScript` on `test/engine/pm2Control.test.js` throws at line 588 on modern syntax).
+**The `976-1006` line-span correction is VERIFIED, not fabricated** — diffing the pre-fix stripper against
+the current one yields an outer span of exactly 976-1006, anchored on the `['"]`-bearing regex at line 974.
+**Proportionality accepted**: 465 lines = 254 comment / 190 code / 21 blank; nothing unreachable; only ~30
+lines of genuine duplication worth tidying. **Cleanliness CLEAN**; **ID sweep CLEAN** (NCOW-23 x5,
+NCOW-60 x29, both filed).
+
+## One pass-2 observation verified and DISMISSED by the orchestrator
+
+Pass 2 flagged that `git diff dev...HEAD` appeared to include two backlog task files from the
+orchestrator's own settle commit. `36f50a21c2ae0af483e32f9937ad24c5b4ff65b6` is the MERGE BASE — an
+ancestor of both branch and dev — so it cannot fold into the squash, and the three branch-only commits
+(`420eec0`, `6554400`, `c59e93f`) touch ZERO `backlog/` files. Verified directly; the observation was an
+artifact of comparing against a stale local ref.
+
+Fix pass 2 dispatched into the same worktree with all findings verbatim, instructed to adopt
+tolerate-and-recover, revert the pre-existing-test edit, and remove the `require.main` fragility.
 <!-- SECTION:NOTES:END -->
