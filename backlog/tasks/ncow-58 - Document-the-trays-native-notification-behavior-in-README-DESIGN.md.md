@@ -1,10 +1,10 @@
 ---
 id: NCOW-58
 title: Document the tray's native notification behavior in README/DESIGN.md
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 14:16'
+updated_date: '2026-08-07 14:19'
 labels: []
 dependencies:
   - NCOW-55
@@ -30,12 +30,12 @@ Also note: the wave-15 integration review's own staleness sweep confirmed that n
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 README.md documents that a wedged tray Start/Stop/Restart action raises a native OS notification, alongside this project's existing documentation of other tray/proxy user-facing behavior
-- [ ] #2 DESIGN.md's existing tray/pm2-timeout section (§7.x) is updated if it needs to reflect the new notification surface, or explicitly left alone with a note why if it doesn't
-- [ ] #3 Known platform caveats (Windows AUMID/portable-build gap, macOS DND/permission-denied) are mentioned or linked to NCOW-57's resolution, whichever is accurate at the time this task is done
-- [ ] #4 README.md describes BOTH failure classes the tray now surfaces: a wedged/thrown call and a resolved {ok:false} result (e.g. NOT_CONFIGURED on an unconfigured install, HEALTH_CHECK_TIMEOUT), not just the wedged case
-- [ ] #5 The deliberate tray-Start-vs-dashboard-#start-btn asymmetry from NCOW-56's AC#2 decision is documented where a user can read it, including why tray Start stays enabled with no manifest and notifies on click instead of being disabled
-- [ ] #6 README.md:331's `npm test` comment no longer asserts a protection that does not hold: the "no real config touched" half is corrected or dropped so the line is accurate on Windows as well, and accurate regardless of whether NCOW-60 lands (do NOT write a claim whose truth depends on a sibling task merging)
+- [x] #1 README.md documents that a wedged tray Start/Stop/Restart action raises a native OS notification, alongside this project's existing documentation of other tray/proxy user-facing behavior
+- [x] #2 DESIGN.md's existing tray/pm2-timeout section (§7.x) is updated if it needs to reflect the new notification surface, or explicitly left alone with a note why if it doesn't
+- [x] #3 Known platform caveats (Windows AUMID/portable-build gap, macOS DND/permission-denied) are mentioned or linked to NCOW-57's resolution, whichever is accurate at the time this task is done
+- [x] #4 README.md describes BOTH failure classes the tray now surfaces: a wedged/thrown call and a resolved {ok:false} result (e.g. NOT_CONFIGURED on an unconfigured install, HEALTH_CHECK_TIMEOUT), not just the wedged case
+- [x] #5 The deliberate tray-Start-vs-dashboard-#start-btn asymmetry from NCOW-56's AC#2 decision is documented where a user can read it, including why tray Start stays enabled with no manifest and notifies on click instead of being disabled
+- [x] #6 README.md:331's `npm test` comment no longer asserts a protection that does not hold: the "no real config touched" half is corrected or dropped so the line is accurate on Windows as well, and accurate regardless of whether NCOW-60 lands (do NOT write a claim whose truth depends on a sibling task merging)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -297,3 +297,19 @@ parenthetical.
 
 Approved for the merge queue. Two review passes, one fix cycle.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Documented the tray's native OS notification behavior — this app's first-ever OS notification, previously absent from README.md, DESIGN.md and CLAUDE.md alike — and corrected a false safety claim in README's build instructions. Merged as `bc839e110c58cc4ab04f64ffea8b4d1c6aaf29f7` (PR #64), squashed from `23e2f64` + `0c85782` after rebase onto `dev`.
+
+README.md gains a `### Tray notifications on Start/Stop/Restart failures` section covering both failure classes (a wedged/thrown call, and a resolved `{ok:false}` such as `NOT_CONFIGURED` or `HEALTH_CHECK_TIMEOUT` — the more common case), the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry whose reasoning previously existed only as a code comment, and the known Windows/macOS/Linux caveats. DESIGN.md §7.4 gains a pointer paragraph that deliberately does not duplicate those caveats and says why.
+
+AC#6 corrected `README.md`'s `npm test` comment, which claimed "no network or real config touched". BOTH halves were false: the config half on Windows (which NCOW-60 fixes), and the network half everywhere, because `test/engine/nvidiaKey.test.js:83` skips only when `CI` is set. The line now asserts no protection at all.
+
+Verified: `npm test` 485/485, re-verified after rebase onto `dev`. Two review passes, one fix cycle; all six acceptance criteria independently confirmed by review pass 2, which checked each against primary source rather than the implementer's report. The replacement wording was verified BY MEASUREMENT — the suite run under a require-hook spying on `fetch`/`http`/`https` showed exactly two real calls, both from that one CI-gated test, and `CI=1` yielded 484 pass / 1 skipped.
+
+Pass 1's decisive finding: the obvious remedy for the false claim was itself insufficient, because keeping "no network access" preserved a second false protection in the same clause. It also caught a false counterfactual in DESIGN.md by reading the pre-NCOW-55 source directly — `onStart`/`onRestart` had no `.catch()` at all, so a rejection became an unhandled main-process rejection rather than "only `console.error`".
+
+Known follow-up, recorded for the wave's post-merge cleanup: the `485` count in README.md and CLAUDE.md both go stale once the sibling branches land, and the bump must preserve README's new parenthetical.
+<!-- SECTION:FINAL_SUMMARY:END -->

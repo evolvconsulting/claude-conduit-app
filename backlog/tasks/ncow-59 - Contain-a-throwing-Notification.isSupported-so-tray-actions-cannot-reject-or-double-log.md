@@ -3,10 +3,10 @@ id: NCOW-59
 title: >-
   Contain a throwing Notification.isSupported() so tray actions cannot reject or
   double-log
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-07 02:23'
-updated_date: '2026-08-07 14:03'
+updated_date: '2026-08-07 14:19'
 labels: []
 dependencies:
   - NCOW-56
@@ -30,11 +30,11 @@ The likely fix is small — move the `isSupported()` check inside `notifyFailure
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 notifyFailure()'s Notification.isSupported() call can no longer let a throw escape into runAction()'s .catch()
-- [ ] #2 A throwing isSupported() produces exactly one console.error attributable to the real cause, not a second misattributed '<action> failed' line
-- [ ] #3 createTrayActions()'s returned onStart/onStop/onRestart never reject even when isSupported() throws, matching the module's existing JSDoc contract
-- [ ] #4 A test drives a Notification fake whose isSupported() throws and proves the above, failing against current merged source (non-vacuity reproduced and reported)
-- [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 notifyFailure()'s Notification.isSupported() call can no longer let a throw escape into runAction()'s .catch()
+- [x] #2 A throwing isSupported() produces exactly one console.error attributable to the real cause, not a second misattributed '<action> failed' line
+- [x] #3 createTrayActions()'s returned onStart/onStop/onRestart never reject even when isSupported() throws, matching the module's existing JSDoc contract
+- [x] #4 A test drives a Notification fake whose isSupported() throws and proves the above, failing against current merged source (non-vacuity reproduced and reported)
+- [x] #5 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -181,3 +181,21 @@ lines — consistent with the suite's existing habit.
 
 Approved for the merge queue with no changes requested.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Contained a throwing `Notification.isSupported()` inside `notifyFailure()`'s existing `try`, so a throw can no longer escape into `runAction()`'s trailing `.catch()`. Merged as `de6c1c35702e330bf6b73365c8946ac633410683` (PR #65), squashed from `b00fa02` after rebase onto `dev`.
+
+Before the fix, a throwing `isSupported()` produced three wrong outcomes, all reproduced: a SECOND `console.error` misattributed as though the tray action itself had failed when it may have succeeded, a REJECTED promise contradicting the module's own JSDoc contract that none of the three ever reject, and the intended notification never shown. One line moved; two regression tests added.
+
+The class is PRE-EXISTING, established here by provenance rather than by reading: `git blame -L 340,346` attributes the guard line to NCOW-55's commit `76a7c3c`, and `git log -S"Notification.isSupported"` shows it was never modified afterward. NCOW-56 only added a second entry point (a resolved `{ok:false}` now also reaches `notifyFailure()`). It is unreachable with Electron's real `Notification`.
+
+Verified: `npm test` 487/487 (485 base + exactly 2), re-verified after rebase onto `dev`. One review pass, approved, all five acceptance criteria independently confirmed. The reviewer reproduced the non-vacuity ITSELF — copied `tray.js` to a scratchpad, moved the guard back outside the `try`, observed both new tests fail, restored and verified byte-exactness by SHA-256 and diff — then probed 13 further arrangements (throwing getter, thrown bare string, thrown null, throwing constructor, throwing show(), a Proxy whose get throws, truthy/falsy non-boolean returns), all correctly contained.
+
+Recorded nuance: in both tests the rejection assertion comes FIRST, so pre-fix they abort there and never reach the log-count assertion. They are genuinely non-vacuous, but AC#2's double-log half is proven by a separate probe rather than by those tests failing.
+
+Scope verified clean: the NCOW-57 AUMID comment block was not edited or reflowed, and the deliberately-unresolved macOS ad-hoc-signing question was not guessed shut.
+
+Four follow-up candidates were surfaced by the implementer's class sweep and confirmed by the reviewer BY EXPERIMENT, all correctly left unfixed as out of scope. They are recorded in this task's implementation notes and were carried to the wave's settlement for user approval before filing.
+<!-- SECTION:FINAL_SUMMARY:END -->
