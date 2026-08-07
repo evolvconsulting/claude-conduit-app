@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-07 13:45'
+updated_date: '2026-08-07 14:00'
 labels: []
 dependencies: []
 priority: high
@@ -43,6 +43,23 @@ This is agent-resolvable without a Windows host: the fix and its guard are both 
 - [ ] #5 All pre-existing tests continue to pass unmodified
 <!-- AC:END -->
 
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read the task spec, CLAUDE.md's NCOW-23 note, src/engine/paths.js, src/main/engine-context.js, and test/main/engine-context-config-regen.test.js to confirm the exact mechanism and current line numbers.
+2. Grep every call site of the four win32-branching resolvers (resolveConfigDir, resolveLegacyConfigDir, resolveClaudeDesktopConfigLibraryDir, resolveElectronAppDataDir) across src/ and test/ to INDEPENDENTLY confirm the task notes' claim that only engine-context-config-regen.test.js is unsafe.
+3. Run baseline npm test: 485/485.
+4. Write a new suite-wide guard, test/engine/paths-win32-override-guard.test.js, that recursively scans test/**/*.test.js, strips comments/strings, finds calls to the four resolvers, and flags any call with a homedir override but no explicit platform and no appData/localAppData/spread escape.
+5. Verify the guard FAILS against the unfixed file BEFORE touching it.
+6. Apply the actual fix: thread paths.resolveWindowsAppDataOverrides(homeDir) into both paths.resolveConfigDir call sites.
+7. Verify the guard PASSES post-fix; run the file's own suite and the full suite.
+8. Add a dedicated AC#4 test simulating a win32 host (forced platform + realistic APPDATA/LOCALAPPDATA), mirroring paths.test.js's withRealWindowsEnvVars technique.
+9. Fix a real bug discovered in the guard itself (see notes) by stripping comments/strings before detection.
+10. Re-run the full AC#3 experiment against the FINAL guard: scratchpad backup, revert both call sites, observe FAIL, restore via cp, diff byte-for-byte, observe PASS.
+11. Run an adversarial probe: one scratch file with distinct mutation shapes, record per-mutation results, delete the probe, confirm git status clean.
+12. Run the full suite once more post-commit, commit in two logical commits, push.
+<!-- SECTION:PLAN:END -->
+
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
@@ -63,4 +80,79 @@ review swept the whole suite and found NO other offenders — only three test fi
 `fs.mkdtempSync` roots with no platform branch). The other three `createEngineContext` consumers are
 safe because `engine-context.js`'s own `resolveWindowsTestOverrides()` applies the override
 internally. **This task's scope as filed is correct.**
+
+## Wave-17 implementation evidence (worker, branch `fix/NCOW-60-test-real-windows-config`, commits `598e60e48101fe63f85d613c49a77d5c1dfb37e6` and `9b9c829639021dca68755f4c247c83cfd6ddf81e`, branched from `20ffa60add5d7e281a2f39610adcec1ee987b489`)
+
+Recorded by the orchestrator from the worker's structured return. NOT yet independently reviewed at the
+time of writing.
+
+**AC#1** — both direct call sites now read
+`paths.resolveConfigDir({ homedir: homeDir, ...paths.resolveWindowsAppDataOverrides(homeDir) })`
+(in `seedStaleInstall()`, originally line 90; and in the corrupt-manifest test, originally line 256).
+
+**AC#2** — new file `test/engine/paths-win32-override-guard.test.js`. Recursively walks `test/` for
+`*.test.js` (excluding itself), blanks comments/strings, and flags any call to `resolveConfigDir`,
+`resolveLegacyConfigDir`, `resolveClaudeDesktopConfigLibraryDir` or `resolveElectronAppDataDir` whose
+options carry `homedir` but no explicit `platform` and no `appData`/`localAppData`/spread escape. One
+`test()`, ~10-20ms, no per-file registration, so a new offending file is caught automatically. The
+worker deliberately covered ALL FOUR resolvers rather than only `resolveConfigDir`, matching CLAUDE.md's
+framing of this as a recurring class rather than a single-function defect.
+
+**AC#3 — NON-VACUITY PROVEN BY EXPERIMENT against the FINAL guard.** Backed the fixed file up to a
+scratchpad, reverted both call sites in place, ran the guard:
+```
+not ok 1 - test suite: no test overrides only `homedir` (with no explicit `platform` and no appData/localAppData escape)
+error: Offenders:
+  main/engine-context-config-regen.test.js:90: resolveConfigDir({ homedir: homeDir })
+  main/engine-context-config-regen.test.js:301: resolveConfigDir({ homedir: homeDir })
+# pass 0 / # fail 1
+```
+(the second offender reports at :301 rather than the task's :256 because the file grew during the fix).
+Restore verified EXACT: `diff <backup> <restored>` produced no output. Guard then passed `# pass 1 / # fail 0`.
+NOVELTY: not a copy of anything. `test/engine/paths.test.js` tests the resolvers' own return values with
+explicit inputs and never reads other files from disk or scans source. `test/engine/configGen.test.js`
+never calls any of the four resolvers at all — confirmed by the worker's own grep rather than taken from
+the task notes on trust. The guard's mechanism (recursive walk + comment/string-stripped scan +
+balanced-paren argument extraction) exists nowhere else in the repo.
+
+**A REAL BUG THE WORKER FOUND IN ITS OWN GUARD, worth preserving as a lesson.** Its first draft's
+explanatory comment in `seedStaleInstall` quoted the OLD buggy call shape verbatim for documentation —
+and that comment text was itself a textual match for the guard's own call-detection regex, producing a
+FALSE POSITIVE that appeared ONLY under the full `npm test` run and not when the guard file ran alone
+(order-dependent). Fixed by adding `stripCommentsAndStrings()` and running detection against the
+stripped copy while still reporting the original text in the failure message. This is precisely the
+class of self-inflicted guard defect this campaign keeps hitting, caught here by the worker itself
+because it ran the experiment instead of reading the guard.
+
+**AC#4** — a dedicated test forces `platform: 'win32'` and sets realistic `process.env.APPDATA`/
+`LOCALAPPDATA` (mirroring `paths.test.js`'s established `withRealWindowsEnvVars` technique), then
+asserts the fixed call resolves to `path.join(homeDir, 'AppData', 'Roaming', 'claude-conduit')` and NOT
+to the simulated real `%APPDATA%\claude-conduit`. No Windows host used or required.
+
+**AC#5** — `# tests 487 / # pass 487 / # fail 0`. 487 = 485 baseline + 2 new tests. No existing test
+modified other than the two `resolveConfigDir` call sites, which are the in-scope fix itself.
+
+## Adversarial probe — 8 mutations, 5 CAUGHT, 3 SURVIVED (worker's own honest report)
+
+CAUGHT: a different call shape with no `paths.` prefix; a differently-named override variable; the same
+omission in a NEW file (the scratch probe file itself, picked up automatically by the recursive walk); a
+call spread across multiple lines; a different win32-branching resolver with the same omission.
+
+SURVIVED, all three documented rather than hidden:
+1. **Aliased destructured import** (`const { resolveConfigDir: rcd } = require(...); rcd({ homedir })`) —
+   the regex matches the literal function name, so an alias evades it.
+2. **Explicit `platform: 'win32'` with homedir-only and no appData** — exempted BY DESIGN, on the
+   reasoning that forcing `platform` is a deliberate controlled simulation (which is what every
+   legitimate case in `paths.test.js` does). The guard cannot distinguish that from a hypothetical
+   future call that forces `platform: 'win32'` AND performs a real filesystem write with no appData —
+   a real residual risk if this suite were ever run on an actual Windows CI host.
+3. **Spread of a variable that does not itself carry appData/localAppData**
+   (`{ homedir, ...emptyOverrides }` where `emptyOverrides = {}`) — a text scan cannot see what a spread
+   identifier evaluates to at runtime.
+
+The worker's stated rationale for the exemption line ("explicit `platform` key present") is that it
+classifies every real call site in the repo today with zero false positives or negatives, mirrors the
+actual mechanism of the bug (reliance on real `process.platform`), and matches this repo's existing
+precedent of pragmatic regex-only static checks with documented limits (this repo has no parser
+dependency). Recorded so review can accept or challenge the line rather than rediscover it.
 <!-- SECTION:NOTES:END -->
