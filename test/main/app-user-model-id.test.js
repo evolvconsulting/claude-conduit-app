@@ -93,10 +93,11 @@ test('main/index.js: calls app.setAppUserModelId(APP_USER_MODEL_ID) guarded by s
 // timing guidance at all, and docs/tutorial/notifications.md at the same tag
 // has none either. The "should be called early" sentence does exist in
 // app.md, but at line 1159, in the *adjacent* `app.setToastActivatorCLSID(id)`
-// entry — a different API this app doesn't call (see NCOW-60/F3). The
-// ordering assertion below is real and worth keeping regardless: it is this
-// codebase's own chosen invariant (matching index.js's own comment at the
-// call site), not something borrowed from upstream documentation.
+// entry — a different API this app doesn't call (see NCOW-61, which tracks
+// deciding whether to adopt it). The ordering assertion below is real and
+// worth keeping regardless: it is this codebase's own chosen invariant
+// (matching index.js's own comment at the call site), not something borrowed
+// from upstream documentation.
 test('main/index.js: the setAppUserModelId call happens before app.whenReady() is invoked (NCOW-57 — this codebase\'s own chosen invariant, not an Electron doc requirement)', () => {
   const setCallIndex = INDEX_SOURCE.indexOf('app.setAppUserModelId(APP_USER_MODEL_ID)');
   const whenReadyIndex = INDEX_SOURCE.indexOf('app.whenReady()');
@@ -156,14 +157,36 @@ test('electron-builder.yml has a parseable top-level appId line (sanity check fo
 // — see the fix-pass-1 comment above for why) one level deeper: find the
 // `win:` block by its own top-level line, then look for an `appId:` line
 // indented somewhere inside it.
+//
+// wave-16 cleanup fix pass (F6 hardening): both halves of the extraction
+// above were themselves defeated by ordinary YAML comment styling, and a
+// defeated extraction failed SILENTLY — the `if (WIN_APP_ID_LINE_MATCH)`
+// guard below just skips its assertion when extraction comes back empty, so
+// a real drift passed 9/9 green. Demonstrated two ways: (1) `^${topLevelKey}
+// :\s*$` required `win:` to be the *entire* line, so a trailing
+// `win:  # comment` never matched at all and WIN_BLOCK came back null; (2)
+// the loop broke on the first line matching `/^\S/`, treating a column-0
+// comment inside the block as if it were a dedented sibling key and cutting
+// extraction off before it ever reached an indented `appId:` below it — but
+// YAML comments aren't indentation-scoped, so a `#`-comment at column 0
+// doesn't actually end the block. Fixed by: tolerating a trailing comment
+// on the `topLevelKey:` line itself, and by no longer treating a
+// comment-only line (at any column) as the dedent that ends the block —
+// only a line whose first non-whitespace character starts real (non-`#`)
+// content ends it now. A companion sanity assertion (mirroring the
+// top-level `APP_ID_MATCH` check above) is added below so a future
+// regression that empties WIN_BLOCK again fails loudly instead of quietly
+// skipping the check that depends on it.
 function extractYamlBlock(source, topLevelKey) {
   const lines = source.split('\n');
-  const startIndex = lines.findIndex((line) => new RegExp(`^${topLevelKey}:\\s*$`).test(line));
+  const startIndex = lines.findIndex((line) => new RegExp(`^${topLevelKey}:\\s*(#.*)?$`).test(line));
   if (startIndex === -1) return null;
   const blockLines = [];
   for (let i = startIndex + 1; i < lines.length; i += 1) {
     const line = lines[i];
-    if (line.trim() === '') {
+    if (line.trim() === '' || /^\s*#/.test(line)) {
+      // blank line, or a comment-only line at any column — YAML comments are
+      // not indentation-scoped, so this does not end the block.
       blockLines.push(line);
       continue;
     }
@@ -182,6 +205,20 @@ test('appUserModelId.js: APP_USER_MODEL_ID equals electron-builder.yml\'s appId 
     APP_ID_MATCH[1],
     'APP_USER_MODEL_ID in src/main/appUserModelId.js must match appId in electron-builder.yml, ' +
       'because that is the exact string electron-builder\'s NSIS installer binds onto the Start Menu shortcut'
+  );
+
+  // wave-16 cleanup (F6 hardening): sanity check that the `win:` block was
+  // actually located at all, mirroring APP_ID_MATCH's own sanity check above
+  // — electron-builder.yml always has a top-level `win:` key in this repo,
+  // so WIN_BLOCK coming back null means the extraction itself regressed
+  // (e.g. its anchor stopped matching), not that there is nothing to check.
+  // Without this, that failure mode is indistinguishable from the
+  // legitimate "no win:-scoped appId override present" case below, and the
+  // assertion that depends on it silently never runs.
+  assert.ok(
+    WIN_BLOCK !== null,
+    'expected to find a top-level "win:" block in electron-builder.yml — if this fails, ' +
+      'extractYamlBlock() regressed and the win:-scoped drift check below would silently no-op'
   );
 
   if (WIN_APP_ID_LINE_MATCH) {

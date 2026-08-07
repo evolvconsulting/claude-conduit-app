@@ -230,13 +230,17 @@ function createTray(opts, deps = {}) {
  * v43.2.0, below; see appUserModelId.js and electron-builder.yml's
  * `win.target` comment for the Windows one in more detail):
  * (1) on Windows, `isSupported()` does not check whether this process has a
- * usable AppUserModelID/Start-Menu-shortcut pairing bound to it — the doc
- * (lines 135-141) instead points at the userland `windows-notification-state`
- * module to query that ahead of time; (2) on macOS, `isSupported()` likewise
- * does not check notification-permission or Do-Not-Disturb state — the same
- * doc (lines 155-160) points at the userland `macos-notification-state`
- * module for that (not independently re-verified live in this task — this is
- * Electron's documented direction, unchanged by this task's fix); (3) also on
+ * usable AppUserModelID/Start-Menu-shortcut pairing bound to it (see
+ * appUserModelId.js's citation trail) — the doc (lines 135-141) does not name
+ * that condition; it describes the userland `windows-notification-state`
+ * module only in general terms, as letting a caller "detect whether or not
+ * you're allowed to send a notification" / "determine ahead of time whether
+ * or not Windows will silently throw the notification away"; (2) on macOS,
+ * `isSupported()` likewise does not check notification-permission or
+ * Do-Not-Disturb state — the same doc (lines 155-160) points at the userland
+ * `macos-notification-state` module for that (not independently re-verified
+ * live in this task — this is Electron's documented direction, unchanged by
+ * this task's fix); (3) also on
  * macOS, the same doc (lines 145-148) states plainly: "your application will
  * need to be code-signed in order for notification events to emit correctly
  * ... Unsigned binaries will emit a `failed` event when notification APIs
