@@ -62,10 +62,15 @@ win:
   # `templates/nsis/include/installer.nsh`; none for `portable`). Electron's
   # notifications doc says Windows toasts need exactly such a shortcut
   # carrying an AppUserModelID (AUMID) + ToastActivatorCLSID — so `portable`
-  # is missing one of those two ingredients unconditionally, by construction,
-  # regardless of anything this app's own code does. This is a real, named,
-  # currently-unmitigated gap for `portable`, not something ruled out by the
-  # live testing below.
+  # is missing the shortcut that carries BOTH ingredients, not merely one of
+  # the two (wave-16 cleanup, F7: `CreateShortCut` appears only in
+  # `app-builder-lib/templates/nsis/include/installer.nsh` across all of
+  # `app-builder-lib/templates/`, and `templates/nsis/portable.nsi` has zero
+  # `CreateShortCut`/`StartMenu` hits — portable creates no shortcut at all,
+  # so neither ingredient has anywhere to attach), unconditionally, by
+  # construction, regardless of anything this app's own code does. This is a
+  # real, named, currently-unmitigated gap for `portable`, not something
+  # ruled out by the live testing below.
   #
   # What changed this fix pass: `src/main/appUserModelId.js` now calls
   # `app.setAppUserModelId('com.evolvconsulting.claudeconduit')` —

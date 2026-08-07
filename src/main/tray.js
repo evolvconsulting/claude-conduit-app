@@ -224,21 +224,35 @@ function createTray(opts, deps = {}) {
  * NCOW-57 correction: the claim immediately above is narrower in practice
  * than it reads. `Notification.isSupported()` reports whether the platform
  * has a notification API at all — it does NOT detect every condition that
- * can leave a toast never actually visible to the user. Two documented gaps
- * per Electron's/Microsoft's own docs (see appUserModelId.js and
- * electron-builder.yml's `win.target` comment for the Windows one in detail):
- * (1) on Windows, `isSupported()` returns `true` regardless of whether this
- * process has a usable AppUserModelID/Start-Menu-shortcut pairing bound to
- * it; (2) on macOS, it returns `true` even when the user has denied
- * notification permission or has Do Not Disturb on (not independently
- * re-verified live in this task — this is documented Electron/macOS
- * behavior, unchanged by this task's fix). What WAS live-verified on
- * winvm/linuxvm as part of NCOW-57: `createTrayActions()`'s real onStart()
- * failure path, invoked in real running processes (a silently-installed
- * `nsis` build, the standalone `portable` exe, and — both on the original
- * pass and again on the NCOW-57 fix pass — a source `--dev` run), reaches
- * the real OS notification pipeline in every configuration tried on both
- * platforms.
+ * can leave a toast never actually visible to the user. Three gaps (wave-16
+ * cleanup, F4: the previous wording overstated what Electron's docs
+ * themselves say — quoting from docs/tutorial/notifications.md, tag
+ * v43.2.0, below; see appUserModelId.js and electron-builder.yml's
+ * `win.target` comment for the Windows one in more detail):
+ * (1) on Windows, `isSupported()` does not check whether this process has a
+ * usable AppUserModelID/Start-Menu-shortcut pairing bound to it — the doc
+ * (lines 135-141) instead points at the userland `windows-notification-state`
+ * module to query that ahead of time; (2) on macOS, `isSupported()` likewise
+ * does not check notification-permission or Do-Not-Disturb state — the same
+ * doc (lines 155-160) points at the userland `macos-notification-state`
+ * module for that (not independently re-verified live in this task — this is
+ * Electron's documented direction, unchanged by this task's fix); (3) also on
+ * macOS, the same doc (lines 145-148) states plainly: "your application will
+ * need to be code-signed in order for notification events to emit correctly
+ * ... Unsigned binaries will emit a `failed` event when notification APIs
+ * are called." This app's macOS builds are ad-hoc signed, not signed with a
+ * full Apple Developer ID (electron-builder.yml's `mac.identity: "-"` — see
+ * CLAUDE.md's hard constraints) — whether that ad-hoc signature is enough to
+ * avoid the doc's "unsigned" failure mode is not something this comment
+ * resolves, and `isSupported()` does not detect this condition either way.
+ * What WAS live-verified on winvm/linuxvm as part of NCOW-57:
+ * `createTrayActions()`'s real onStart() failure path, invoked in real
+ * running processes (a silently-installed `nsis` build, the standalone
+ * `portable` exe, and — both on the original pass and again on the NCOW-57
+ * fix pass — a source `--dev` run), reaches the real OS notification
+ * pipeline in every Windows configuration tried — `nsis`/`portable` don't
+ * exist as Linux targets, so Linux's evidence is the separate dbus capture
+ * described two paragraphs below, not this list.
  *
  * Windows recap (fix pass): the original pass's finding that Windows
  * "accepted and recorded the call identically for both packaged

@@ -86,7 +86,18 @@ test('main/index.js: calls app.setAppUserModelId(APP_USER_MODEL_ID) guarded by s
   );
 });
 
-test('main/index.js: the setAppUserModelId call happens before app.whenReady() is invoked (NCOW-57 — Electron\'s doc calls this out as needing to run early)', () => {
+// NCOW-57 wave-16 cleanup (F2): this test's title used to attribute the
+// ordering requirement to "Electron's doc" — it does not. Electron v43.2.0's
+// docs/api/app.md:1142-1146 entry for `app.setAppUserModelId(id)` reads only
+// "Changes the [Application User Model ID][app-user-model-id] to `id`." — no
+// timing guidance at all, and docs/tutorial/notifications.md at the same tag
+// has none either. The "should be called early" sentence does exist in
+// app.md, but at line 1159, in the *adjacent* `app.setToastActivatorCLSID(id)`
+// entry — a different API this app doesn't call (see NCOW-60/F3). The
+// ordering assertion below is real and worth keeping regardless: it is this
+// codebase's own chosen invariant (matching index.js's own comment at the
+// call site), not something borrowed from upstream documentation.
+test('main/index.js: the setAppUserModelId call happens before app.whenReady() is invoked (NCOW-57 — this codebase\'s own chosen invariant, not an Electron doc requirement)', () => {
   const setCallIndex = INDEX_SOURCE.indexOf('app.setAppUserModelId(APP_USER_MODEL_ID)');
   const whenReadyIndex = INDEX_SOURCE.indexOf('app.whenReady()');
   assert.ok(setCallIndex !== -1, 'expected to find the app.setAppUserModelId(...) call');
@@ -125,11 +136,62 @@ test('electron-builder.yml has a parseable top-level appId line (sanity check fo
   assert.ok(APP_ID_MATCH, 'expected to find a top-level "appId: <value>" line in electron-builder.yml');
 });
 
-test('appUserModelId.js: APP_USER_MODEL_ID equals electron-builder.yml\'s appId — the two must never silently diverge (NCOW-57)', () => {
+// NCOW-57 wave-16 cleanup (F6): the drift guard below used to only ever look
+// at a TOP-LEVEL `appId:` line, but electron-builder's own precedence does
+// not. app-builder-lib/out/appInfo.js's `id` getter walks
+// `[this.platformSpecificOptions, this.info.config]` in that order and
+// returns the FIRST non-null `.appId` it finds — and for a Windows target,
+// platformPackager.js sets `platformSpecificOptions` from `this.config.win`
+// (`PlatformPackager.normalizePlatformSpecificBuildOptions
+// (this.config[platform.buildConfigurationKey])`, buildConfigurationKey
+// being `'win'`). So a `win:`-scoped `appId` — which is schema-valid
+// (`scheme.json`'s `WindowsConfiguration.properties.appId`, and that
+// definition sets `additionalProperties: false`, so it isn't merely
+// tolerated as stray input) — wins over the top-level one and is exactly
+// what `WinShell::SetLnkAUMI "${APP_ID}"` stamps onto the Start Menu
+// shortcut. The regex below, anchored `^appId:` with the `m` flag, cannot
+// see an indented `appId:` line nested under `win:` at all, so a `win:`-
+// scoped override drifting from APP_USER_MODEL_ID would have passed this
+// whole file silently. This extends the same approach (still no YAML parser
+// — see the fix-pass-1 comment above for why) one level deeper: find the
+// `win:` block by its own top-level line, then look for an `appId:` line
+// indented somewhere inside it.
+function extractYamlBlock(source, topLevelKey) {
+  const lines = source.split('\n');
+  const startIndex = lines.findIndex((line) => new RegExp(`^${topLevelKey}:\\s*$`).test(line));
+  if (startIndex === -1) return null;
+  const blockLines = [];
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === '') {
+      blockLines.push(line);
+      continue;
+    }
+    if (/^\S/.test(line)) break; // dedented back to a sibling top-level key
+    blockLines.push(line);
+  }
+  return blockLines.join('\n');
+}
+
+const WIN_BLOCK = extractYamlBlock(BUILDER_YML_SOURCE, 'win');
+const WIN_APP_ID_LINE_MATCH = WIN_BLOCK && WIN_BLOCK.match(/^\s*appId:\s*(['"]?)(\S+?)\1\s*(?:#.*)?$/m);
+
+test('appUserModelId.js: APP_USER_MODEL_ID equals electron-builder.yml\'s appId — the two must never silently diverge (NCOW-57; extended by wave-16 cleanup F6 to also cover a win:-scoped override, which takes precedence over the top-level value per app-builder-lib\'s own AppInfo.id getter)', () => {
   assert.equal(
     APP_USER_MODEL_ID,
     APP_ID_MATCH[1],
     'APP_USER_MODEL_ID in src/main/appUserModelId.js must match appId in electron-builder.yml, ' +
       'because that is the exact string electron-builder\'s NSIS installer binds onto the Start Menu shortcut'
   );
+
+  if (WIN_APP_ID_LINE_MATCH) {
+    assert.equal(
+      APP_USER_MODEL_ID,
+      WIN_APP_ID_LINE_MATCH[2],
+      'a win:-scoped appId in electron-builder.yml takes precedence over the top-level appId ' +
+        '(app-builder-lib/out/appInfo.js\'s `id` getter checks platformSpecificOptions before info.config), ' +
+        'and is exactly what WinShell::SetLnkAUMI stamps onto the Start Menu shortcut — it must equal ' +
+        'APP_USER_MODEL_ID too, or the win:-scoped value silently wins and the assertion above passes for nothing'
+    );
+  }
 });
