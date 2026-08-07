@@ -235,17 +235,41 @@ function createTray(opts, deps = {}) {
  * behavior, unchanged by this task's fix). What WAS live-verified on
  * winvm/linuxvm as part of NCOW-57: `createTrayActions()`'s real onStart()
  * failure path, invoked in real running processes (a silently-installed
- * `nsis` build, the standalone `portable` exe, and a Linux source `--dev`
- * run), reaches the real OS notification pipeline in all three — Windows
- * accepted and recorded the call identically for both packaged
- * configurations (see electron-builder.yml), and a `dbus-monitor` capture on
- * Linux showed the real `org.freedesktop.Notifications.Notify` call reaching
- * gnome-shell with the expected title/body. Pixel-level "a human would see a
- * banner" could not be confirmed on winvm despite repeated attempts (see
- * electron-builder.yml's comment) or on linuxvm (GNOME 50 denies the Shell
- * screenshot API entirely) — the dbus/registry evidence is what NCOW-57's
- * record relies on instead. The console.error trail below remains the one
- * fallback that is NOT contingent on any of this.
+ * `nsis` build, the standalone `portable` exe, and — both on the original
+ * pass and again on the NCOW-57 fix pass — a source `--dev` run), reaches
+ * the real OS notification pipeline in every configuration tried on both
+ * platforms.
+ *
+ * Windows recap (fix pass): the original pass's finding that Windows
+ * "accepted and recorded the call identically for both packaged
+ * configurations" was correct as far as it went, but left out that the
+ * AUMID both configurations recorded under (`electron.app.Claude Conduit`,
+ * Electron's own generated default) did NOT match the AUMID
+ * electron-builder's NSIS installer had already stamped onto the real Start
+ * Menu shortcut (`com.evolvconsulting.claudeconduit`) — see
+ * appUserModelId.js and electron-builder.yml's `win.target` comment for the
+ * full before/after. The fix pass's unconditional
+ * `app.setAppUserModelId(...)` call closes that specific mismatch: re-run
+ * live on winvm, all three configurations (`nsis`, `portable`, and a genuine
+ * unpackaged `--dev` source run) now record the notification under the
+ * shortcut's own AUMID instead.
+ *
+ * Linux recap: a `dbus-monitor` capture (re-run and preserved on-disk during
+ * the NCOW-57 fix pass, since the original pass's tree — and so its capture
+ * — no longer existed for the reviewer to check) showed the real
+ * `org.freedesktop.Notifications.Notify` call reaching gnome-shell (PID
+ * confirmed via `org.freedesktop.DBus.GetConnectionUnixProcessID`) with the
+ * expected title/body, satisfying this task's evidence standard for a
+ * Wayland/GNOME session where pixel-level screenshot proof is not obtainable
+ * (GNOME denies the Shell Screenshot API here).
+ *
+ * Pixel-level "a human would see a banner" could not be confirmed on winvm
+ * despite repeated attempts in the original pass (see electron-builder.yml's
+ * comment; not re-attempted in the fix pass, since what changed was AUMID
+ * correctness, not display capability) or on linuxvm (GNOME denies the Shell
+ * screenshot API entirely) — the dbus/registry/AUMID evidence above is what
+ * NCOW-57's record relies on instead. The console.error trail below remains
+ * the one fallback that is NOT contingent on any of this.
  *
  * NCOW-56: NCOW-55 above only covers a THROWN/REJECTED handlers.proxy.*()
  * call (a genuine pm2-level wedge, e.g. PM2_START_TIMEOUT/PM2_STOP_TIMEOUT).
