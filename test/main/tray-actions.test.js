@@ -793,3 +793,111 @@ test('createTrayActions: NCOW-56 fix pass (F6) — a resolved {ok:false} error w
     'with a `code` but no `message`, the body must fall back to the code, never stringify the error object as "[object Object]"'
   );
 });
+
+// NCOW-59: wave-15's integration review of NCOW-56 found that
+// notifyFailure()'s `Notification.isSupported()` guard runs OUTSIDE its own
+// `try` block (pre-existing since NCOW-55 — unchanged by NCOW-56). A
+// throwing isSupported() is unreachable with a real Electron `Notification`
+// (documented as never throwing), but a reviewer-supplied fake reproduced it
+// directly. The throw escapes notifyFailure() and lands wherever
+// notifyFailure() was called FROM inside runAction() — with two distinct
+// entry points into that call (NCOW-55's `.catch()` limb for a
+// thrown/rejected handlers.proxy.*() call, and NCOW-56's `.then()` limb for a
+// RESOLVED `{ok:false}` result), so both are covered below.
+function fakeThrowingIsSupportedDeps(message = 'boom from isSupported') {
+  const instances = [];
+  class FakeNotification {
+    constructor(options) {
+      this.options = options;
+      this.shown = false;
+      instances.push(this);
+    }
+    show() {
+      this.shown = true;
+    }
+  }
+  FakeNotification.isSupported = () => {
+    throw new Error(message);
+  };
+  return { instances, Notification: FakeNotification };
+}
+
+test('createTrayActions: NCOW-59 — a wedged (rejecting) tray Stop with a throwing Notification.isSupported() still logs exactly once and does not reject (AC#1/#2/#3)', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const wedgeError = Object.assign(new Error('pm2 stop timed out after 15000ms'), { code: 'PM2_STOP_TIMEOUT' });
+  const handlers = { proxy: { stop: async () => { throw wedgeError; } } };
+  const { instances, Notification } = fakeThrowingIsSupportedDeps();
+
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  let rejected = false;
+  let rejectionError;
+  try {
+    await actions.onStop();
+  } catch (err) {
+    rejected = true;
+    rejectionError = err;
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(
+    rejected,
+    false,
+    `onStop() must never reject even when isSupported() throws, but it rejected with: ${rejectionError && rejectionError.message}`
+  );
+  assert.equal(
+    errorCalls.length,
+    1,
+    `expected exactly one console.error attributable to the real Stop failure, not a second one from isSupported() throwing (got ${errorCalls.length}: ${JSON.stringify(errorCalls)})`
+  );
+  const loggedText = errorCalls[0].join(' ');
+  assert.match(loggedText, /Stop failed/i);
+  assert.match(loggedText, /PM2_STOP_TIMEOUT/);
+  assert.equal(instances.length, 0, 'no Notification should be constructed when isSupported() itself throws');
+});
+
+test('createTrayActions: NCOW-59 — a resolved {ok:false} tray Start with a throwing Notification.isSupported() logs exactly once, not a second misattributed line, and does not reject (AC#1/#2/#3)', async () => {
+  reset();
+  const mutexes = { proxy: { run: (fn) => fn() } };
+  const failure = { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Run setup first.' } };
+  const handlers = { proxy: { start: async () => failure } };
+  const { instances, Notification } = fakeThrowingIsSupportedDeps();
+
+  const actions = createTrayActions({ mutexes, handlers }, { Notification });
+
+  const originalConsoleError = console.error;
+  const errorCalls = [];
+  console.error = (...args) => errorCalls.push(args);
+  let result;
+  let rejected = false;
+  let rejectionError;
+  try {
+    result = await actions.onStart();
+  } catch (err) {
+    rejected = true;
+    rejectionError = err;
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(
+    rejected,
+    false,
+    `onStart() must never reject even when isSupported() throws, but it rejected with: ${rejectionError && rejectionError.message}`
+  );
+  assert.deepEqual(result, failure, 'the resolved {ok:false} value must still be handed back to the caller unchanged');
+  assert.equal(
+    errorCalls.length,
+    1,
+    `expected exactly one console.error attributable to the real cause (NOT_CONFIGURED), not a second misattributed "Start failed" line from isSupported() throwing (got ${errorCalls.length}: ${JSON.stringify(errorCalls)})`
+  );
+  const loggedText = errorCalls[0].join(' ');
+  assert.match(loggedText, /Start failed/i);
+  assert.match(loggedText, /NOT_CONFIGURED/);
+  assert.equal(instances.length, 0, 'no Notification should be constructed when isSupported() itself throws');
+});
