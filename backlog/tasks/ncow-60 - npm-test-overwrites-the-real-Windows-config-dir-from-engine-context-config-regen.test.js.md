@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-07 14:00'
+updated_date: '2026-08-07 14:15'
 labels: []
 dependencies: []
 priority: high
@@ -155,4 +155,101 @@ classifies every real call site in the repo today with zero false positives or n
 actual mechanism of the bug (reliance on real `process.platform`), and matches this repo's existing
 precedent of pragmatic regex-only static checks with documented limits (this repo has no parser
 dependency). Recorded so review can accept or challenge the line rather than rediscover it.
+
+## Wave-17 review pass 1 verdict — REQUEST_CHANGES (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `fix/NCOW-60-test-real-windows-config` @ `9b9c829639021dca68755f4c247c83cfd6ddf81e` against wave
+base `20ffa60add5d7e281a2f39610adcec1ee987b489`. `npm test` re-run: `# tests 487 / # pass 487 / # fail 0`,
+observed twice.
+
+**AC#1, #3, #4, #5 CONFIRMED. AC#2 NOT CONFIRMED.**
+
+The line-number shift the implementer reported (97/310 rather than the task's 90/256) was verified as an
+HONEST ARTIFACT, not a mis-citation: the reviewer confirmed the shift is exactly the +7/+54 the diff hunks
+introduce, and that both are the same two statements the diff's only two deletion lines removed.
+
+### F1 (BLOCKING) — the guard is not reliably suite-wide, and is blind inside this task's own file
+
+`stripCommentsAndStrings()` treats `'`, `"` and backtick as string delimiters with NO regex-literal
+awareness, so a quote character inside a regex opens a phantom string that silently blanks real code
+WHILE THE GUARD REPORTS GREEN. Measured by appending a canary offender to each of the 37 real test files:
+**blind in 3 of 37.**
+- `test/engine/uninstall.test.js:77` — `/require\(['"]...['"]\)/` -> unterminated to EOF
+- `test/renderer/about-dialog.test.js:56` — `/'(https:\/\/[^']+)'/g`, three apostrophes -> unterminated to EOF
+- `test/main/engine-context-config-regen.test.js:964` — a 32-line phantom span (964-996), AND `:1671` —
+  a backtick inside a regex -> unterminated TO EOF, making lines 1671-1675 of THIS TASK'S OWN FILE
+  invisible. That is the natural append point of the file this task exists to fix.
+Reproduced by injecting `const RE = /don't/;` above an otherwise-caught offender: the offender vanished.
+The reviewer costed and VERIFIED a ~4-line remedy in scratch (break out of a non-backtick string at an
+unescaped newline; fail loudly on an unterminated backtick at EOF), measuring detection in 36 of 37 files
+with the 37th reported loudly by file and line.
+
+### F2 (should-fix) — coverage claims broader than delivered; the branch's dominant defect class
+
+The guard's opening comment claims it guards "the exact failure class CLAUDE.md's NCOW-23 note warns
+about" and quotes that note's "any NEW path resolver" sentence — but `WIN32_BRANCHING_RESOLVERS` is a
+hardcoded four-name literal, so an unlisted future resolver survives. And lines 52-53 promise the known
+gaps are "recorded in this task's return notes rather than hidden here", then name ONE of what is now
+EIGHT — pointing a future maintainer at an ephemeral non-repo artifact they cannot open.
+
+### F3, F4 (should-fix) — two exempted shapes behave IDENTICALLY to the bug
+
+F3: no resolver drift detection. F4: `platform` and `appData`/`localAppData` are tested for KEY PRESENCE
+only, so `{ platform: process.platform, homedir }` (still resolves via the real `process.platform`) and
+`{ homedir, appData: undefined }` (still falls through to `process.env.APPDATA ??`) are both exempted
+while being the bug. Both remedies costed by the reviewer.
+
+### F5, F6 (should-fix) — two false claims in comments
+
+F5: a FALSE MECHANISM at `:134-138`, disproven on the host that runs it — with `APPDATA` set,
+`resolveConfigDir({homedir:'/tmp/fakehome'})` on darwin returns `/tmp/fakehome/.config/claude-conduit`,
+because the non-win32 branches never consult `APPDATA`. The conclusion is true; the stated reason is only
+true on win32. F6: the AC#4 test claims to prove "the exact call shape" but adds `platform: 'win32'` and
+is a RETYPED COPY that cannot detect drift — confirmed by the reviewer: with both call sites reverted,
+that test still PASSES and only the guard failed.
+
+### F7 (should-fix) — the permanent record contradicts itself
+
+Commit `9b9c829`'s body says "six mutated call shapes, four caught ... and three honest survivors":
+4 + 3 = 7, not 6, and it contradicts the 8/5/3 reported to the orchestrator.
+
+### F8, F9 (nits) — an unlocatable comment reference, and `.test.js`-only discovery
+
+### Boundary judgment: the `platform` exemption is RIGHT, and esprima is correctly rejected
+
+The exemption is FORCED — `test/engine/paths.test.js:142,166,186` are three deliberate NCOW-23 regression
+tests passing `homedir` with no appData precisely to assert the fallback defeats it, under a forced
+`platform: 'win32'`, all pure computation. Without the exemption the guard false-positives on the
+resolver's own unit tests. The reviewer confirmed esprima IS present but only TRANSITIVELY
+(pm2 -> proxy-agent -> pac-proxy-agent -> pac-resolver -> degenerator -> esprima), in neither
+`dependencies` nor `devDependencies`, so requiring it would be an undeclared dependency on pm2's internal
+graph and declaring it would trip CLAUDE.md's licenses rule. **No parser rewrite requested.**
+
+### Adversarial probe: 17 reviewer mutations. All 3 implementer survivors CONFIRMED; 5 MORE found
+
+Caught: shorthand `{homedir}`; split-across-lines with nested `path.join()`; renamed namespace; bare
+destructured; the other two resolvers; an apostrophe inside a double-quoted arg; a template literal with
+`${...}` and parens. NEW survivors: computed member `paths['resolveConfigDir']`; options hoisted into a
+variable; `platform: process.platform`; `appData: undefined`; wrapper-helper indirection; unlisted future
+resolver; plus the regex-literal blinding that is F1.
+
+### Claims the reviewer verified as HONEST (not to be "fixed")
+
+The `stripCommentsAndStrings()` first-draft-bug story is TRUE (neutralising the strip pass reproduces the
+described false positive at `:136`). The `SELF`-exclusion redundancy claim is TRUE. `configGen.test.js`
+calls none of the four resolvers. `paths.test.js` passes an explicit `platform:` on every call and writes
+nothing. Non-vacuity holds and the guard is the ONLY thing detecting the regression — the AC#4 test
+passes with the fix reverted. ID sweep CLEAN (NCOW-23, NCOW-60 only). Cleanliness CLEAN: no stray probe
+files, and `src/engine/paths.js` and `README.md` both show zero diff lines.
+
+### Cross-task note the reviewer raised for the orchestrator
+
+Given F1, the guarantee behind any strengthened README claim is weaker than it reads. If NCOW-58 landed
+language implying the suite is now provably safe on Windows, that would itself be a fresh instance of the
+claim-broader-than-mechanism class. **Resolved independently**: NCOW-58's fix pass dropped the
+config-safety assertion from that line entirely, so no such claim exists to be over-strong. Also noted:
+this guard scans ALL test files, so NCOW-59's and NCOW-61's test files will be scanned on merge; neither
+touches the resolvers, so no false positive is expected.
+
+Fix pass 1 dispatched into the same worktree with all findings verbatim.
 <!-- SECTION:NOTES:END -->
