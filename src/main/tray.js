@@ -341,8 +341,8 @@ function createTrayActions({ mutexes, handlers }, notifyDeps = {}) {
   const Notification = notifyDeps.Notification ?? electron?.Notification;
 
   function notifyFailure(label, err) {
-    if (!Notification || typeof Notification.isSupported !== 'function' || !Notification.isSupported()) return;
     try {
+      if (!Notification || typeof Notification.isSupported !== 'function' || !Notification.isSupported()) return;
       // wave-15 integration review (finding F6): `err` here can be an
       // `{ok:false}` result's `.error` field, coerced to `{}` when that field
       // is absent (see runAction()'s `const err = result.error ?? {};`
