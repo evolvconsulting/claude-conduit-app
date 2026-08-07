@@ -4,7 +4,7 @@ title: Document the tray's native notification behavior in README/DESIGN.md
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 14:07'
+updated_date: '2026-08-07 14:16'
 labels: []
 dependencies:
   - NCOW-55
@@ -232,4 +232,68 @@ a paraphrase of `electron-builder.yml`'s in-repo comment, which itself paraphras
 quoting it — so the README text is a paraphrase of a paraphrase, not a direct quote. That was the
 instructed fallback (`node_modules/electron` ships no `docs/` directory, only `electron.d.ts`), but it
 means the CLSID claim's primary source is not reachable from this worktree.
+
+## Wave-17 review pass 2 verdict — APPROVE (reviewer, Opus, same worktree)
+
+Reviewed the cumulative branch (`16c35195ff3e5b771f16f9ef29c0d926401569ae` + fix
+`bd593c090b24ebd15b64db70bef6a0289abaff60`) against wave base
+`20ffa60add5d7e281a2f39610adcec1ee987b489`. **ALL SIX acceptance criteria CONFIRMED**, including AC#6,
+which pass 1 rejected.
+
+**All pass-1 findings CLOSED: B1, B2, B3, S1, N1, N2** (N2 incidentally, by the line collapsing to one
+row). N3 deliberately left as an optional nit.
+
+**Fresh-instance check: NO fresh false or unverified claim.** The reviewer re-read every sentence the fix
+commit added or touched and checked each against primary evidence rather than the fix worker's report —
+re-deriving the counterfactual from `git show 76a7c3c^:src/main/tray.js` itself, re-running the
+ToastActivatorCLSID grep itself (zero hits, and it confirmed `portable.nsi` IS inside the searched
+directory, so the evidence genuinely spans both targets rather than only nsis), and reading
+`notifyFailure()` at `src/main/tray.js:343-364` to confirm the "never register an activation handler"
+claim (construction is `{title, body}` + `.show()`, no listeners).
+
+**The network claim was verified by MEASUREMENT, not inference — the strongest verification in this wave.**
+The reviewer ran the full suite under `NODE_OPTIONS=--require <spy>` wrapping `globalThis.fetch` plus
+`http.request/get` and `https.request/get`, logging every real call. Result: 485/485 pass, and the log
+contained EXACTLY TWO entries, both from that one test —
+`REAL FETCH: https://integrate.api.nvidia.com/v1/models` and
+`REAL FETCH: https://integrate.api.nvidia.com/v1/chat/completions`. No other real fetch, no raw
+http/https; everything else is mocked. It also ran the suite both ways: `CI` unset gives
+`# pass 485 / # skipped 0`, `CI=1` gives `# pass 484 / # skipped 1`. So exactly one test in the suite is
+CI-gated, and the parenthetical describes the CI-set behavior correctly.
+**Verdict on the wording: exactly true as written.** Two recorded precision nits, neither warranting a
+change: the single check makes two HTTP round trips (catalog then probe), and the gate is truthiness, so
+`CI=` (set but empty) still runs it.
+
+**S1 sourcing judged ADEQUATE, and better than the fix worker disclosed.** `node_modules/electron` indeed
+ships no `docs/` directory (verified by listing it), so Electron's prose doc is genuinely unreachable
+in-repo. But the chain is not paraphrase-of-a-paraphrase only: `backlog/tasks/ncow-61...md:19` records the
+near-verbatim statement WITH the version pin, and `ncow-57...md:17` states the same with its verification
+record. Both are filed, in-repo, reviewed artifacts. The README sentence is also WEAKER than that source
+("Electron pairs that AUMID with a ToastActivatorCLSID" rather than "requires"), which is the right
+direction to err for a user-facing caveat. And the load-bearing half — that electron-builder stamps no
+CLSID for either target — the reviewer verified with its own grep.
+
+**ID citation sweep CLEAN**: NCOW-53, NCOW-55, NCOW-56, NCOW-57 (all Done) and NCOW-61 (To Do, correctly
+described as "open"). The removed NCOW-60 citation is gone from the tree. No abbreviated SHA leaked into
+either committed file.
+
+**Claim sweep verified sound.** The fix worker's judgment that `README.md:412` is NOT an instance is
+correct: it describes the `NIM_PROXY_TEST_HOME` + `--dev` MANUAL harness, whose Windows parity was
+specifically fixed and live-verified by NCOW-23, whereas this task's defect is in a test-harness path.
+Different mechanism, and the claim holds for what it describes.
+
+**Remaining nits, none requiring a pass**: `DESIGN.md:424-425`'s "worse than onStop's pre-NCOW-53 silence"
+compares silence to silence, so "worse" does not carry its own reason — `src/main/tray.js:191-193` grounds
+it in the unhandled rejection being a process-level hazard, "not just a silent one". Plus the two
+precision nits above, N3, and an abbreviated SHA in the fix commit's own body (not in any file).
+
+**Overlap notes.** NCOW-59's prose constraint is satisfied — README never mentions `isSupported()`
+throwing and never describes a double-logged or misattributed line, and `README.md:276`/`:310-312` stay
+true after NCOW-59 lands. The NCOW-60 semantic collision is fully dissolved, since this branch now makes
+no config-safety claim at all. The wording survives either NCOW-61 resolution. **One item for the wave's
+post-merge cleanup**: after NCOW-59 (+2) and NCOW-60 (+2) merge, both `README.md:381` and `CLAUDE.md:51`
+go stale at 485 -> 489, and the cleanup must change only the number while PRESERVING `README.md:381`'s
+parenthetical.
+
+Approved for the merge queue. Two review passes, one fix cycle.
 <!-- SECTION:NOTES:END -->
