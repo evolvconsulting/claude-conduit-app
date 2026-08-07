@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 00:02'
+updated_date: '2026-08-07 00:10'
 labels: []
 dependencies:
   - NCOW-55
@@ -108,4 +108,29 @@ Files touched: `src/main/tray.js`, `test/main/tray-actions.test.js`, plus numeri
 **Carry-forward for the squash-merge:** commit `3be055c`'s body still contains the F2 "never been started" wording. It was deliberately NOT rewritten (that would require a force-push, and individual commit bodies do not survive a squash-merge into `dev` anyway) — the corrected wording is carried in this task record and must also go into the squash-merge commit body.
 
 `npm test`: 474 passing / 0 failing, unchanged from the pre-fix baseline.
+
+**Review pass 2 (opus, fresh reviewer): `request_changes`.** Independently confirmed AC: **1, 2, 3, 4, 5** — all five, including AC#2, which pass 1 had withheld. One blocking finding remains, and it is a quality gate rather than an AC failure.
+
+**BLOCKING — `test/main/tray-actions.test.js:578-579`: fix pass 1 corrected the F6 falsehood in `src/main/tray.js` but left a verbatim duplicate of the same falsehood in the test file**, in lines this branch itself added (`git blame` → `3be055c`, the branch's own implementation commit). The surviving text reads "pm2Control.js's `stop()` only rejects on PM2_STOP_TIMEOUT or resolves with nothing to report as an error" — false for exactly the reason the tray.js copy was: `pm2Control.js:725-735`'s `stop()` also rejects with pm2's raw callback error (`:729`) and with anything `ensureConnected()` rejects with (`:726` → `:560-576` → `pm2ConnectOnce` `:538-542`), including a "pm2 connect timed out" rejection that is emphatically NOT `PM2_STOP_TIMEOUT`. Fix pass 1's commit message presents F6 as fixed ("Broadened the claim") but it broadened only one of the branch's two statements of it. **This is this campaign's signature failure mode in a new variant: a correction that fixes an INSTANCE rather than the CLAIM.** One-line English edit, zero token change; the conclusion the sentence supports (stop's real handler never itself resolves `{ok:false}`) is correct either way.
+
+**Every replacement claim from fix pass 1 audited TRUE, with all cited locations verified accurate:**
+- **F1 TRUE** — `setup-view.js:232-234` is exactly the models-continue click → `await generateAndStart()`; `:245-249` calls `config.generate`, bails at `:250-255`, then `:258` `await nimProxy.proxy.start()` with its own bail at `:259-263`, and the wizard only advances to `clientConfig` if the start succeeded, so `running` genuinely is the ordinary post-Setup state. `DESIGN.md:225-227` verbatim as cited. `engine-context.js:388-404` confirms `saveManifest({...})` returns inside the `config.generate` handler while `proxy.start` is a separate handler at `:409` — the manifest really is written before and independently of start. The new reachable example verified reachable: `pm2Control.js:671-684` does `ensureConnected()` (`:674`) → `deleteAppIfPresent()` (`:675`) → `pm2.start()` (`:679`), so a failure at `:674`/`:675` is strictly before registration AND after any prior app was removed, leaving `getStatus()` reporting `not-installed` with the manifest still on disk.
+- **F2 TRUE** — `findApp()` (`:597-600`, `apps.find(app => app.name === APP_NAME) || null`) is a present-tense registry query, so it genuinely covers a previously-started-then-deleted app. Both cited locations accurate.
+- **F3 TRUE** — the ternary changes only the Stop row's title; Start/Restart titles byte-identical (proved by the reviewer's own token diff and corroborated by the reverted-run output). The retitling is itself factually correct.
+- **F4 TRUE and precise** — the reviewer's reverted run shows all five parametrized rows failing at `assert.equal(errorCalls.length, 1, ...)` with `0 !== 1`, so "the SAME assertion each time" is exact.
+- **F6 TRUE in `tray.js`** — all three rejection paths real, both citations accurate. Incomplete only in the sense of the blocking finding above.
+
+**AST proof independently reproduced by the reviewer** (`esprima.tokenize()`, full LCS DP diff over `(type,value)` pairs, `5894bcf` vs `ef28e0b`): `tray.js` 895 → 895 tokens, **0 diff ops**; `tray-actions.test.js` 3217 → 3225, **8 ops, all additions, LCS = 3217 = |A|** — meaning every pre-existing token survives in order, nothing changed or removed. All 8 additions are the title-selecting ternary and the two `Template` pieces of the new title. Confirmed English-only.
+
+**AC#3 non-vacuity independently re-reproduced**: 19 tests, 13 pass, 6 fail against reverted `tray.js`; pass 1's "6 of 7 new tests" **confirmed exactly** (7 new = 5 parametrized + isSupported + the `{ok:true}` control, which correctly passes pre-fix). `npm test` observed by the reviewer: **474 passing / 0 failing**, exit 0.
+
+**Scope re-confirmed clean**: `git diff --name-only` → exactly `CLAUDE.md`, `README.md`, `src/main/tray.js`, `test/main/tray-actions.test.js`; the README change is the single numeric `467 → 474` line with no prose; `index.js`, `electron-builder.yml`, `DESIGN.md` untouched; the `Notification.isSupported()` docstring unmodified. **No relative git refs anywhere** — the reviewer grepped the full diff AND all three commit messages for `HEAD~|HEAD^|HEAD|@{|ORIG_HEAD` and got nothing; the only ref cited is the absolute `5b9e49e...`. `git diff --numstat 5b9e49e...HEAD -- test/` → `160 0`, zero deletions.
+
+**Two nits (both pre-existing from `3be055c`, not introduced by the fix pass):**
+- `tray.js:103-104` says "changing this call's shape at its one call site (index.js)"; there is a second — `tray.js:137`'s own `setStatus({ status: 'stopped' })` seed call. `grep -rn setStatus src/` returns only `index.js:214` and `tray.js:137`. "its one EXTERNAL call site" would be exact. Conclusion unaffected.
+- `tray.js:101-102` has a leftover ragged line wrap from the edit; cosmetic.
+
+**Reviewer's note on F5 (agreeing with the deferral):** the class is genuinely pre-existing — the `.catch()` limb producing it is unchanged from before the branch, and real Electron's `Notification.isSupported()` does not throw. But it observed something worth recording: NCOW-56's new `.then()` limb adds a **second entry point** into the same latent bug, since a `{ok:false}` result now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`. It neither creates the defect nor makes it reachable with the real API. Correctly out of NCOW-56's scope; belongs in whatever residual gets filed.
+
+**Reviewer's note on AC#2 durability:** the decision lives only as a code comment in `src/main/tray.js:78-117`. Right given sibling NCOW-58 owns README/DESIGN prose — but if the decision should be durable outside the source file, NCOW-58 is where to carry it.
 <!-- SECTION:NOTES:END -->
