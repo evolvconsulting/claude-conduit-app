@@ -1,10 +1,10 @@
 ---
 id: NCOW-58
 title: Document the tray's native notification behavior in README/DESIGN.md
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 13:43'
+updated_date: '2026-08-07 13:45'
 labels: []
 dependencies:
   - NCOW-55

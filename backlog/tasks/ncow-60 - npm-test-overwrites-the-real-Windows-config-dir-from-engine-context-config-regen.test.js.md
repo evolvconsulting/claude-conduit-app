@@ -3,10 +3,10 @@ id: NCOW-60
 title: >-
   npm test overwrites the real Windows config dir from
   engine-context-config-regen.test.js
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-07 13:25'
+updated_date: '2026-08-07 13:45'
 labels: []
 dependencies: []
 priority: high

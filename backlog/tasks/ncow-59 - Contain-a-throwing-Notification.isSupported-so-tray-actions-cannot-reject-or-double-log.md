@@ -3,9 +3,10 @@ id: NCOW-59
 title: >-
   Contain a throwing Notification.isSupported() so tray actions cannot reject or
   double-log
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-07 02:23'
+updated_date: '2026-08-07 13:45'
 labels: []
 dependencies:
   - NCOW-56

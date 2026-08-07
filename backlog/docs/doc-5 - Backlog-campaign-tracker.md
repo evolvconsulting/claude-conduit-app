@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-07 13:27'
+updated_date: '2026-08-07 13:45'
 ---
 # Backlog campaign tracker
 
@@ -73,6 +73,32 @@ justification.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
+
+**As of wave 17 DISPATCH (2026-08-07)**: **26 resolved** (waves 1-16), **3 dispatched this wave**
+(NCOW-58, NCOW-59, NCOW-60), **1 held** (NCOW-61 — conflicts with both NCOW-58 and NCOW-59), 0 blocked,
+5 excluded pending human decomposition. Ground-truth drift check found ZERO drift: `dev` in sync with
+`origin/dev` at `c659e79` (the wave-16 handover's own archive commit), clean tree, no campaign branches,
+no open PRs, all 4 treehouse pool trees `available` with no leases. The tracker matched reality exactly,
+so R3 had nothing to reconcile.
+
+**Wave 17 conflict graph, computed live at dispatch (NOT inherited from the wave-16 settlement note
+below).** Every citation below was verified against the working tree, not read off the prior note:
+`README.md:331` does read `485 tests, no network or real config touched`, confirming the false half;
+`grep -n "notification|Notification|toast|Toast" README.md DESIGN.md` returns ZERO hits, confirming
+NCOW-58 adds new prose rather than correcting existing prose; and `src/main/tray.js` carries a large
+NCOW-57 AUMID comment block (~lines 224-290) that NCOW-61 would plausibly edit. Resulting edges:
+NCOW-59—NCOW-61 (both may touch `src/main/tray.js`) and NCOW-58—NCOW-61 (NCOW-58's AC#3 documents the
+Windows caveat whose truth NCOW-61 changes). NCOW-58/59/60 are pairwise disjoint, so wave 17 is the
+first genuinely 3-wide wave in a while; NCOW-61 is held for wave 18, where it will be solo by
+computation. **None of the three needs live app verification** — NCOW-58 is docs, NCOW-59 drives a
+Notification fake, NCOW-60 simulates win32 — so the Shared Machine State single-live-verifier
+constraint does not bind this wave.
+
+**Two user-approved AC amendments were made at this dispatch** (`e43aa89`), resolving the two scope
+questions wave-16 settlement deliberately left open: NCOW-58 gained AC#6 (correct `README.md:331`,
+chosen over NCOW-60 as the home precisely so README stays single-owner for the wave and the 3-wide
+shape survives) and NCOW-61 gained AC#6/#7/#8 (close the two surviving drift-guard bypasses, make the
+WIN_BLOCK assert match its own comment, and prove each by experiment).
 
 **As of wave 16 SETTLEMENT (2026-08-07)**: **26 resolved** (waves 1-16, all Done), **4 queued** —
 NCOW-58, NCOW-59, plus NCOW-60 and NCOW-61 both filed this settlement with user approval — 0 genuinely
@@ -648,9 +674,9 @@ solo wave 4; NCOW-41 will join a future wave once NCOW-38 lands and its dependen
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NCOW-58 | tray-notify | NCOW-55 + NCOW-56 (both Done) | To Do | | **Scope EXTENDED at wave-15 settlement, user-approved**: 2 new ACs — document BOTH failure classes the tray now surfaces (wedged/thrown AND resolved `{ok:false}`, the latter being the more common case), and document the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry from NCOW-56's AC#2 decision, which currently exists ONLY as a code comment. The wave-15 staleness sweep confirmed NOTHING in README/DESIGN/CLAUDE currently describes tray failure behavior, so this task adds prose rather than correcting it. Document the tray's native notification behavior in README/DESIGN.md — this is the app's first-ever OS notification and it's currently undocumented anywhere. Filed from wave-14 integration review, user-approved. Primary files: `README.md`, `DESIGN.md` — pure docs, no code; likely disjoint from NCOW-56/57's code changes, but should wait on NCOW-57's actual resolution if dispatched in the same wave (its own AC#3 says to link to NCOW-57's resolution "whichever is accurate at the time this task is done") — consider sequencing after NCOW-57 rather than true-parallel, or brief its worker to write the caveat provisionally and let review catch any mismatch. |
-| 2 | NCOW-59 | tray-notify | NCOW-56 (Done) | To Do | | Filed at wave-15 settlement from the integration review, user-approved. Contain a throwing `Notification.isSupported()`: it is called in `notifyFailure()`'s guard OUTSIDE that function's own `try`, so a throw escapes into `runAction()`'s trailing `.catch()` — producing a SECOND, misattributed `console.error` (as though the tray action itself failed, when it may have succeeded) and a promise REJECTION contradicting the module's own "none of the three ever reject" JSDoc. **Pre-existing in class** — three review passes independently confirmed the pre-NCOW-56 code rejects identically under the same throwing fake — and unreachable with real Electron, whose `isSupported()` does not throw. But NCOW-56 added a SECOND entry point into it (a resolved `{ok:false}` now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`). Deliberately deferred from NCOW-56 as outside its ACs rather than folded in silently. Primary files: `src/main/tray.js`, `test/main/tray-actions.test.js` — **conflicts with NCOW-57**. |
-| 3 | NCOW-60 | test-safety | none | To Do | | Filed at wave-16 settlement from the fix pass's own self-report, adjudicated real and PRE-EXISTING by review pass 2, user-approved. `npm test` on a real Windows host overwrites the user's REAL `%APPDATA%\claude-conduit`: `test/main/engine-context-config-regen.test.js:90` and `:256` call `paths.resolveConfigDir({homedir})` without threading `paths.resolveWindowsAppDataOverrides()`, and `paths.js:59-62`'s win32 branch prefers `APPDATA` over a bare homedir override. It had ALREADY fired silently in an earlier wave (the clobbered files were dated 2026-08-02). The key it wrote was the fixture `nvapi-old-install`, never a live secret. Scope independently confirmed narrow by the wave-16 integration review — no other offenders suite-wide. **Conflicts with nothing currently queued** (test-file-only). |
+| 1 | NCOW-58 | tray-notify | NCOW-55 + NCOW-56 (both Done) | Dispatched | 17 | **Scope EXTENDED at wave-15 settlement, user-approved**: 2 new ACs — document BOTH failure classes the tray now surfaces (wedged/thrown AND resolved `{ok:false}`, the latter being the more common case), and document the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry from NCOW-56's AC#2 decision, which currently exists ONLY as a code comment. The wave-15 staleness sweep confirmed NOTHING in README/DESIGN/CLAUDE currently describes tray failure behavior, so this task adds prose rather than correcting it. Document the tray's native notification behavior in README/DESIGN.md — this is the app's first-ever OS notification and it's currently undocumented anywhere. Filed from wave-14 integration review, user-approved. Primary files: `README.md`, `DESIGN.md` — pure docs, no code; likely disjoint from NCOW-56/57's code changes, but should wait on NCOW-57's actual resolution if dispatched in the same wave (its own AC#3 says to link to NCOW-57's resolution "whichever is accurate at the time this task is done") — consider sequencing after NCOW-57 rather than true-parallel, or brief its worker to write the caveat provisionally and let review catch any mismatch. |
+| 2 | NCOW-59 | tray-notify | NCOW-56 (Done) | Dispatched | 17 | Filed at wave-15 settlement from the integration review, user-approved. Contain a throwing `Notification.isSupported()`: it is called in `notifyFailure()`'s guard OUTSIDE that function's own `try`, so a throw escapes into `runAction()`'s trailing `.catch()` — producing a SECOND, misattributed `console.error` (as though the tray action itself failed, when it may have succeeded) and a promise REJECTION contradicting the module's own "none of the three ever reject" JSDoc. **Pre-existing in class** — three review passes independently confirmed the pre-NCOW-56 code rejects identically under the same throwing fake — and unreachable with real Electron, whose `isSupported()` does not throw. But NCOW-56 added a SECOND entry point into it (a resolved `{ok:false}` now also reaches `notifyFailure()` on a path whose throw lands in that `.catch()`). Deliberately deferred from NCOW-56 as outside its ACs rather than folded in silently. Primary files: `src/main/tray.js`, `test/main/tray-actions.test.js` — **conflicts with NCOW-57**. |
+| 3 | NCOW-60 | test-safety | none | Dispatched | 17 | Filed at wave-16 settlement from the fix pass's own self-report, adjudicated real and PRE-EXISTING by review pass 2, user-approved. `npm test` on a real Windows host overwrites the user's REAL `%APPDATA%\claude-conduit`: `test/main/engine-context-config-regen.test.js:90` and `:256` call `paths.resolveConfigDir({homedir})` without threading `paths.resolveWindowsAppDataOverrides()`, and `paths.js:59-62`'s win32 branch prefers `APPDATA` over a bare homedir override. It had ALREADY fired silently in an earlier wave (the clobbered files were dated 2026-08-02). The key it wrote was the fixture `nvapi-old-install`, never a live secret. Scope independently confirmed narrow by the wave-16 integration review — no other offenders suite-wide. **Conflicts with nothing currently queued** (test-file-only). |
 | 4 | NCOW-61 | tray-notify | NCOW-57 (Done) | To Do | | Filed at wave-16 settlement from the integration review, user-approved. NCOW-57 closed only the AppUserModelID half of Electron's two-part Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the gap and document it accurately. **Expect a file conflict with NCOW-58** (its resolution is doc material) **and with NCOW-59** (both may touch `src/main/tray.js`); it also shares `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its notes. |
 
 ## Resolved
