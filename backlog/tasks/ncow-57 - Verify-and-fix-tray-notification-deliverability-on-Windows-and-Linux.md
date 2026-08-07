@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 05:09'
+updated_date: '2026-08-07 05:44'
 labels: []
 dependencies:
   - NCOW-55
@@ -238,4 +238,73 @@ environmentally impossible.
    (dated 2026-08-02, from an earlier wave's real install, NOT from NCOW-57)** — user elected to
    be informed only; no action taken by this campaign. Out of NCOW-57's scope either way.
 4. Session budget: continue into a wave 17 (NCOW-58 + NCOW-59) after NCOW-57 settles.
+
+## Wave-16 fix pass 1 (fresh worker) — implemented, commit `6779c3c00c1c6f5add4c7285c6123f2c92e2611a`
+
+Implements the user's DECISION 1 (unconditional win32 AUMID = appId) and addresses all four
+blocking findings, both non-blocking findings, and the nit.
+
+**Claims corrected at the claim level, both places each.** The worker independently re-fetched the
+two disputed sources from `raw.githubusercontent.com/electron/electron/v43.2.0/` rather than
+trusting the reviewer's quotes, and confirmed both at the exact cited lines: the full
+`notifications.md:107-109` sentence including "also detect that Squirrel was used", and
+`application_info_win.cc:55-70`'s `GetRawAppUserModelID()`. Sweeps run for each corrected claim
+across `src/`, `test/`, README/DESIGN/CLAUDE, `archive/`, and the Backlog task/doc files; the only
+restatements were the two the reviewer already cited. Backlog files' own phrasing ("no
+`app.setAppUserModelId()` call anywhere") was checked and is literally true, so left alone.
+
+**Design.** `shouldSetAppUserModelId({platform})` is now `platform === 'win32'`, unconditional;
+`APP_USER_MODEL_ID = 'com.evolvconsulting.claudeconduit'` is an exported constant; `index.js` calls
+`app.setAppUserModelId(APP_USER_MODEL_ID)`. A new drift-guard test regex-extracts `appId` from
+`electron-builder.yml` and asserts it equals the runtime constant, so the two cannot silently
+diverge. `electron-builder.yml`'s `win:` prose was rewritten end to end: it now states only what
+was observed, names explicitly what the evidence CANNOT distinguish (accepted-but-suppressed vs.
+genuinely displayed; creation vs. activation, since no `ToastActivatorCLSID` is written for either
+target — re-verified, zero grep hits), and names portable's shortcut-less gap as a real, still-open
+gap rather than something the testing ruled out. The unlocatable glossary quote was removed
+entirely. `tray.js`'s recap gained a fix-pass paragraph naming the AUMID mismatch; the worker
+proved that edit comment-only by esprima token-stream diff (901 tokens before and after, identical).
+
+**AC#2/#3 — the mismatch is closed. Four values now agree, each read live on winvm:**
+- Start Menu shortcut AUMID, read via `Shell.Application` COM `ExtendedProperty('System.AppUserModel.ID')` on the real installed `Claude Conduit.lnk`: `com.evolvconsulting.claudeconduit`
+- nsis packaged runtime AUMID: `com.evolvconsulting.claudeconduit`
+- portable packaged runtime AUMID: `com.evolvconsulting.claudeconduit`
+- source/dev run runtime AUMID: `com.evolvconsulting.claudeconduit`
+(pre-fix the runtime value was Electron's fallback `electron.app.Claude Conduit`.)
+
+**AC#1 now has live evidence** — the gap BLOCKING 4 named. A genuine UNPACKAGED source run on
+winvm (`electron.app.isPackaged` read as `false` over CDP) carried
+`--app-user-model-id=com.evolvconsulting.claudeconduit` on its renderer command line, and a real
+Notification fired through the actual `onStart()` failure path landed in
+`HKCU\...\Notifications\Settings\com.evolvconsulting.claudeconduit` with
+`LastNotificationAddedTime=134305545388759018`.
+
+**AC#4 evidence is now first-hand verifiable** — preserved at
+`/home/jdnewhouse/ncow57-evidence/dbus-capture-ncow57-fixpass.log` on linuxvm (the previous pass
+deleted its tree, which is why the reviewer could only corroborate circumstantially). The capture
+shows the app's own `Notify` (`sender=:1.235` = PID 3512849 = the electron process) with
+`body="Start failed: ncow57-verify-live-test-source"`, forwarded `:1.33` -> `:1.24`; destination
+PIDs independently confirmed via `GetConnectionUnixProcessID` as gjs
+`org.gnome.Shell.Notifications` (2373) and `/usr/bin/gnome-shell --mode=ubuntu` (2198).
+
+**AC#5** — 485/485 locally (476 pre-existing + 9 new; the new file grew 7 -> 9 tests). Zero
+pre-existing test files touched. Guard proofs: non-vacuity by reverting the function (1/9 fail) and
+the call site (2/9 fail); guard-by-experiment by drifting `electron-builder.yml`'s appId (drift
+test fails) and by drifting the constant instead (same test fails); novelty confirmed — no other
+test asserts `appId` (`app-identity.test.js` reads productName, `licenses.test.js` the files
+allowlist).
+
+**INCIDENT — a real, pre-existing, out-of-scope bug, discovered and reported by the worker itself.**
+Running `npm test` on winvm (a sanity check, not required) overwrote the REAL
+`%APPDATA%\claude-conduit` config files. Cause: `test/main/engine-context-config-regen.test.js`
+calls `paths.resolveConfigDir({homedir: homeDir})` and `createEngineContext()` WITHOUT threading
+`paths.resolveWindowsAppDataOverrides()` — exactly the NCOW-23 failure class already fixed in
+production code but never fixed in this test file. On a real Windows host the win32 branch prefers
+`APPDATA` over a bare homedir override, so the test silently resolves to the real config dir.
+Content was overwritten, nothing deleted. **Security de-escalation:** the `litellm.env` the reviewer
+flagged as possibly holding a live key contained `NVIDIA_NIM_API_KEY=nvapi-old-install` — a
+hardcoded fixture from that same test file (confirmed by grep), present both before and after,
+which also proves this bug had already fired at least once in an earlier wave. It was never a real
+secret. The worker did not modify that test file (AC#5 forbids touching pre-existing tests) and did
+not re-run `npm test` on either remote host afterward.
 <!-- SECTION:NOTES:END -->
