@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 00:18'
+updated_date: '2026-08-07 00:24'
 labels: []
 dependencies:
   - NCOW-55
@@ -147,4 +147,26 @@ Files touched: `src/main/tray.js`, `test/main/tray-actions.test.js`, plus numeri
 **All three citations quoted to the worker were accurate this pass** (577-579, 103-104, 101-102) — worth noting, since the previous round's F6 citation was off by ~9 lines and the worker was explicitly told to verify rather than trust.
 
 `npm test`: **474 passing / 0 failing**. Scope held: no touch to `index.js`, `electron-builder.yml`, `DESIGN.md`, no prose in `README.md`/`CLAUDE.md`, no mention of F5 added anywhere, no rebase/force-push, no `backlog` command run.
+
+**Review pass 3 (opus, final pass in the retry budget): `approve`.** Independently confirmed AC: **1, 2, 3, 4, 5**.
+
+**The blocking finding is genuinely resolved and the replacement text is TRUE.** The reviewer read `pm2Control.js` itself rather than accepting the fix report, and confirmed all three rejection paths plus fix pass 2's new uncoded-paths assertion: `stop()` (`:725-735`) is `await ensureConnected()` then `withTimeout(...pm2.stop..., 'PM2_STOP_TIMEOUT')`; `withTimeout` (`:516-536`) attaches the code at `:531` **inside the `setTimeout` callback only**, so the raced promise's own rejection propagates through `Promise.race` untouched and the raw pm2.stop callback error is uncoded; `ensureConnected()` (`:560-576`) calls `withTimeout(...)` at `:562-565` with **three arguments and no `code`**; `pm2ConnectOnce()` (`:538-542`) rejects raw and uncoded. So of the three rejection paths, only `stop()`'s own timeout carries `PM2_STOP_TIMEOUT`. The conclusion the sentence supports was re-verified too: `engine-context.js:422-426` can only resolve `{ok:true}` or reject.
+
+**Independent claim sweep — no third restatement survives.** The reviewer ran its own sweep rather than trusting fix pass 2's, widening beyond `"only rejects"` to every claim corrected across BOTH fix passes (`only reject`, `only resolve`, `PM2_STOP_TIMEOUT`, `ordinary case`, `right after Setup`, `never been started`, `every one of the`, `one call site`, `call site (index`, `nothing to report as an error`), over added lines in the diff AND repo-wide. Every hit was either the correction itself or a verified-correct unrelated usage. The three repo-wide hits outside the diff are all in files this branch does not touch; the only one adjacent to a corrected claim (`test/engine/pm2Control.test.js:59`, "reports not-installed when the app has never been started") is a pre-existing test title describing its own fixture — a never-started app genuinely does produce `not-installed` — not a definitional gloss, and it predates this branch.
+
+**AST proof independently reproduced**: `src/main/tray.js` A=895 B=895 LCS=895 **ops=0**; `test/main/tray-actions.test.js` A=3225 B=3225 LCS=3225 **ops=0**. Every changed line in `ef28e0b..7d9b0c9` starts with `//`.
+
+**Branch-level scope verified via `git diff --numstat` against the merge base**: CLAUDE.md 1/1, README.md 1/1, `src/main/tray.js` 100/6, `test/main/tray-actions.test.js` **161/0** — zero deleted lines in the test file across the whole branch, so no pre-existing test was modified. tray.js's six removed lines are only the two rewritten JSDoc `@returns` lines and `runAction()`'s four-line pre-fix body. `index.js`, `electron-builder.yml`, `DESIGN.md` untouched (empty `git diff --stat`); CLAUDE.md/README.md numeric-only; the `Notification.isSupported()` docstring appears only as diff context, never as a `+`/`-` line.
+
+**Non-vacuity reproduced a third independent time**: reverting only `src/main/tray.js` to `5b9e49e...` gives 19 tests / 13 pass / **6 fail** — the five parametrized rows each at `assert.equal(errorCalls.length, 1, ...)` with `actual: 0 / expected: 1`, plus the `isSupported()===false` test; the `{ok:true}` control passes pre-fix. Matches passes 1 and 2 exactly.
+
+**No relative git refs** anywhere in the diff or in any of the four commit messages; the only ref is the absolute `5b9e49e...`, used twice at `test/main/tray-actions.test.js:587-588`.
+
+**Every remaining factual citation in the added comments was checked against source this pass and is accurate**: `dashboard-view.js:94` quoted verbatim; `pm2Control.js` "~703" is exactly the `HEALTH_CHECK_TIMEOUT` return; `engine-context.js:412` the `NOT_CONFIGURED` return; `:427` `restart: async () => handlers.proxy.start()`; `index.js:208-216` matches the quoted `startStatusPoller` shape; `status-poller.js:7-16` passes `getStatus()`'s value through with nothing manifest-related mixed in.
+
+`npm test` observed by the reviewer: **474 passing / 0 failing / 0 cancelled / 0 skipped**.
+
+**Two non-blocking findings, accepted as-is rather than spending a fourth cycle:**
+- cosmetic, `test/main/tray-actions.test.js:580` — fix pass 2's reflow left its own ragged line (~30 chars against ~76-char neighbours), the same class of nit it was fixing in tray.js.
+- info, `test/main/tray-actions.test.js:595` — the non-vacuity note paraphrases the failure as `"0 !== 1"`, which is `assert.strictEqual`'s default form; this is a loose `assert.equal` with a custom message, so Node reports `actual: 0 / expected: 1`. The substantive claim (which assertion, which values, all five tests) is exactly right and was reproduced.
 <!-- SECTION:NOTES:END -->
