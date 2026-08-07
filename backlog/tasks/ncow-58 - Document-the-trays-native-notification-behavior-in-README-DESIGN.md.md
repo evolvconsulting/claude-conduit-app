@@ -4,7 +4,7 @@ title: Document the tray's native notification behavior in README/DESIGN.md
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 14:02'
+updated_date: '2026-08-07 14:07'
 labels: []
 dependencies:
   - NCOW-55
@@ -186,4 +186,50 @@ records that quote it deliberately. But B1's false counterfactual is a NEW claim
 in DESIGN.md only — a fix pass must not reintroduce it in README.
 
 Fix pass 1 dispatched into the same worktree with all findings verbatim.
+
+## Wave-17 fix pass 1 (fresh worker, same worktree, commit `bd593c090b24ebd15b64db70bef6a0289abaff60` on top of `16c35195ff3e5b771f16f9ef29c0d926401569ae`)
+
+All three blocking findings plus the should-fix addressed; two of the three nits resolved. Cumulative
+branch diffstat: README.md +52/-1, DESIGN.md +16. `npm test` 485/485, run twice.
+
+**B1 fixed, and verified at the source rather than from the review text.** The worker ran
+`git show 76a7c3c^:src/main/tray.js` itself and confirmed only `onStop` had a `.catch()` (added by
+NCOW-53) while `onStart`/`onRestart` had none. Rewrote the DESIGN.md sentence to say exactly that,
+deliberately matching `src/main/tray.js:189-193`'s existing framing rather than inventing new wording.
+
+**B2 + B3 fixed as one edit.** `README.md:381` now reads:
+`npm test              # 485 tests (one live NVIDIA API check unless CI is set)`
+This drops the NCOW-60-coupled `%APPDATA%` claim AND the false "no network access" claim, asserting no
+config-safety or network protection at all. It also collapses the two-line comment to one, which
+incidentally resolved nit N2.
+
+**B3 RE-VERIFIED INDEPENDENTLY by the fix worker, not taken from the review.** It read the gating line
+at `test/engine/nvidiaKey.test.js:83` (`{ skip: process.env.CI ? 'no network in CI' : false }`),
+confirmed `CI` was unset via `env | grep '^CI='` returning nothing, and observed in its own run:
+`ok 129 - validateApiKey: LIVE - a garbage key against the real NVIDIA API is genuinely rejected (network test)`
+with `duration_ms: 291.648459` — a real round trip, not a skip. It chose the reviewer's second suggested
+wording over the bare `# 485 tests` precisely because it could personally verify the stronger statement
+was true.
+
+**S1 fixed.** Confirmed via `electron-builder.yml:119-127` that electron-builder writes a
+ToastActivatorCLSID for NEITHER `nsis` nor `portable` (that comment cites its own zero-hit grep over
+`node_modules/app-builder-lib/templates/nsis/`). Reworded the Windows bullet to name the CLSID
+co-requirement, scope THAT gap to both targets, and keep the Start-Menu-shortcut gap scoped to
+`portable` only. NCOW-61 cited after confirming it is real and open by listing `backlog/tasks/`.
+
+**N1 fixed** ("tracked by NCOW-57" -> "documented by NCOW-57"). **N2** resolved as a side effect.
+**N3** deliberately left alone (optional).
+
+**Claim sweep, wider than the finding.** Grepped README/DESIGN/CLAUDE for `no network`, `network access`,
+`real config`, `no real`, `485 tests`. One other hit: `README.md:412`, "without touching your real
+configuration or your real NVIDIA key" — correctly judged NOT an instance, because it describes the
+`NIM_PROXY_TEST_HOME` MANUAL testing harness (CLAUDE.md's "Safe manual testing" section), a different
+independently-documented mechanism, and the statement is true. `CLAUDE.md:51`'s own `npm test` line
+asserts no protection at all. No other instance of the class found.
+
+**Known residual, disclosed by the worker itself and worth review pass 2's attention**: the S1 wording is
+a paraphrase of `electron-builder.yml`'s in-repo comment, which itself paraphrases Electron's doc without
+quoting it — so the README text is a paraphrase of a paraphrase, not a direct quote. That was the
+instructed fallback (`node_modules/electron` ships no `docs/` directory, only `electron.d.ts`), but it
+means the CLSID claim's primary source is not reachable from this worktree.
 <!-- SECTION:NOTES:END -->
