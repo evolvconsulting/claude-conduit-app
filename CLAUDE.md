@@ -48,7 +48,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 476 tests. Run before AND after any change.
+npm test          # node --test, 485 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change

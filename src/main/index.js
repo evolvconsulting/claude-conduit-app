@@ -16,13 +16,17 @@ const paths = require('../engine/paths');
 const updateCheck = require('../engine/updateCheck');
 const { describeThrownValue } = require('../engine/configGen');
 
-// NCOW-57 (AC#1): must run before the app is ready. Set unconditionally on
-// win32 — packaged or dev/source alike — so the runtime AUMID always equals
-// the appId electron-builder's NSIS installer already binds onto the Start
-// Menu shortcut it creates. See appUserModelId.js for the full rationale,
-// including why the first pass's `!isPackaged` gate was wrong and what this
-// unconditional call does and does not fix (notably: it does not create a
-// Start Menu shortcut for `portable`, and it does not by itself pin
+// NCOW-57: called here, before the app is ready, as this codebase's own
+// chosen invariant — not a requirement AC#1 or Electron's app.md docs impose
+// (see test/main/app-user-model-id.test.js for the guard that enforces the
+// ordering, and its own comment for why the ordering is checked in these
+// terms rather than by citing a doc that doesn't say it). Set unconditionally
+// on win32 — packaged or dev/source alike — so the runtime AUMID always
+// equals the appId electron-builder's NSIS installer already binds onto the
+// Start Menu shortcut it creates. See appUserModelId.js for the full
+// rationale, including why the first pass's `!isPackaged` gate was wrong and
+// what this unconditional call does and does not fix (notably: it does not
+// create a Start Menu shortcut for `portable`, and it does not by itself pin
 // anything to the Start Menu for a dev/source run).
 if (shouldSetAppUserModelId({ platform: process.platform })) {
   app.setAppUserModelId(APP_USER_MODEL_ID);
