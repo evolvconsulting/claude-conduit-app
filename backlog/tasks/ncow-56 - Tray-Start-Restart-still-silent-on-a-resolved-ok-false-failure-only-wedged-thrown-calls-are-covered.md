@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-06 23:52'
+updated_date: '2026-08-07 00:02'
 labels: []
 dependencies:
   - NCOW-55
@@ -85,4 +85,27 @@ Files touched: `src/main/tray.js`, `test/main/tray-actions.test.js`, plus numeri
 - **F6 (nit, `src/main/tray.js:236-237`)** — docstring says `pm2Control.stop()` "only rejects on a timeout"; it can also reject with pm2's own callback error (`pm2Control.js:728`) or from `ensureConnected()`.
 
 **Reviewer's forward-looking note for NCOW-57:** this branch inserts a 34-line comment block immediately AFTER the `Notification.isSupported()` docstring NCOW-57 owns. It does not modify those lines, but the adjacency means NCOW-57's edit will land right against new text — sequence NCOW-57 after this merges and rebase rather than cherry-pick.
+
+**Fix pass 1 returned (comment/test-title-only). Not yet re-reviewed.** F1, F2, F3, F4, F6 corrected; F5 deliberately left untouched (see below).
+
+**Mechanical proof that zero production logic changed** — `esprima.tokenize()` (comment-stripping) plus an LCS/Myers diff over `(type, value)` token sequences, not a visual diff read:
+- `src/main/tray.js`: **895 tokens before, 895 after, 0 diffs** — byte-identical non-comment token stream.
+- `test/main/tray-actions.test.js`: 3217 → 3225 tokens, **8 diff ops, all additions, 0 deletions and 0 changes**, and every one of the 8 belongs to the ternary that selects which title string is passed to `test()` (`method`, `===`, `'onStop'`, `?`, two Template literals, `code`, `:`). None touches an assertion, mutex, handler, or expected value.
+
+**Corrections made, each verified against source by the fix worker rather than trusting the finding's phrasing:**
+- **F1**: replaced the false "the ordinary case right after Setup finishes" parenthetical. Verified `setup-view.js:232-234` (models-continue click → `await generateAndStart()`) and `:240-263` (`config.generate(...)` then immediately `await proxy.start()`), plus `DESIGN.md:225-227`'s "Step 5 — start under pm2". New text states the ordinary post-Setup case is actually `running`, and cites a genuinely reachable alternative it verified independently: `proxy.start()` failing at the pm2 level before pm2 registers the app — grounded in `engine-context.js:388-404` (the manifest is written by `config.generate` independently, before `proxy.start` is ever called) and `pm2Control.js:560-576` (`ensureConnected()` can reject before `pm2.start()` runs).
+- **F2**: "the `litellm-nim` pm2 app has never been started" → "pm2 currently has no app registered under that name". Verified against `pm2Control.js:739` (`remove()` → `deleteAppIfPresent()`) and `:675-679` (the transient window inside `startOrRestart()`).
+- **F3**: the Stop row's test title now reads as a synthetic contract case, flagging that `stop()` never itself resolves `{ok:false}` in production and that the row exists because `runAction()` checks every action generically. Start/Restart titles left untouched — those codes are real and reachable. Implemented as a `method === 'onStop' ? ... : ...` ternary, so only the Stop row's title changed.
+- **F4**: "failed every one of the tests below" → "every one of the five parametrized tests below".
+- **F6**: "`pm2Control.stop()` only rejects on a timeout" → "can reject on a timeout, on pm2's own callback error, or from a failed `ensureConnected()`". Verified `pm2Control.js:729` (raw pm2 callback error rejects directly, not only via the `withTimeout` wrapper) and `:560-576`.
+
+**F5 left unfixed, deliberately and with the orchestrator's explicit instruction** — a throw from `Notification.isSupported()` (called outside `notifyFailure()`'s own try) is caught by the trailing `.catch()`, yielding a doubled and misattributed `console.error` plus a promise rejection that contradicts this module's own "none of the three ever reject" JSDoc. The reviewer confirmed it is pre-existing in class (the pre-branch code rejects identically under the same throwing fake) and realistically unreachable with Electron's real `Notification`. Fixing it would be a production logic change outside NCOW-56's acceptance criteria, so it is recorded here as a known residual and will be proposed to the user as a possible follow-up rather than folded in silently. No comment about it was added to the source.
+
+**Two discrepancies the fix worker flagged rather than silently absorbing:**
+- F6's cited location (`tray.js:236-237`) did not match where the quoted phrase actually was (line 227 pre-fix). Unambiguous because the phrase is unique in the file, but the citation was off.
+- The worker's "6 of 8 new tests" arithmetic slip was checked for repo-wide (`grep -rn "6 of 8"`) and appears in **no file in this branch** — it existed only in the returned chat report, so there was nothing to correct in the repo. The real figure is 6 of 7.
+
+**Carry-forward for the squash-merge:** commit `3be055c`'s body still contains the F2 "never been started" wording. It was deliberately NOT rewritten (that would require a force-push, and individual commit bodies do not survive a squash-merge into `dev` anyway) — the corrected wording is carried in this task record and must also go into the squash-merge commit body.
+
+`npm test`: 474 passing / 0 failing, unchanged from the pre-fix baseline.
 <!-- SECTION:NOTES:END -->
