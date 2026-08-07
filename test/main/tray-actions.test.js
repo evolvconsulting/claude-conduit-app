@@ -589,8 +589,8 @@ test('createTrayActions: NCOW-55 — omitting the second (notifyDeps) argument e
 // handling at all: `runAction()` was
 // `return mutexes.proxy.run(fn).catch((err) => {...})`, with no `.then()`
 // in between), running this file directly under
-// `node --test test/main/tray-actions.test.js` failed every one of the
-// tests below at the SAME assertion each time —
+// `node --test test/main/tray-actions.test.js` failed every one of the five
+// parametrized tests below at the SAME assertion each time —
 // `assert.equal(errorCalls.length, 1, ...)` reporting "0 !== 1" — because a
 // resolved `{ok:false}` never reaches a `.catch()` at all: it just passed
 // straight through `runAction()` untouched, with nothing logged and nothing
@@ -603,49 +603,54 @@ for (const [method, label, code, message] of [
   ['onStart', 'Start', 'HEALTH_CHECK_TIMEOUT', 'litellm did not become healthy in time.'],
   ['onRestart', 'Restart', 'HEALTH_CHECK_TIMEOUT', 'litellm did not become healthy in time.'],
 ]) {
-  test(`createTrayActions: NCOW-56 — a RESOLVED {ok:false} tray ${label} (${code}) shows a native notification, not silence (AC#1)`, async () => {
-    reset();
-    const mutexes = { proxy: { run: (fn) => fn() } };
-    const failure = { ok: false, error: { code, message } };
-    const handlers = {
-      proxy: {
-        start: async () => failure,
-        stop: async () => failure,
-        restart: async () => failure,
-      },
-    };
-    const { instances, Notification } = fakeNotificationDeps();
+  test(
+    method === 'onStop'
+      ? `createTrayActions: NCOW-56 — a RESOLVED {ok:false} tray Stop (${code}) is a synthetic contract case (stop() never itself resolves {ok:false} in production) exercised because runAction() checks every action generically (AC#1)`
+      : `createTrayActions: NCOW-56 — a RESOLVED {ok:false} tray ${label} (${code}) shows a native notification, not silence (AC#1)`,
+    async () => {
+      reset();
+      const mutexes = { proxy: { run: (fn) => fn() } };
+      const failure = { ok: false, error: { code, message } };
+      const handlers = {
+        proxy: {
+          start: async () => failure,
+          stop: async () => failure,
+          restart: async () => failure,
+        },
+      };
+      const { instances, Notification } = fakeNotificationDeps();
 
-    const actions = createTrayActions({ mutexes, handlers }, { Notification });
+      const actions = createTrayActions({ mutexes, handlers }, { Notification });
 
-    const originalConsoleError = console.error;
-    const errorCalls = [];
-    console.error = (...args) => errorCalls.push(args);
-    let result;
-    try {
-      // Must not throw/reject — a resolved {ok:false} is a reported failure,
-      // not an exception, so the caller still gets a settled promise back.
-      result = await actions[method]();
-    } finally {
-      console.error = originalConsoleError;
+      const originalConsoleError = console.error;
+      const errorCalls = [];
+      console.error = (...args) => errorCalls.push(args);
+      let result;
+      try {
+        // Must not throw/reject — a resolved {ok:false} is a reported failure,
+        // not an exception, so the caller still gets a settled promise back.
+        result = await actions[method]();
+      } finally {
+        console.error = originalConsoleError;
+      }
+
+      assert.deepEqual(result, failure, 'the resolved {ok:false} value must still be handed back to the caller unchanged, not swallowed');
+
+      assert.equal(errorCalls.length, 1, 'expected exactly one console.error call diagnosing the resolved failure');
+      const loggedText = errorCalls[0].join(' ');
+      assert.match(loggedText, new RegExp(`${label} failed`, 'i'));
+      assert.match(loggedText, new RegExp(code));
+
+      assert.equal(instances.length, 1, `expected exactly one Notification to be constructed for a resolved {ok:false} ${label}`);
+      assert.equal(instances[0].shown, true, 'Notification.show() must actually be called — constructing it alone never displays anything');
+      assert.match(instances[0].options.body, new RegExp(`${label} failed`), 'the notification body must name which action failed');
+      assert.match(
+        instances[0].options.body,
+        new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        'the notification body must carry the underlying error message, not just a generic "something failed"'
+      );
     }
-
-    assert.deepEqual(result, failure, 'the resolved {ok:false} value must still be handed back to the caller unchanged, not swallowed');
-
-    assert.equal(errorCalls.length, 1, 'expected exactly one console.error call diagnosing the resolved failure');
-    const loggedText = errorCalls[0].join(' ');
-    assert.match(loggedText, new RegExp(`${label} failed`, 'i'));
-    assert.match(loggedText, new RegExp(code));
-
-    assert.equal(instances.length, 1, `expected exactly one Notification to be constructed for a resolved {ok:false} ${label}`);
-    assert.equal(instances[0].shown, true, 'Notification.show() must actually be called — constructing it alone never displays anything');
-    assert.match(instances[0].options.body, new RegExp(`${label} failed`), 'the notification body must name which action failed');
-    assert.match(
-      instances[0].options.body,
-      new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-      'the notification body must carry the underlying error message, not just a generic "something failed"'
-    );
-  });
+  );
 }
 
 // NCOW-56 (AC#4): a resolved {ok:false} must respect Notification support

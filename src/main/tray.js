@@ -86,14 +86,19 @@ function createTray(opts, deps = {}) {
         // tray.setStatus(status) })`). The `not-installed` status this label
         // renders as "Not configured" (above) is verified to mean something
         // narrower than "no manifest": pm2Control.js's `getStatus()` reports
-        // it purely from `findApp()` returning nothing — i.e. the
-        // `litellm-nim` pm2 app has never been started — which is orthogonal
-        // to whether `manifest.json` exists. A completed setup that has
-        // simply never been started (the ordinary case right after Setup
-        // finishes) is `not-installed` with a manifest already on disk;
-        // conversely nothing here rules out `stopped`/`errored`/`running`
-        // with no manifest either (e.g. a manifest deleted out-of-band after
-        // the proxy was once started). So gating `enabled` on manifest
+        // it purely from `findApp()` returning nothing — i.e. pm2 currently
+        // has no app registered under that name — which is orthogonal to
+        // whether `manifest.json` exists. A completed setup can still be
+        // `not-installed` with a manifest already on disk (e.g. `proxy.start()`
+        // failing at the pm2 level before pm2 ever registers the app — the
+        // ordinary case right after Setup finishes is actually `running`,
+        // since the wizard's models step wires straight into
+        // `generateAndStart()` in setup-view.js, which writes the manifest
+        // and then immediately awaits `proxy.start()`, per DESIGN.md's "Step
+        // 5 — start under pm2"); conversely nothing here rules out
+        // `stopped`/`errored`/`running` with no manifest either (e.g. a
+        // manifest deleted out-of-band after the proxy was once started). So
+        // gating `enabled` on manifest
         // presence would need `setStatus()` to receive manifest state too —
         // threading that through means changing this call's shape at its one
         // call site (index.js) and status-poller.js's `onStatus` payload,
@@ -224,8 +229,9 @@ function createTray(opts, deps = {}) {
  * litellm never reports healthy inside its window. `restart` is
  * `async () => handlers.proxy.start()`, so it inherits both. `stop`, by
  * contrast, is verified to never itself resolve `{ok:false}` in production
- * today (`pm2Control.stop()` only rejects on a timeout or resolves with
- * nothing to report as an error) — `runAction()` below still checks every
+ * today (`pm2Control.stop()` can reject on a timeout, on pm2's own callback
+ * error, or from a failed `ensureConnected()` — or resolve with nothing to
+ * report as an error) — `runAction()` below still checks every
  * action generically, both because that costs nothing and because it is the
  * honest, non-brittle contract for a shared helper (a future change to
  * `stop` that starts returning `{ok:false}` — e.g. to surface a
