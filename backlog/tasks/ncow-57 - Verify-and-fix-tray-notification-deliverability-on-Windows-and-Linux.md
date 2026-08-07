@@ -4,7 +4,7 @@ title: Verify and fix tray notification deliverability on Windows and Linux
 status: In Progress
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 11:59'
+updated_date: '2026-08-07 12:11'
 labels: []
 dependencies:
   - NCOW-55
@@ -445,4 +445,77 @@ immediately and restored byte-for-byte from a pre-edit backup, verified by `diff
 Cumulative branch state: 4 commits, 5 files, +416/-0 — `electron-builder.yml`,
 `src/main/appUserModelId.js` (new), `src/main/index.js`, `src/main/tray.js`,
 `test/main/app-user-model-id.test.js` (new).
+
+## Wave-16 review verdict (opus, pass 3 — final): APPROVE, confirmed AC #1, #2, #3, #4, #5
+
+Reviewer verified independently rather than inheriting passes 1-2.
+
+**AC#1 CONFIRMED.** `src/main/index.js:27-29` calls `app.setAppUserModelId(APP_USER_MODEL_ID)` at
+module scope before `app.whenReady()`, gated only on `platform === 'win32'`. The deliberate
+deviation is documented in code at `src/main/appUserModelId.js:93-126`. Reviewer fetched the
+Electron doc itself (HTTP 200, 0 redirects, 175 lines) and compared the quoted block
+PROGRAMMATICALLY against the source: **byte-identical after whitespace normalization**. The
+Squirrel sentence at 107-109 likewise byte-identical.
+
+**AC#2 CONFIRMED.** `electron-builder.yml:59-132`. Citations re-verified: `SetLnkAUMI` returns 5
+hits, ALL in `templates/nsis/include/installer.nsh` (200, 209, 225, 232, 240) — none for portable;
+`NsisTarget.js:160` is `APP_ID: appInfo.id`; the zero-`ToastActivatorCLSID` claim holds.
+
+**AC#3 CONFIRMED**, corroborated first-hand on winvm read-only (no npm test there, no app
+launched). Observed: the registry key `...\Notifications\Settings\com.evolvconsulting.claudeconduit`
+with `LastNotificationAddedTime = 0x1dd262e944317ea` -> 2026-08-07 05:35:38 UTC, and it is the ONLY
+app-specific key matching claude/conduit/electron. A **surviving Desktop `Claude Conduit.lnk`** from
+the verification install (TargetPath `...\ncow57-verify\installed\Claude Conduit.exe`, now deleted)
+carries `System.AppUserModel.ID = com.evolvconsulting.claudeconduit` — direct proof electron-builder's
+NSIS installer stamped the appId onto the shortcuts it created on that machine. The pinned dev
+`Electron.lnk` carries the same AUMID, modified the same second as the registry timestamp.
+*Reported caveat:* the Start Menu `Claude Conduit.lnk` named in the comment is gone (tree cleaned
+up), so the equivalent property was read off the Desktop shortcut from the same install; and only
+one `LastNotificationAddedTime` survives, so the registry alone cannot today distinguish the three
+configurations. Instrument limitation, not a branch defect — verified contemporaneously by the fix
+worker and again by pass 2, and nothing found contradicts it.
+
+**AC#4 CONFIRMED, independently re-derived.** Reviewer read the preserved capture itself and
+re-resolved the bus names live: `:1.24` -> PID 2198 -> gnome-shell; `:1.33` -> PID 2373 -> the gjs
+process currently owning `org.freedesktop.Notifications`. gnome-shell has run continuously since
+Aug 5 10:50, spanning the Aug 7 00:38 capture, so those names map to the same processes today.
+Decisively, the payload `"Claude Conduit"` / `"Start failed: ncow57-verify-live-test-source"`
+matches `notifyFailure()`'s real construction at `src/main/tray.js:337-340` exactly — confirming
+the capture came from the production code path, not a stub.
+
+**AC#5 CONFIRMED.** Reviewer's own npm test: 485/485, run twice (before experiments and after
+restoring). The only file under `test/` in the cumulative diff is the new one. 476 + 9 = 485.
+
+**Failure-class check — all five CLEAN.** Notably class 1: reviewer re-ran the sweep itself for both
+the "half" framing (zero hits) and the pass-1 elision phrasing; the only hits are the explicitly
+labelled misquote-being-corrected and the full accurate quote. **This is the first pass in this
+task's history where a fix pass did not introduce a fresh instance of the class it was closing.**
+Class 3: every citable claim checked out, including `GetRawAppUserModelID()` really spanning
+`application_info_win.cc:55-70`, `kAppUserModelIDFormat[] = L"electron.app.$1"` at line 24, and the
+control shortcut AUMIDs (`File Explorer.lnk` -> `Microsoft.Windows.Explorer`, `OneDrive.lnk` ->
+`Microsoft.SkyDrive.Desktop`).
+
+**Test verification.** 7 drift experiments plus a direct old-vs-new regex comparison. Old regex
+captures the value WITH quotes on a quoted value and returns null on quoted-plus-comment; new regex
+captures the bare value in all four benign forms while still failing on both drifted forms.
+Deleting the appId line entirely produces 2 failures — not vacuous.
+
+**Snag check: no work lost, nothing double-applied.** All five files hash-match their committed
+blobs at `780cb94` byte-for-byte. `appUserModelId.js` is structurally intact — 145 lines, 2 JSDoc
+blocks with matched openers/closers, exactly one dev-callout quote, one
+`function shouldSetAppUserModelId`, one `const APP_USER_MODEL_ID`, zero duplicated non-trivial lines.
+
+**Scope CLEAN.** README/DESIGN/docs untouched (0 files in the diff) — NCOW-58 unpre-empted.
+`src/main/tray.js` proven comment-only by the reviewer's OWN esprima token-stream diff: 901 tokens
+both sides, JSON-identical streams, 18240 -> 21476 bytes. `test/main/tray-actions.test.js`
+untouched — NCOW-59's code surface intact.
+
+**Two INFO items, deliberately not escalated.** (a) `appUserModelId.js:83` cites "lines 111-118" and
+says "reads in full", then reproduces 113-116 — the cited range correctly bounds the callout
+including its `:::info`/`:::` fence lines, which are not prose; nothing is elided. (b) The
+worktree's own copy of the NCOW-57 task file still carries pre-amendment AC text; the branch touches
+no file under `backlog/`, so merging cannot clobber the main checkout's amended version.
+
+Tree confirmed clean; reviewer deliberately used a scratchpad backup rather than `git checkout --`
+to avoid the snag class fix pass 2 hit.
 <!-- SECTION:NOTES:END -->
