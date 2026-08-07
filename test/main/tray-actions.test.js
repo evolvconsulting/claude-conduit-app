@@ -574,9 +574,10 @@ test('createTrayActions: NCOW-55 — omitting the second (notifyDeps) argument e
 // time.'}` when pm2 starts the process but litellm never reports healthy
 // inside its window. `restart` is `async () => handlers.proxy.start()`
 // (engine-context.js), so it inherits both codes exactly like Start. `stop`'s
-// real handler is verified to never itself resolve `{ok:false}` in
-// production today (pm2Control.js's `stop()` only rejects on
-// PM2_STOP_TIMEOUT or resolves with nothing to report as an error) — it is
+// real handler is verified to never itself resolve `{ok:false}` in production
+// today (pm2Control.js's `stop()` can reject on a timeout, on pm2's own
+// callback error, or from a failed `ensureConnected()` — or resolve with
+// nothing to report as an error) — it is
 // still exercised here because createTrayActions()'s runAction() checks
 // every action generically, and this proves that generic check actually
 // fires for Stop too, not just Start/Restart.

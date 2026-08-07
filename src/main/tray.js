@@ -98,10 +98,11 @@ function createTray(opts, deps = {}) {
         // 5 — start under pm2"); conversely nothing here rules out
         // `stopped`/`errored`/`running` with no manifest either (e.g. a
         // manifest deleted out-of-band after the proxy was once started). So
-        // gating `enabled` on manifest
-        // presence would need `setStatus()` to receive manifest state too —
-        // threading that through means changing this call's shape at its one
-        // call site (index.js) and status-poller.js's `onStatus` payload,
+        // gating `enabled` on manifest presence would need
+        // `setStatus()` to receive manifest state too —
+        // threading that through means changing this call's
+        // shape at its one EXTERNAL call site (index.js)
+        // and status-poller.js's `onStatus` payload,
         // both of which are out of scope for this task (index.js belongs to
         // a sibling task, NCOW-57). Given that, the chosen fix is the
         // alternative the task explicitly allows: leave Start always enabled
