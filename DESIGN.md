@@ -419,17 +419,20 @@ effect completed — see 9.4 and acceptance criterion 5 for what that means for 
 specifically.)
 
 **Tray Start/Stop/Restart failures on this path are now surfaced to the user, not just
-returned (NCOW-55, extended by NCOW-56).** Before NCOW-55, a thrown/rejected
-`handlers.proxy.*()` call reached only `console.error` — invisible in a packaged build,
-where stderr goes nowhere anyone reads. `src/main/tray.js`'s `createTrayActions()` now
-also shows a native OS notification (Electron's `Notification` API) for that case, and —
-since NCOW-56 — for a *resolved* `{ok:false}` result too (e.g. the `NOT_CONFIGURED` and
-`HEALTH_CHECK_TIMEOUT` codes `engine-context.js`'s proxy handlers can resolve with),
-which previously resolved in total silence. This section is about the pm2 lifecycle
-itself, not the UI layer that reports its failures, so the known platform caveats
-(Windows AUMID/portable-build gap, macOS notification-permission/signing — tracked by
-NCOW-57) are documented once, in README.md's "Tray notifications on Start/Stop/Restart
-failures" section, rather than duplicated here.
+returned (NCOW-55, extended by NCOW-56).** Before NCOW-55, only `onStop` had a `.catch()`
+at all (added by NCOW-53), and even there the trail was just `console.error` — invisible
+in a packaged build, where stderr goes nowhere anyone reads. `onStart`/`onRestart` had no
+`.catch()` at all, so a wedge there was an unhandled rejection in the main process with no
+trail whatsoever — worse than `onStop`'s pre-NCOW-53 silence (see `src/main/tray.js`'s
+`createTrayActions()` doc comment). `createTrayActions()` now also shows a native OS
+notification (Electron's `Notification` API) for that case, and — since NCOW-56 — for a
+*resolved* `{ok:false}` result too (e.g. the `NOT_CONFIGURED` and `HEALTH_CHECK_TIMEOUT`
+codes `engine-context.js`'s proxy handlers can resolve with), which previously resolved in
+total silence. This section is about the pm2 lifecycle itself, not the UI layer that
+reports its failures, so the known platform caveats (Windows AUMID/portable-build gap,
+macOS notification-permission/signing — documented by NCOW-57) are documented once, in
+README.md's "Tray notifications on Start/Stop/Restart failures" section, rather than
+duplicated here.
 
 **The before-quit stop is deliberately not serialized against the proxy mutex (NCOW-31,
 NCOW-34).** Since NCOW-31, the window/tray Start, Stop, and Restart actions share one

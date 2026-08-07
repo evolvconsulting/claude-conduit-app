@@ -291,9 +291,16 @@ instead of silently inert.
 **Known platform caveats (NCOW-57):**
 
 - **Windows** — the app's AppUserModelID now matches the Start Menu shortcut the NSIS
-  installer creates, so a `nsis` install's notifications are correctly attributed. The
-  **portable** build installs no Start Menu shortcut at all, so it still lacks the shortcut
-  a Windows toast is meant to pair with — a real, currently open gap for that build only.
+  installer creates, so a `nsis` install's notifications are correctly attributed on the
+  AUMID half. There is a second half electron-builder leaves open on **both** Windows
+  targets: Electron pairs that AUMID with a ToastActivatorCLSID, and electron-builder
+  writes none for `nsis` or `portable` (`electron-builder.yml`'s NCOW-57 comment: a
+  `ToastActivator`/`CLSID` grep over `node_modules/app-builder-lib/templates/nsis/` returns
+  zero hits). This app's toasts are plain informational notifications that never register
+  an activation handler, so the gap isn't exercised today — but it isn't closed either, and
+  NCOW-61 is open to decide it. Separately, and specific to **portable**: that build
+  installs no Start Menu shortcut at all, so even the AUMID half has nothing to be paired
+  with.
 - **macOS** — builds are ad-hoc signed, not signed with a full Apple Developer ID; whether
   that's enough for notifications to fire at all is not yet verified either way.
   Notification permission and Do Not Disturb state also aren't checked before a
@@ -371,8 +378,7 @@ is not required; installing the new one over it is fine.
 
 ```sh
 npm install
-npm test              # 485 tests, no network access (on Windows, some tests write into
-                       # the real %APPDATA%\claude-conduit — tracked as NCOW-60)
+npm test              # 485 tests (one live NVIDIA API check unless CI is set)
 npm run dev           # run from source
 npm run icons         # regenerate icons from build/icon.svg
 ```
