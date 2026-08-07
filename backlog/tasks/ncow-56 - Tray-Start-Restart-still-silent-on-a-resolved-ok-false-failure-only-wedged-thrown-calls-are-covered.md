@@ -3,10 +3,10 @@ id: NCOW-56
 title: >-
   Tray Start/Restart still silent on a resolved {ok:false} failure (only
   wedged/thrown calls are covered)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-06 18:16'
-updated_date: '2026-08-07 00:37'
+updated_date: '2026-08-07 02:32'
 labels: []
 dependencies:
   - NCOW-55
@@ -25,11 +25,11 @@ This task: extend the tray's error surface to also cover a resolved `{ok:false}`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A tray Start/Restart/Stop click that resolves {ok:false} (e.g. NOT_CONFIGURED, HEALTH_CHECK_TIMEOUT) surfaces a user-visible notification, using the same mechanism NCOW-55 established for thrown/rejected calls
-- [ ] #2 Decide and document whether tray Start's enabled/disabled state should require a manifest (matching the dashboard's #start-btn) or whether a clear on-click notification is the chosen alternative
-- [ ] #3 A test demonstrates the {ok:false} surface actually shows a notification for a genuinely {ok:false} resolved call (e.g. NOT_CONFIGURED on an unconfigured install), and fails against current merged source (non-vacuity reproduced and reported)
-- [ ] #4 Normal (successful) Start/Stop/Restart tray behavior is unchanged
-- [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #1 A tray Start/Restart/Stop click that resolves {ok:false} (e.g. NOT_CONFIGURED, HEALTH_CHECK_TIMEOUT) surfaces a user-visible notification, using the same mechanism NCOW-55 established for thrown/rejected calls
+- [x] #2 Decide and document whether tray Start's enabled/disabled state should require a manifest (matching the dashboard's #start-btn) or whether a clear on-click notification is the chosen alternative
+- [x] #3 A test demonstrates the {ok:false} surface actually shows a notification for a genuinely {ok:false} resolved call (e.g. NOT_CONFIGURED on an unconfigured install), and fails against current merged source (non-vacuity reproduced and reported)
+- [x] #4 Normal (successful) Start/Stop/Restart tray behavior is unchanged
+- [x] #5 All pre-existing tests continue to pass unmodified and npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -191,4 +191,31 @@ Files touched: `src/main/tray.js`, `test/main/tray-actions.test.js`, plus numeri
 `npm test` on merged `905b8ad`: **474/474**, matching `CLAUDE.md:51` and `README.md:331`.
 
 **Reviewer note not requiring a fix:** the AC#2 comment's chosen example of "`not-installed` with a manifest on disk" (a `proxy.start()` failing before pm2 registration) is valid but unrepresentative — the ordinary case is any reboot or pm2-daemon restart without `pm2 startup`/`resurrect`, after which `findApp()` returns null with the manifest untouched. That makes the argument stronger, not weaker.
+
+**CORRECTION to this task record's own earlier notes** — raised by the cleanup reviewer's claim sweep, which found the disproven claims surviving here after they had been fixed in source. Recorded rather than silently left, because this record is what the next session reads as ground truth:
+
+- The note above beginning "**Worker implementation returned**" states that "`tray.js`'s `setStatus(status)` receives exactly `pm2Control.getStatus()`'s return shape" and that manifest-gating "would require threading new manifest state into `setStatus()`, meaning changes to `index.js`'s call site **and `status-poller.js`'s `onStatus` payload shape**". **Both halves are FALSE**, as established by the wave-15 integration review (findings F4 and F3) and fixed in source by cleanup PR #61:
+  - `setStatus()` receives THREE distinct input shapes, not one: `pm2Control.getStatus()`'s return via `status-poller.js:14`; `status-poller.js:16`'s synthesized `{status:'errored'}` in `tick()`'s catch (what a rejected poll renders as); and `tray.js`'s own `setStatus({status:'stopped'})` seed call at construction. The conclusion drawn from it — that nothing about the manifest is mixed in — survives all three, but the exhaustiveness claim was wrong.
+  - Manifest-gating would NOT require changing `status-poller.js`. `index.js:74` destructures `handlers` into the same scope where the `onStatus` closure is written (`index.js:213-216`), and `handlers.config.getManifest` exists at `engine-context.js:406`, so `index.js` alone could enrich the call. `status-poller.js`'s `onStatus(status)` is layer-correctly ignorant of manifests and needs no change. The AC#2 decision remains defensible; only the stated cost was overstated.
+- The plan step recorded above as "trace `setStatus()`'s only input back through..." carries the same singular framing. It was the plan phrasing written before the investigation and is superseded by the three-way enumeration now in `src/main/tray.js`.
+
+**Cleanup PR #61 (`ab2ec25`) merged**, resolving all six integration-review findings. `npm test` 474 → **476**, independently verified by the cleanup reviewer and again by the orchestrator on merged `dev`.
+
+**The cleanup's central fix, and the most valuable thing this wave produced:** F1's replacement test is a genuine regression guard for the `result.ok === false` strictness contract, where the test it replaced guarded nothing. Verified in both directions by the reviewer — under `!result.ok` it is the ONLY test of 476 that fails, and it fails on the assertion its own comment names; under the shipped predicate it passes. The reviewer additionally built a throwaway worktree at `905b8ad` and applied the loosening there, observing 474/474 pass, which independently confirms F1 was a real false claim rather than a reviewer error. F6's two new tests were likewise proven non-vacuous by reverting only the body template and observing the literal string `Start failed: [object Object]`.
+
+**Accepted trade-off recorded on F6:** the `${err?.message ?? err?.code ?? 'unknown error'}` chain also affects the reject path, so a thrown primitive carrying content (`throw 'boom'`) now renders "unknown error" rather than "boom". No production path reaches it (`withTimeout` rejects with a real `Error` carrying `.message`/`.code`; pm2's callbacks yield `Error`s; no test throws a primitive), `console.error` still prints the raw value, and it is net-positive for the null/undefined rejection case this codebase already handles deliberately (NCOW-42/43): "Start failed: undefined" becomes "Start failed: unknown error".
+
+**Two follow-ups filed with user approval** from this wave's integration review: **NCOW-59** (contain a throwing `Notification.isSupported()` so tray actions cannot reject or double-log — the residual three review passes agreed was real but outside this task's ACs), and a **scope extension to NCOW-58** (two new ACs: document BOTH failure classes the tray now surfaces, and document the deliberate tray-Start-vs-dashboard-`#start-btn` asymmetry that currently exists only as a code comment; dependency updated to NCOW-55 + NCOW-56).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extended the tray's error surface to cover a RESOLVED `{ok:false}` result, not just a thrown/rejected call. `runAction()` now inspects the fulfilled value via `.then()` and, on `result.ok === false`, logs and calls the same `notifyFailure()` NCOW-55 established, returning `result` unchanged; the `.catch()` limb is untouched and `createTrayActions({ mutexes, handlers })`'s first argument keeps its exact shape, which two pre-existing regex identity guards require. This closes the more common real-world gap: clicking tray Start on a fresh, unconfigured install returned `{ok:false, error:{code:'NOT_CONFIGURED'}}` and the user saw nothing at all.
+
+AC#2 decided in favour of the on-click notification over a manifest gate: `setStatus()` receives no manifest data on any of its three input paths, and `not-installed` derives purely from `findApp()` returning null — orthogonal to whether `manifest.json` exists — so gating would require enriching `index.js`'s call, which belongs to sibling task NCOW-57.
+
+Verified: `npm test` 467 → 474 → **476** (7 new tests, then the cleanup replacing one non-guarding duplicate 1-for-1 and adding two), confirmed independently by every review pass and by the orchestrator on merged `dev`. Non-vacuity reproduced four separate times by three different reviewers (reverting only `src/main/tray.js` to the merge base: 19 tests, 13 pass, 6 fail, all five parametrized rows failing at the same assertion). Zero deletions in `test/` across the implementation branch, so no pre-existing test was modified. Both fix passes proven comment-only by `esprima` token-stream comparison, reproduced independently by the reviewers (895 → 895 tokens, 0 diff ops).
+
+Merged as PR #60 (`905b8ad`) after 3 review passes and 2 fix cycles, plus cleanup PR #61 (`ab2ec25`) resolving all six wave-level integration-review findings — the most important being that a comment claimed a strictness guarantee no test actually provided, now replaced by a test proven to be the only one of 476 that fails under the loosened predicate.
+<!-- SECTION:FINAL_SUMMARY:END -->
