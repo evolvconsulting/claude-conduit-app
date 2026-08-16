@@ -38,6 +38,35 @@ test('renderConfigYaml: emits api_base only when nimBaseUrl is given', () => {
   assert.match(yaml, /api_base: https:\/\/self-hosted\.example\/v1/);
 });
 
+// CCA-14.1: renderConfigYaml/writeSecretsEnvFile are now provider-parameterized
+// (litellmProvider/apiKeyEnvVar) so CCA-14.2/CCA-14.3 can plug in a different
+// provider. Defaults stay NVIDIA's, verified above; these two tests cover the
+// non-default path only.
+
+test('renderConfigYaml: honors an explicit litellmProvider/apiKeyEnvVar (CCA-14.1 provider seam)', () => {
+  const yaml = renderConfigYaml({
+    primaryModelId: 'qwen/qwen3-coder',
+    smallModelId: 'qwen/qwen3-8b',
+    litellmProvider: 'openrouter',
+    apiKeyEnvVar: 'OPENROUTER_API_KEY',
+  });
+  assert.match(yaml, /model: openrouter\/qwen\/qwen3-coder/);
+  assert.match(yaml, /model: openrouter\/qwen\/qwen3-8b/);
+  assert.match(yaml, /api_key: os\.environ\/OPENROUTER_API_KEY/);
+  assert.doesNotMatch(yaml, /nvidia_nim/);
+  assert.doesNotMatch(yaml, /NVIDIA_NIM_API_KEY/);
+});
+
+test('writeSecretsEnvFile: honors an explicit apiKeyEnvVar (CCA-14.1 provider seam)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'configgen-secrets-'));
+  const litellmEnvPath = path.join(dir, 'litellm.env');
+  writeSecretsEnvFile(litellmEnvPath, { nvidiaApiKey: 'sk-or-abc', masterKey: 'sk-master', apiKeyEnvVar: 'OPENROUTER_API_KEY' });
+  const content = fs.readFileSync(litellmEnvPath, 'utf8');
+  assert.match(content, /^OPENROUTER_API_KEY=sk-or-abc$/m);
+  assert.match(content, /^LITELLM_MASTER_KEY=sk-master$/m);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('renderRunLauncherJs: always binds 127.0.0.1, never 0.0.0.0, and never inlines a secret', () => {
   const js = renderRunLauncherJs({
     litellmEnvPath: '/cfg/litellm.env',

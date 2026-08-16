@@ -72,17 +72,23 @@ function createSecretStore(safeStorage, storagePath) {
      * safeStorage, only a plaintext litellm.env. Seed the store from it
      * once instead of forcing re-entry.
      *
+     * `apiKeyEnvVar` defaults to 'NVIDIA_NIM_API_KEY' since every install
+     * predating CCA-14 (provider abstraction) was NVIDIA-only by
+     * construction — CCA-14.5 will pass a specific provider's env var name
+     * once the manifest can record which provider a saved connection uses.
+     *
      * @param {string} litellmEnvPath
+     * @param {string} [apiKeyEnvVar]
      * @returns {string|null} the imported key, or null if none was found
      */
-    importFromExistingEnvFile(litellmEnvPath) {
+    importFromExistingEnvFile(litellmEnvPath, apiKeyEnvVar = 'NVIDIA_NIM_API_KEY') {
       let raw;
       try {
         raw = fs.readFileSync(litellmEnvPath, 'utf8');
       } catch {
         return null;
       }
-      const match = /^NVIDIA_NIM_API_KEY=(.*)$/m.exec(raw);
+      const match = new RegExp(`^${apiKeyEnvVar}=(.*)$`, 'm').exec(raw);
       if (!match) return null;
       const key = match[1].trim();
       if (!key) return null;

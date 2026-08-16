@@ -6,9 +6,8 @@ const path = require('node:path');
 
 const paths = require('../engine/paths');
 const prereqs = require('../engine/prereqs');
-const nvidiaKey = require('../engine/nvidiaKey');
 const { createSecretStore } = require('../engine/secretStore');
-const modelCatalog = require('../engine/modelCatalog');
+const providers = require('../engine/providers/registry');
 const configGen = require('../engine/configGen');
 const { createPm2Control, probeDaemonAlive, spawnDaemon } = require('../engine/pm2Control');
 const claudeCodeConfig = require('../engine/claudeCodeConfig');
@@ -25,6 +24,11 @@ const { migrateLegacyKeyFile, LEGACY_PRODUCT_NAME } = require('../engine/userDat
 const { createDomainMutexes } = require('./mutex');
 
 const DEFAULT_PORT = 4000;
+
+// CCA-14.1: only one provider exists today, so the active provider is a
+// constant. CCA-15 (multiple saved connections) replaces this with a lookup
+// keyed on whichever connection is active.
+const activeProvider = providers.getProvider('nvidia-nim');
 
 /**
  * SAFETY MECHANISM — dev/manual-testing only, never used in a real install:
@@ -294,7 +298,7 @@ function createEngineContext(deps) {
       // DOMAIN_MUTEX_ALIASES's apiKey->config alias) already scopes
       // correctly for it.
       validateAndSave: async (key) => {
-        const result = await nvidiaKey.validateApiKey({ apiKey: key });
+        const result = await activeProvider.validateCredential({ apiKey: key });
         if (!result.ok) return result;
         // NCOW-29: secretStore.save() can fail (e.g. ok:false/
         // ENCRYPTION_UNAVAILABLE when the platform has no OS-native
@@ -341,7 +345,7 @@ function createEngineContext(deps) {
       },
       getMasked: async () => {
         const key = secretStore.load();
-        return { ok: true, data: { maskedKey: key ? nvidiaKey.maskKey(key) : null } };
+        return { ok: true, data: { maskedKey: key ? activeProvider.maskCredential(key) : null } };
       },
       clear: async () => {
         secretStore.clear();
@@ -353,15 +357,16 @@ function createEngineContext(deps) {
       fetch: async () => {
         const apiKey = secretStore.load();
         if (!apiKey) return { ok: false, error: { code: 'NO_KEY', message: 'Set an NVIDIA API key first.' } };
-        const nimBaseUrl = getManifest()?.nim_base_url ?? undefined;
-        const result = await modelCatalog.fetchCatalog({ apiKey, nimBaseUrl });
+        const baseUrl = getManifest()?.nim_base_url ?? undefined;
+        const result = await activeProvider.listModels({ apiKey, baseUrl });
         if (!result.ok) return result;
+        const recommended = activeProvider.recommendedModels(result.data.models);
         return {
           ok: true,
           data: {
             models: result.data.models,
-            recommendedPrimary: modelCatalog.intersectWithLive(modelCatalog.RECOMMENDED_PRIMARY, result.data.models),
-            recommendedSmall: modelCatalog.intersectWithLive(modelCatalog.RECOMMENDED_SMALL, result.data.models),
+            recommendedPrimary: recommended.primary,
+            recommendedSmall: recommended.small,
           },
         };
       },
@@ -383,6 +388,8 @@ function createEngineContext(deps) {
           port: usedPort,
           litellmAbsPath: litellmCheck.path,
           nvidiaApiKey: apiKey,
+          litellmProvider: activeProvider.litellmProvider,
+          apiKeyEnvVar: activeProvider.apiKeyEnvVar,
         });
 
         const existing = getManifest();
@@ -437,6 +444,7 @@ function createEngineContext(deps) {
           masterKey: getMasterKey(),
           primaryModelId: manifest.primary_model,
           smallModelId: manifest.small_model,
+          listModels: activeProvider.listModels,
         });
         return { ok: true, data: result };
       },
@@ -600,6 +608,7 @@ function createEngineContext(deps) {
             manifest,
             settingsPath: claudeCodeSettingsPath,
             signal: diagnosticsAbortController.signal,
+            listModels: activeProvider.listModels,
           });
           return { ok: true, data: result };
         } finally {

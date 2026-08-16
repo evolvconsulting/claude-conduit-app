@@ -11,9 +11,16 @@ const { securePrivateFile } = require('./platform');
  * zero-dependency ethos (its CLI has zero npm deps) is worth preserving here
  * where it costs nothing.
  *
- * @param {{primaryModelId: string, smallModelId: string, nimBaseUrl?: string}} opts
+ * `litellmProvider`/`apiKeyEnvVar` default to today's NVIDIA-only values (see
+ * src/engine/providers/nvidia.js) so every existing call site keeps producing
+ * byte-identical YAML — CCA-14.2/CCA-14.3 pass a different provider's values
+ * explicitly instead of relying on the default.
+ *
+ * @param {{primaryModelId: string, smallModelId: string, nimBaseUrl?: string, litellmProvider?: string, apiKeyEnvVar?: string}} opts
  */
 function renderConfigYaml(opts) {
+  const litellmProvider = opts.litellmProvider ?? 'nvidia_nim';
+  const apiKeyEnvVar = opts.apiKeyEnvVar ?? 'NVIDIA_NIM_API_KEY';
   const apiBaseLine = opts.nimBaseUrl ? `\n      api_base: ${opts.nimBaseUrl}` : '';
 
   return `model_list:
@@ -22,21 +29,21 @@ function renderConfigYaml(opts) {
   # NIM model never requires touching client config.
   - model_name: claude-sonnet-4-5    # primary — what Desktop's default + ANTHROPIC_MODEL point at
     litellm_params:
-      model: nvidia_nim/${opts.primaryModelId}
-      api_key: os.environ/NVIDIA_NIM_API_KEY${apiBaseLine}
+      model: ${litellmProvider}/${opts.primaryModelId}
+      api_key: os.environ/${apiKeyEnvVar}${apiBaseLine}
 
   - model_name: claude-haiku-4-5     # background/haiku-class traffic
     litellm_params:
-      model: nvidia_nim/${opts.smallModelId}
-      api_key: os.environ/NVIDIA_NIM_API_KEY
+      model: ${litellmProvider}/${opts.smallModelId}
+      api_key: os.environ/${apiKeyEnvVar}
 
   # Safety net: Claude clients sometimes request concrete Anthropic IDs
   # (claude-sonnet-4-6, claude-haiku-…, claude-opus-…) regardless of overrides.
   # Route them to the primary model so they don't 400.
   - model_name: "claude-*"
     litellm_params:
-      model: nvidia_nim/${opts.primaryModelId}
-      api_key: os.environ/NVIDIA_NIM_API_KEY
+      model: ${litellmProvider}/${opts.primaryModelId}
+      api_key: os.environ/${apiKeyEnvVar}
 
 litellm_settings:
   drop_params: true        # drop Anthropic-only params NIM rejects (cache_control, thinking, metadata…)
@@ -369,11 +376,17 @@ function resolveMasterKey(litellmEnvPath) {
 }
 
 /**
+ * `apiKeyEnvVar` defaults to 'NVIDIA_NIM_API_KEY' (today's only provider) so
+ * existing callers keep writing the same file; it must match whatever
+ * `renderConfigYaml` was given, since that's the name the generated
+ * config.yaml reads via `os.environ/<name>`.
+ *
  * @param {string} litellmEnvPath
- * @param {{nvidiaApiKey: string, masterKey: string}} secrets
+ * @param {{nvidiaApiKey: string, masterKey: string, apiKeyEnvVar?: string}} secrets
  */
 function writeSecretsEnvFile(litellmEnvPath, secrets) {
-  const content = `NVIDIA_NIM_API_KEY=${secrets.nvidiaApiKey}\nLITELLM_MASTER_KEY=${secrets.masterKey}\n`;
+  const apiKeyEnvVar = secrets.apiKeyEnvVar ?? 'NVIDIA_NIM_API_KEY';
+  const content = `${apiKeyEnvVar}=${secrets.nvidiaApiKey}\nLITELLM_MASTER_KEY=${secrets.masterKey}\n`;
   fs.writeFileSync(litellmEnvPath, content, 'utf8');
   securePrivateFile(litellmEnvPath);
 }
@@ -392,6 +405,8 @@ function writeSecretsEnvFile(litellmEnvPath, secrets) {
  * @param {number} opts.port
  * @param {string} opts.litellmAbsPath
  * @param {string} opts.nvidiaApiKey
+ * @param {string} [opts.litellmProvider] - defaults to 'nvidia_nim' (see renderConfigYaml)
+ * @param {string} [opts.apiKeyEnvVar] - defaults to 'NVIDIA_NIM_API_KEY' (see renderConfigYaml/writeSecretsEnvFile)
  */
 function generateAll(opts) {
   const { files } = opts;
@@ -402,12 +417,18 @@ function generateAll(opts) {
 
   fs.writeFileSync(
     files.configYaml,
-    renderConfigYaml({ primaryModelId: opts.primaryModelId, smallModelId: opts.smallModelId, nimBaseUrl: opts.nimBaseUrl }),
+    renderConfigYaml({
+      primaryModelId: opts.primaryModelId,
+      smallModelId: opts.smallModelId,
+      nimBaseUrl: opts.nimBaseUrl,
+      litellmProvider: opts.litellmProvider,
+      apiKeyEnvVar: opts.apiKeyEnvVar,
+    }),
     'utf8'
   );
   fs.chmodSync(files.configYaml, 0o644);
 
-  writeSecretsEnvFile(files.litellmEnv, { nvidiaApiKey: opts.nvidiaApiKey, masterKey });
+  writeSecretsEnvFile(files.litellmEnv, { nvidiaApiKey: opts.nvidiaApiKey, masterKey, apiKeyEnvVar: opts.apiKeyEnvVar });
 
   fs.writeFileSync(
     files.runLauncher,

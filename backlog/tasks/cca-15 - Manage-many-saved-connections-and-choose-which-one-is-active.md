@@ -4,6 +4,7 @@ title: Manage many saved connections and choose which one is active
 status: To Do
 assignee: []
 created_date: '2026-07-31 21:51'
+updated_date: '2026-08-16 15:19'
 labels: []
 dependencies:
   - CCA-14

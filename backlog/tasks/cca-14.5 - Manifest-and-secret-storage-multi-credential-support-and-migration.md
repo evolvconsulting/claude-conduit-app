@@ -1,0 +1,35 @@
+---
+id: CCA-14.5
+title: 'Manifest and secret storage: multi-credential support and migration'
+status: To Do
+assignee: []
+created_date: '2026-08-16 14:45'
+updated_date: '2026-08-16 15:19'
+labels: []
+dependencies:
+  - CCA-14.1
+parent_task_id: CCA-14
+priority: high
+type: feature
+ordinal: 81000
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+Extend the manifest format to carry provider type, and extend secretStore.js to hold multiple credentials, including providers that need none. Ensure an existing NVIDIA-only install continues to work after upgrading to this abstraction.
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 The manifest format records provider type per configured provider
+- [ ] #2 secretStore.js supports multiple stored credentials, including a provider with no credential
+- [ ] #3 An existing NVIDIA-only install migrates and continues working after upgrade with no manual intervention
+- [ ] #4 npm test passes
+<!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reminder from CCA-14.1: once this task adds a provider field to the manifest (AC#1), also thread it through configGen.regenerateStaleConfig()/resolveExistingNvidiaApiKey() in src/engine/configGen.js -- those still hardcode NVIDIA_NIM_API_KEY today because there was nothing else to read yet.
+<!-- SECTION:NOTES:END -->

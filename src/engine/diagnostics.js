@@ -187,11 +187,17 @@ async function checkAuthEnforced({ port, signal }) {
  * but a 200 here says nothing about key validity). Real key validation
  * happens in nvidiaKey.validateApiKey() (a probe completion request) and in
  * check 4 below (a real completion through the actual proxy).
+ *
+ * `listModels` (CCA-14.1) matches the Provider contract's listModels(...)
+ * shape ({apiKey, baseUrl, timeoutMs}) -> Result — see
+ * src/engine/providers/registry.js. Defaults to NVIDIA's own
+ * modelCatalog.fetchCatalog for any caller that doesn't inject one, so this
+ * check stays behavior-identical without a provider in hand.
  */
-async function checkNimReachable({ apiKey, nimBaseUrl, primaryModelId, smallModelId }) {
-  const { fetchCatalog } = require('./modelCatalog');
+async function checkNimReachable({ apiKey, nimBaseUrl, primaryModelId, smallModelId, listModels }) {
+  const doListModels = listModels ?? (({ apiKey, baseUrl }) => require('./modelCatalog').fetchCatalog({ apiKey, nimBaseUrl: baseUrl }));
   const started = Date.now();
-  const catalogResult = await fetchCatalog({ apiKey, nimBaseUrl });
+  const catalogResult = await doListModels({ apiKey, baseUrl: nimBaseUrl });
   if (!catalogResult.ok) {
     return result({ id: 3, label: 'NIM upstream', critical: true, pass: false, ms: Date.now() - started, detail: catalogResult.error.message });
   }
@@ -493,7 +499,7 @@ async function checkLiveCliSmoke({ port, masterKey, primaryModel, smallModel, si
  * `cancelled: true` tells the caller (and the renderer) the run didn't
  * finish on its own.
  *
- * @param {{port: number, masterKey: string, apiKey: string, nimBaseUrl?: string, primaryModelId: string, smallModelId: string, manifest?: object, settingsPath?: string, signal?: AbortSignal}} opts
+ * @param {{port: number, masterKey: string, apiKey: string, nimBaseUrl?: string, primaryModelId: string, smallModelId: string, manifest?: object, settingsPath?: string, signal?: AbortSignal, listModels?: Function}} opts
  */
 async function runDiagnostics(opts) {
   const { signal } = opts;
@@ -530,7 +536,7 @@ async function runDiagnostics(opts) {
  * ~2×60s + check 3's 10s, well under the ~7 minutes runDiagnostics can take,
  * so this does not need runDiagnostics' cancellation support (AC#3 above).
  *
- * @param {{apiKey: string, nimBaseUrl?: string, port: number, masterKey: string, primaryModelId: string, smallModelId: string}} opts
+ * @param {{apiKey: string, nimBaseUrl?: string, port: number, masterKey: string, primaryModelId: string, smallModelId: string, listModels?: Function}} opts
  */
 async function runQuickValidation(opts) {
   const results = [

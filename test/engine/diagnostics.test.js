@@ -10,6 +10,7 @@ const {
   buildRequestB,
   checkCliConfigCoherent,
   buildLiveCliSmokeEnv,
+  checkNimReachable,
   checkCompletion,
   checkToolCalling,
   checkStreaming,
@@ -401,6 +402,47 @@ test('checkSmallModel: AC#2 — timeout message names the real small model id (s
     assert.match(r.detail, /meta\/llama-3\.1-8b-instruct/);
     assert.doesNotMatch(r.detail, /claude-haiku-4-5 is responding/);
   });
+});
+
+// CCA-14.1: checkNimReachable takes an injectable listModels(...), matching
+// the Provider contract (src/engine/providers/registry.js), so this check no
+// longer has to import modelCatalog.js directly.
+
+test('checkNimReachable: uses the injected listModels(...) (Provider contract) instead of importing modelCatalog directly', async () => {
+  let calledWith;
+  const listModels = async ({ apiKey, baseUrl }) => {
+    calledWith = { apiKey, baseUrl };
+    return { ok: true, data: { models: ['meta/llama-3.3-70b-instruct', 'meta/llama-3.1-8b-instruct'] } };
+  };
+  const r = await checkNimReachable({
+    apiKey: 'nvapi-x',
+    nimBaseUrl: 'https://self-hosted.example/v1',
+    primaryModelId: 'meta/llama-3.3-70b-instruct',
+    smallModelId: 'meta/llama-3.1-8b-instruct',
+    listModels,
+  });
+  assert.equal(r.id, 3);
+  assert.equal(r.status, 'pass');
+  assert.deepEqual(calledWith, { apiKey: 'nvapi-x', baseUrl: 'https://self-hosted.example/v1' });
+});
+
+test('checkNimReachable: surfaces the injected listModels(...) failure verbatim', async () => {
+  const listModels = async () => ({ ok: false, error: { code: 'NETWORK_ERROR', message: 'could not reach example.com' } });
+  const r = await checkNimReachable({ apiKey: 'k', primaryModelId: 'p', smallModelId: 's', listModels });
+  assert.equal(r.id, 3);
+  assert.equal(r.status, 'fail');
+  assert.match(r.detail, /could not reach example\.com/);
+});
+
+test('checkNimReachable: falls back to modelCatalog.fetchCatalog when no listModels is injected', async () => {
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ data: [{ id: 'meta/llama-3.3-70b-instruct' }] }), { status: 200 }),
+    async () => {
+      const r = await checkNimReachable({ apiKey: 'k', primaryModelId: 'meta/llama-3.3-70b-instruct', smallModelId: 'meta/llama-3.1-8b-instruct' });
+      assert.equal(r.id, 3);
+      assert.equal(r.status, 'pass');
+    }
+  );
 });
 
 test('checkClaudeWildcard: AC#2 — timeout message names the real primary model id (primaryModelId), not the "claude-sonnet-4-6" alias', async () => {
