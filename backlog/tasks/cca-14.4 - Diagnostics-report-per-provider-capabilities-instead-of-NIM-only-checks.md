@@ -4,7 +4,7 @@ title: 'Diagnostics: report per-provider capabilities instead of NIM-only checks
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 03:58'
+updated_date: '2026-08-17 04:09'
 labels: []
 dependencies:
   - CCA-14.1
@@ -137,4 +137,39 @@ trigger the `skipped` path in practice. `requiresApiKey` (the third capability f
 consulted in diagnostics -- not a defect, just noted as unused today.
 
 Fix pass 1 dispatched into the same worktree with both findings verbatim.
+
+## Wave-18 fix pass 1 (fresh worker, same worktree, commits `c11f586` + `60400f7`)
+
+Recorded by the orchestrator from the worker's structured return. NOT yet independently reviewed.
+
+**Finding A (BLOCKING) fixed.** All three UI consumers previously mapped anything other than
+`'pass'` to the failure class/symbol. Added a genuine third `status === 'skipped'` branch to each:
+`diagnostics-view.js` (new `statusClass()`/`statusSymbol()` helpers), `setup-view.js` (new
+`quickResultClass()`/`quickResultSymbol()`), `dashboard-view.js` (inline third ternary arm), plus a
+new `.skip { color: var(--muted); font-weight: 600; }` CSS rule matching the existing `--muted`
+precedent already used for other non-pass/fail states. Concrete before/after evidence: executed the
+real extracted template (same technique `test/main/index.test.js` already uses) -- a skipped row now
+renders `class="skip"`, symbol `-`, where it previously rendered `class="fail"`, `X`. New tests in
+3 files prove ACTUAL rendered output for skipped/fail/pass all three (not just source-text presence).
+
+**Finding B (should-fix) fixed.** `timeoutDetail()` no longer hardcodes "NVIDIA's shared/free
+endpoint" -- now takes a `providerLabel` param, threaded through `checkCompletion`/
+`checkToolCalling`/`checkStreaming`/`checkSmallModel`/`checkClaudeWildcard` (which `engine-context.js`
+already supplied via `opts.providerLabel` but which wasn't reaching these call sites), falling back to
+fully generic wording (no provider named) when absent rather than defaulting to NVIDIA.
+
+**Nits addressed**: reworded the self-contradictory test title; softened the unverified
+"confirmed tool calling works for every recommended NIM model" comment to match what DESIGN.md/
+README.md actually document (curated-shortlist intent + an "unverified" warning for non-recommended
+models) -- confirmed via `git show f73371f` this comment was added by this same branch, so in-scope.
+
+**npm test**: 542/542 (528 baseline -> +14 new tests, 0 regressions).
+
+Files touched: `diagnostics.js`, its test file, all three renderer view files named in the finding,
+`dashboard-view.test.js`, two new renderer test files, and `app.css` (one deliberate addition beyond
+the original file list -- required to give the new `.skip` class actual neutral styling per the
+finding's own "neutral/muted style" instruction). `engine-context.js` and `src/engine/providers/`
+confirmed untouched (empty diff against those paths).
+
+Review pass 2 dispatched next, into the same worktree, against `60400f7`.
 <!-- SECTION:NOTES:END -->
