@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 03:40'
+updated_date: '2026-08-17 03:57'
 labels: []
 dependencies:
   - CCA-57
@@ -43,6 +43,24 @@ Primary files: `src/main/appUserModelId.js`, `src/main/index.js`, `electron-buil
 - [ ] #7 The WIN_BLOCK sanity assert in test/main/app-user-model-id.test.js makes its own comment exactly true: an empty-string WIN_BLOCK fails loudly rather than skipping silently (e.g. `assert.ok(WIN_BLOCK, ...)` or a `.trim() !== ''` check), proven by simulating an empty return with a real drift present and observing a failure
 - [ ] #8 Every guard change above is proven non-vacuous BY EXPERIMENT, not by reading: for each, state the exact mutation applied, that the guard failed with it and passes without it, and confirm the guard was not already catching it before the change
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read appUserModelId.js and its test file to understand the existing appId drift-guard mechanism
+   exactly before touching anything.
+2. Re-verify (not trust) the Electron setToastActivatorCLSID API and default behavior against this
+   repo's actual installed Electron version (43.2.0) via the real docs/api/app.md at that tag.
+3. Re-verify electron-builder's actual NSIS/WinShell plugin surface for CLSID-stamping support against
+   the installed app-builder-lib 26.15.3 -- repo-wide grep, not just templates/nsis/.
+4. Decide fix-vs-accept based on findings: since nothing in the installed electron-builder can stamp a
+   CLSID onto the shortcut, a runtime-set fixed CLSID would be exactly as functionally inert as
+   today's random default -- rules out the "fix" path. Decision: accept the gap, document accurately.
+5. Correct electron-builder.yml's win: block comment and tray.js's gap-enumeration comment to name the
+   real API and default behavior.
+6. Close AC#6 (two drift-guard bypasses) and AC#7 (WIN_BLOCK sanity assert) as independent hardening
+   on the EXISTING appId guard mechanism, each proven by experiment against scratch-mutated copies.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
@@ -88,4 +106,49 @@ its wave, so the added scope costs no parallelism.
 AC#8 is deliberately a process criterion, not a code one: wave 16's recurring failure was guard claims
 verified by reading rather than by experiment. Reading the guard and concluding it now covers a case is
 NOT evidence for AC#6 or AC#7 — apply the mutation, observe the failure.
+
+## Wave-18 implementation evidence (worker, branch `feat/CCA-61-toast-activator-clsid`,
+commits `c391627` + `38fdf77`, branched from `52a7f7e`)
+
+Recorded by the orchestrator from the worker's structured return. NOT yet independently reviewed.
+
+**Decision: ACCEPT THE GAP, document it accurately** (not "set a fixed CLSID") -- both re-verification
+halves confirmed this is the right call, not a default choice:
+- Electron 43.2.0 (this repo's actual pinned version): fetched the real `docs/api/app.md` at GitHub
+  tag `v43.2.0` directly. Lines 1148-1159 confirm the task's original citation was accurate --
+  `setToastActivatorCLSID(id)` exists; unset, "a random CLSID is generated once per run and exposed
+  via `app.toastActivatorCLSID`"; the "call early" timing guidance belongs to THIS method, not
+  `setAppUserModelId`.
+- app-builder-lib 26.15.3 (installed): re-grepped `ToastActivator|CLSID` across the ENTIRE package
+  (not just `templates/nsis/` as the original task filing did) -- zero hits repo-wide. The WinShell
+  NSIS plugin's actual exposed surface is `SetLnkAUMI`/`UninstShortcut`/`UninstAppUserModelId` only --
+  no shortcut-side CLSID-stamping call exists at all.
+- **Decisive finding**: since nothing in the installed electron-builder can stamp a CLSID onto the
+  shortcut, calling `setToastActivatorCLSID(fixedGuid)` at runtime would produce a value with nothing
+  on the shortcut side to correlate it to -- exactly as functionally inert as today's random-per-run
+  default, just deterministically inert instead of randomly inert. Implementing it would LOOK
+  resolved in review while changing nothing observable.
+
+**AC#6 closed and proven by experiment** against scratch-mutated copies of `electron-builder.yml`
+(never the committed file), under real `node --test` runs: quoted key (`  "appId": com.DRIFT`) --
+pre-fix regex 9/9 green (bypass confirmed), post-fix regex fails with
+`actual: 'com.evolvconsulting.claudeconduit', expected: 'com.DRIFT'` (caught). Anchored scalar
+(`appId: &wid com.DRIFT`) -- same pre-fix bypass confirmed, same post-fix catch confirmed. New regex
+also confirmed to have NO false positive against the real, unmutated file (9/9, full suite 522/522).
+
+**AC#7 closed and proven by experiment**: forced `WIN_BLOCK = ''` in a scratch variant with a real
+drift present -- old assert (`WIN_BLOCK !== null`) passed 9/9 green (bypass); new assert
+(`WIN_BLOCK && WIN_BLOCK.trim() !== ''`) threw immediately (caught), matching what the guard's own
+comment always claimed it did.
+
+**npm test**: 522/522, delta 0 from baseline. AC#5 (pre-existing tests unmodified) satisfied -- only
+the module-level regex/assert HELPERS that feed the existing tests were hardened, no existing
+assertion's own text changed.
+
+Files touched: `test/main/app-user-model-id.test.js` (AC#6/#7 hardening, plus a stale `NCOW-61`
+forward-reference corrected now that this task's decision is known), `electron-builder.yml` (win:
+block comment now names `setToastActivatorCLSID`, its default, and the re-verified gap),
+`src/main/tray.js` (gap-enumeration extended from three items to four, naming the same API/default/
+gap instead of omitting it as before). Untouched, per the accept-and-document decision:
+`src/main/appUserModelId.js`, `src/main/index.js` (no runtime call added).
 <!-- SECTION:NOTES:END -->
