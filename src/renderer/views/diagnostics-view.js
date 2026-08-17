@@ -68,15 +68,33 @@ async function cancel() {
   // rest of the button/result rendering itself.
 }
 
+// CCA-14.4 (review pass 1, finding A): a diagnostics result can be 'pass',
+// 'fail', or 'skipped' (a capability the active provider plainly does not
+// support — never attempted, so never a failure; see diagnostics.js's
+// notApplicable()). Before this fix, 'skipped' fell through the ternary's
+// else branch and rendered identically to 'fail' — a red ✗ row labeled
+// "warn-only", which reads as a broken check, exactly what AC#2 forbids.
+function statusClass(status) {
+  if (status === 'pass') return 'pass';
+  if (status === 'skipped') return 'skip';
+  return 'fail';
+}
+
+function statusSymbol(status) {
+  if (status === 'pass') return '✓';
+  if (status === 'skipped') return '–';
+  return '✗';
+}
+
 function renderResults(data) {
   const el = root.querySelector('#diag-results');
   const rows = data.results
     .map((r) => {
       const emphasize = r.id === 5;
-      return `<tr class="${r.status === 'pass' ? 'pass' : 'fail'}" ${emphasize ? 'style="font-weight:700"' : ''}>
+      return `<tr class="${statusClass(r.status)}" ${emphasize ? 'style="font-weight:700"' : ''}>
         <td>#${r.id}</td>
         <td>${escapeHtml(r.label)}${emphasize ? ' <span title="A model without working tool calling manifests as Claude doing nothing — the single most valuable check.">ⓘ</span>' : ''}</td>
-        <td>${r.status === 'pass' ? '✓' : '✗'}</td>
+        <td>${statusSymbol(r.status)}</td>
         <td>${r.critical ? '' : 'warn-only'}</td>
         <td>${escapeHtml(r.detail ?? '')}</td>
         <td>${r.ms ? `${r.ms}ms` : ''}</td>

@@ -271,12 +271,30 @@ async function generateAndStart() {
   renderClientConfigStep();
 }
 
+// CCA-14.4 (review pass 1, finding A): a quickValidation result can be
+// 'pass', 'fail', or 'skipped' (a capability the active provider plainly
+// does not support — never attempted, so never a failure; see
+// diagnostics.js's notApplicable()). Before this fix, 'skipped' fell through
+// the ternary's else branch and rendered identically to 'fail' — a red ✗
+// list item, which reads as a broken check, exactly what AC#2 forbids.
+function quickResultClass(status) {
+  if (status === 'pass') return 'pass';
+  if (status === 'skipped') return 'skip';
+  return 'fail';
+}
+
+function quickResultSymbol(status) {
+  if (status === 'pass') return '✓';
+  if (status === 'skipped') return '–';
+  return '✗';
+}
+
 function renderGenerateStep() {
   const el = root?.querySelector('#wiz-generate');
   if (!el || !['generate', 'clientConfig'].includes(wiz.step)) { if (el) el.innerHTML = ''; return; }
 
   const quickRows = (wiz.quickValidation?.results ?? [])
-    .map((r) => `<li class="${r.status === 'pass' ? 'pass' : 'fail'}">${r.status === 'pass' ? '✓' : '✗'} ${escapeHtml(r.label)} ${r.detail ? '— ' + escapeHtml(r.detail) : ''}</li>`)
+    .map((r) => `<li class="${quickResultClass(r.status)}">${quickResultSymbol(r.status)} ${escapeHtml(r.label)} ${r.detail ? '— ' + escapeHtml(r.detail) : ''}</li>`)
     .join('');
 
   el.innerHTML = `
