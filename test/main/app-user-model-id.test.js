@@ -94,12 +94,13 @@ test('main/index.js: calls app.setAppUserModelId(APP_USER_MODEL_ID) guarded by s
 // has none either. The "should be called early" sentence does exist in
 // app.md, but at line 1159, in the *adjacent* `app.setToastActivatorCLSID(id)`
 // entry — a different API this app deliberately does not call. CCA-61
-// investigated adopting it and chose to accept the gap and document it
-// accurately instead: the installed app-builder-lib (26.15.3) has no way to
-// stamp a matching ToastActivatorCLSID onto either Windows target's
-// shortcut, so a fixed runtime value would be exactly as functionally inert
-// as today's random-per-run default (see electron-builder.yml's `win:`
-// block comment for the full reasoning and citations). The ordering
+// investigated adopting it and chose to accept the gap on cost/benefit
+// grounds, not because no remedy exists: Electron's own
+// `shell.writeShortcutLink(path, 'update', { toastActivatorClsid })` can
+// stamp a CLSID onto an already-installed shortcut at runtime, independent
+// of app-builder-lib (26.15.3, which stamps none onto either Windows
+// target's shortcut at creation time). See electron-builder.yml's `win:`
+// block comment for the full reasoning and citations. The ordering
 // assertion below is real and worth keeping regardless: it is this
 // codebase's own chosen invariant (matching index.js's own comment at the
 // call site), not something borrowed from upstream documentation.
