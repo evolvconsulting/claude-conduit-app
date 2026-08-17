@@ -4,7 +4,7 @@ title: 'Manifest and secret storage: multi-credential support and migration'
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 15:15'
+updated_date: '2026-08-17 15:20'
 labels: []
 dependencies:
   - CCA-14.1
@@ -197,4 +197,41 @@ Files touched: test/main/engine-context-config-regen.test.js only (engine-contex
 untouched, confirmed via git diff). F2-F6 correctly left untouched per instructions.
 
 Commit on feat/CCA-14.5-multi-credential-secrets (pushed): 61702ec.
+
+REVIEW PASS 2 (opus): APPROVE. Confirmed AC indices: [1, 2, 3, 4] -- all four independently
+re-confirmed this pass.
+
+npm test personally observed: 581/581, twice (once before reviewer's own scratch revert, once
+after restoring), identical both times.
+
+F1 fix independently verified as genuine: read the new test directly (not summary) -- it
+calls the real generateAll() with OpenRouter's real litellmProvider/apiKeyEnvVar values and
+asserts on the fixture itself (no NVIDIA key present) before exercising anything. Traced the
+discriminating mechanism to configGen.regenerateStaleConfig's no-existing-secrets guard.
+Reproduced non-vacuity independently (own uncommitted scratch edit, not trusting the worker's
+report): reverting the engine-context.js line makes the new test fail with the exact predicted
+reason, all 27 sibling tests in that file still pass. Went further than the worker: ran the
+FULL suite with the revert applied -- 580 pass/1 fail (only the new test) -- proving this test
+actually gates npm test/CI and nothing else in the suite covers that line. Restored cleanly,
+confirmed byte-identical to committed source.
+
+Fixture faithfulness confirmed: litellmProvider/apiKeyEnvVar values match
+src/engine/providers/openrouter.js exactly; the fixture's construction mirrors the real
+config.generate() setup path structurally, just with OpenRouter's values instead of NVIDIA's.
+
+Scope confirmed clean: exactly 1 file (105 insertions/0 deletions), engine-context.js itself
+genuinely untouched by this commit. None of F2-F6 touched.
+
+New non-blocking observation (F7, informational only): the fixture uses nim_base_url:null for
+the OpenRouter case, so it doesn't exercise the provider-specific api_base variant of the regen
+path -- not a gap in F1's own coverage, worth a line in a future multi-provider task.
+
+F2-F6 all reassessed as safe to leave: F2/F3 still present but unreachable/fail-safe today; F4
+confirmed there is no non-test caller of saveFor/loadFor/clearFor anywhere in src/, so the
+.credentials/ dir is never created in practice today -- genuinely latent, CCA-15 must own it;
+F5 still stale (CLAUDE.md says 562, actual 581) -- correctly deferred to wave-19 cleanup; F6
+cosmetic/history-only.
+
+CCA-14.5 is now APPROVE, ready for the merge queue. Wave 19 is now fully settled: CCA-63
+(approve), CCA-14.5 (approve), CCA-65 (approve).
 <!-- SECTION:NOTES:END -->
