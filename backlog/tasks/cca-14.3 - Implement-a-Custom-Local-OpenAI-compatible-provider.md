@@ -4,7 +4,7 @@ title: Implement a Custom/Local (OpenAI-compatible) provider
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 03:52'
+updated_date: '2026-08-17 04:04'
 labels: []
 dependencies:
   - CCA-14.1
@@ -109,4 +109,54 @@ the one authorized registry.js line, not a scope violation; did not touch nvidia
 diagnostics.js, or any renderer/UI code). No `secretStore.js` blocker hit: `customLocal.js` never
 calls `secretStore` at all (that only happens in `engine-context.js`, untouched); the optional-key
 case is fully modeled inside the provider module itself.
+
+## Wave-18 review pass 1 verdict — APPROVE (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `27176e2`+`b79da62`. All 4 ACs independently confirmed with rigor exceeding the worker's own:
+
+**AC#1**: real `http.createServer` sockets (not mocks) confirm no `authorization`/`x-api-key` header
+sent when keyless; the no-key/bad-key/good-key error paths are genuinely differentiated, not generic.
+**AC#2**: 25 reviewer-invented model-ID shapes, including shell-injection-shaped strings (`$(whoami)`,
+`;`, NUL) all correctly rejected with informative coded feedback. **AC#3**: confirmed structurally
+unconditional (single return literal, 50 varied calls all `'unverified'`). **AC#4**: reviewer's own
+run, identically-configured worktree: 522 baseline -> 542, +20, 0 regressions.
+
+**Security bound (the highest-risk claim) verified DEEPER than the worker's own tests, including one
+attack class the worker never considered**: a real 200MB gzip bomb (1029:1 ratio) with an HONEST tiny
+declared `Content-Length: 203861` -- blocked at 2MB or `content-length` can never describe
+DECOMPRESSED size, so the streamed cap is unambiguously load-bearing, not belt-and-suspenders.
+Confirmed Node v24 synthesizes `content-length` for NO body type (string/Uint8Array/Blob/
+ReadableStream all `null`), and confirmed against OpenRouter's REAL live `/models` endpoint returning
+no `content-length` header at all -- the real-world justification is stronger than the worker argued.
+All four "interface gap" claims (defaultBaseUrl typed plain `string` not `string|null`; no manual-ID
+validation method; recommendedModels has no manual-ID parameter; capability fields are strict
+boolean) independently confirmed by reading the typedef directly.
+
+### Findings, all non-blocking
+- should-fix: a comment claims two modelCatalog.js exports are "used by nvidia.js" -- verified FALSE,
+  nvidia.js uses neither (uses fetchCatalog/intersectWithLive/RECOMMENDED_PRIMARY-SMALL/
+  DEFAULT_NIM_BASE_URL instead). The structural point survives, the cited precedent doesn't.
+- **should-fix, flagged forward for CCA-14.4/14.5 -- NOT this task's own defect**: `configGen.js:24`'s
+  `apiBaseLine` is only emitted on the FIRST of three model entries (absent on the other two).
+  Harmless for `nvidia_nim` (litellm knows the vendor default) but with `litellmProvider: 'openai'`,
+  litellm defaults to `api.openai.com` -- so `claude-haiku-4-5` and the `claude-*` wildcard entries
+  would SILENTLY ROUTE TO OPENAI instead of the user's local endpoint once a Custom/Local connection
+  is actually wired up end to end. Separately, `api_key: os.environ/CUSTOM_LOCAL_API_KEY` is emitted
+  UNCONDITIONALLY while litellm's openai provider requires a key -- the keyless path needs explicit
+  handling. **CCA-14.5 owns configGen.js per its own reminder note -- carry this forward.**
+- nit: `registry.js`'s header comment still says "later Custom/Local -- see CCA-14.3", now stale
+  since this task lands it.
+- nit: the model-ID regex accepts path-traversal-shaped strings (`a/../../etc/passwd`) -- fine for a
+  YAML scalar/API field per its own stated goal, only matters if an ID is ever used to build a
+  filesystem path.
+- informational: `modelCatalog.js`/`nvidiaKey.js` have the SAME unbounded-response exposure this task
+  just closed for Custom/Local, currently unreachable since NVIDIA's base URL is a trusted first-party
+  constant never overridden from the renderer -- would need the same bound if CCA-14.4/14.5 ever
+  exposes a NIM base-URL override field.
+
+Scope confirmed clean (exactly 4 files; nvidia.js/openrouter.js/secretStore.js/engine-context.js/
+configGen.js all byte-identical to dev). `litellmProvider: 'openai'` independently confirmed correct
+via context7 against litellm's real docs.
+
+npm test (reviewer's own run): 542/542.
 <!-- SECTION:NOTES:END -->
