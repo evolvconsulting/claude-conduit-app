@@ -445,6 +445,11 @@ function createEngineContext(deps) {
           primaryModelId: manifest.primary_model,
           smallModelId: manifest.small_model,
           listModels: activeProvider.listModels,
+          // CCA-14.4: lets diagnostics report per-provider capabilities
+          // (e.g. "no catalog listing") plainly instead of a hardcoded NIM
+          // assumption — see diagnostics.js's checkModelCatalog/checkToolCalling.
+          capabilities: activeProvider.declareCapabilities(),
+          providerLabel: activeProvider.label,
         });
         return { ok: true, data: result };
       },
@@ -609,6 +614,9 @@ function createEngineContext(deps) {
             settingsPath: claudeCodeSettingsPath,
             signal: diagnosticsAbortController.signal,
             listModels: activeProvider.listModels,
+            // CCA-14.4: see the matching comment on testConnection above.
+            capabilities: activeProvider.declareCapabilities(),
+            providerLabel: activeProvider.label,
           });
           return { ok: true, data: result };
         } finally {
