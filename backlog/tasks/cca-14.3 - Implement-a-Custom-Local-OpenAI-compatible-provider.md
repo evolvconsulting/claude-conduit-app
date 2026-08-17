@@ -1,10 +1,10 @@
 ---
 id: CCA-14.3
 title: Implement a Custom/Local (OpenAI-compatible) provider
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 04:04'
+updated_date: '2026-08-17 04:06'
 labels: []
 dependencies:
   - CCA-14.1
@@ -22,10 +22,10 @@ Implement a Custom/Local provider type for any OpenAI-compatible base URL (cover
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Custom/Local provider works end to end against an OpenAI-compatible base URL, including with no API key
-- [ ] #2 Model IDs can be entered manually when no catalog-listing endpoint is available, with validation feedback
-- [ ] #3 Capability declaration reflects that tool-calling support may be unverified for this provider type
-- [ ] #4 npm test passes
+- [x] #1 Custom/Local provider works end to end against an OpenAI-compatible base URL, including with no API key
+- [x] #2 Model IDs can be entered manually when no catalog-listing endpoint is available, with validation feedback
+- [x] #3 Capability declaration reflects that tool-calling support may be unverified for this provider type
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -160,3 +160,15 @@ via context7 against litellm's real docs.
 
 npm test (reviewer's own run): 542/542.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented src/engine/providers/customLocal.js against the full Provider interface for any OpenAI-compatible base URL (Ollama, vLLM, LM Studio, self-hosted gateways), including the no-API-key case, plus a new validateManualModelId(id) export filling a real interface gap (no existing Provider method validates a manually-typed model ID). Applied an untrusted-endpoint response-size bound (Content-Length pre-check + a hard streamed-byte cap) to listModels, since a Custom/Local base URL is user-typed and untrusted unlike NVIDIA's trusted first-party endpoint. Registered in registry.js's PROVIDERS map.
+
+Approved on the first review pass (opus): all 4 ACs independently confirmed via the reviewer's own constructed fixtures -- real socket-level header inspection confirming no auth header sent when keyless, 25 model-ID shapes including shell-injection-style strings all correctly rejected with informative feedback, and supportsToolCalling:'unverified' confirmed structurally unconditional. The security bound was tested well beyond what was originally verified: a real 200MB gzip bomb (1029:1 ratio) with an honest tiny declared Content-Length was blocked at 2MB/4.2MB heap, proving the streamed cap (not just the pre-check) is what actually protects against a compressed payload, since Content-Length can never describe decompressed size.
+
+npm test: 542/542 (522 baseline + 20 new tests, 0 regressions). Merged as PR #69 (17818f0).
+
+Two forward-looking integration findings from the review were NOT this task's own defects -- recorded on CCA-14.5 instead (which owns configGen.js): a per-model-entry api_base gap and unconditional api_key emission that would affect a future Custom/Local connection once actually wired up end to end.
+<!-- SECTION:FINAL_SUMMARY:END -->

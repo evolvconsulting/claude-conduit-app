@@ -3,10 +3,10 @@ id: CCA-64
 title: >-
   Remediate GitHub Dependabot alert: js-yaml quadratic-CPU DoS
   (GHSA-5p4m-2wfm-xmqj)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-17 00:10'
-updated_date: '2026-08-17 03:55'
+updated_date: '2026-08-17 04:06'
 labels:
   - security
   - dependencies
@@ -26,8 +26,8 @@ Dependabot flagged a high-severity (CVSS 7.5) advisory on the transitive js-yaml
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 js-yaml resolves to >=4.3.1 everywhere in package-lock.json (via update, override, or upstream dependency bump)
-- [ ] #2 npm test and npm run build (or equivalent) still pass after the bump
+- [x] #1 js-yaml resolves to >=4.3.1 everywhere in package-lock.json (via update, override, or upstream dependency bump)
+- [x] #2 npm test and npm run build (or equivalent) still pass after the bump
 - [ ] #3 GitHub security alert https://github.com/evolvconsulting/claude-conduit-app/security/dependabot/1 shows fixed, or is dismissed with a documented reason if a fix genuinely isn't available yet
 <!-- AC:END -->
 
@@ -131,3 +131,15 @@ clean and HEAD still `9e98bb1` before merging.
 
 npm test (reviewer's own run): 522/522.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Pinned js-yaml to >=4.3.1 via a package.json overrides entry (pm2@7.0.3 pins js-yaml at an exact 4.3.0, so a plain npm update could not fix this). Closes GHSA-5p4m-2wfm-xmqj, a quadratic-CPU DoS in resolveYamlOmap()'s dedupe loop.
+
+Approved on the first review pass (opus): every load-bearing claim independently re-derived, including a byte-level diff of the real 4.3.0 vs 4.3.1 tarballs (confirms the fix is scoped to the omap dedupe, no other behavioral change) and an adversarial 10-case prototype-key probe (identical output both versions). npm audit: 2 high (CVSS 7.5) -> 0. npm test: 522/522, unchanged (dependency-version bump only, zero source changes). Packaging verified by extracting the real app.asar directly: js-yaml 4.3.1 genuinely ships in the built artifact.
+
+Merged as PR #68 (806f5ce).
+
+AC#3 (the GitHub Dependabot alert itself showing fixed) is left unchecked: that's an external GitHub-side rescan of the updated lockfile, not independently verifiable from a worktree or checkable at merge time. The underlying condition -- a clean `npm audit` on the merged lockfile -- is satisfied; the alert is expected to clear automatically on GitHub's next scan.
+<!-- SECTION:FINAL_SUMMARY:END -->
