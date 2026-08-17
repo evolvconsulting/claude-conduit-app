@@ -3,9 +3,10 @@ id: CCA-64
 title: >-
   Remediate GitHub Dependabot alert: js-yaml quadratic-CPU DoS
   (GHSA-5p4m-2wfm-xmqj)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-17 00:10'
+updated_date: '2026-08-17 03:40'
 labels:
   - security
   - dependencies

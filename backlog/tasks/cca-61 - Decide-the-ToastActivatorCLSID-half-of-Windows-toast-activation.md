@@ -1,10 +1,10 @@
 ---
 id: CCA-61
 title: Decide the ToastActivatorCLSID half of Windows toast activation
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-07 13:43'
+updated_date: '2026-08-17 03:40'
 labels: []
 dependencies:
   - CCA-57

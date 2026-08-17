@@ -1,10 +1,10 @@
 ---
 id: CCA-14.3
 title: Implement a Custom/Local (OpenAI-compatible) provider
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-16 15:09'
+updated_date: '2026-08-17 03:40'
 labels: []
 dependencies:
   - CCA-14.1

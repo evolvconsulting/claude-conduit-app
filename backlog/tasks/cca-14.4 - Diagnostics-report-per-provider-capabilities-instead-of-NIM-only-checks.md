@@ -1,9 +1,10 @@
 ---
 id: CCA-14.4
 title: 'Diagnostics: report per-provider capabilities instead of NIM-only checks'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
+updated_date: '2026-08-17 03:40'
 labels: []
 dependencies:
   - CCA-14.1

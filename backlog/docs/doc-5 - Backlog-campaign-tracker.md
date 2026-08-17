@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 01:14'
+updated_date: '2026-08-17 03:40'
 ---
 # Backlog campaign tracker
 
@@ -69,10 +69,44 @@ specific, more recent signal and broke the mechanical tie-break this once: wave 
 CCA-50 with CCA-54 instead. See the Frontier note below for the full conflict-graph
 justification.
 
+**Extended 2026-08-17 (re-inventory, post wave-17)** — a fresh I1/I2 pass, not a new principle.
+CCA-14.3/14.4/14.5 turned out already decomposed (created 2026-08-16, each depending only on
+CCA-14.1, which is Done) -- the "CCA-14 needs decomposition" classification carried since 2026-07-31
+was stale. User confirmed order: CCA-64 (security fix, HIGH, lowest risk) and CCA-63 (rename sweep,
+HIGH) first, then the three CCA-14.x provider subtasks (14.4, 14.3, 14.5), then CCA-61 (MEDIUM,
+already waiting its turn). **CCA-63's own AC#2/#3 call for actually publishing a real GitHub Release
+against the renamed repo and verifying live auto-update** -- the user explicitly directed that the
+actual publish step is held for the orchestrator to run only after explicit chat confirmation, not
+done autonomously inside a worker's wave dispatch (a worker may prepare everything short of that).
+
 ## Frontier
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
+
+**Wave 18 planning (2026-08-17), computed live via file-citation read against real current source**:
+ready set (dependencies met) = {CCA-61, CCA-63, CCA-64, CCA-14.3, CCA-14.4, CCA-14.5}. Conflict graph:
+CCA-64 (`package.json`'s dependencies/overrides + `package-lock.json`, js-yaml bump) and CCA-63
+(`package.json`'s `repository`/`homepage`/`publish` fields, `README.md`, `CLAUDE.md`, `DESIGN.md`,
+`src/renderer/components/about-dialog.js` + `src/main/menu.js`'s `REPO_URL` constants) both touch
+`package.json` -> conflict. CCA-14.3 (a new Custom/Local provider file + registration in
+`src/engine/providers/registry.js`, which already carries a `-- see CCA-14.3` placeholder comment)
+and CCA-14.5 (`src/engine/manifest.js`, `src/engine/secretStore.js` for multi-credential support,
+`src/engine/configGen.js`) both plausibly need `secretStore.js` for CCA-14.3's no-API-key case ->
+conflict (over-approximated: neither's exact footprint is proven yet, this is new feature work with
+no prior implementation to ground the read against). CCA-14.4 (`src/engine/diagnostics.js`, reading
+but not editing `registry.js`) is disjoint from both. CCA-61 (`src/main/appUserModelId.js`,
+`src/main/index.js`, `electron-builder.yml`, `test/main/app-user-model-id.test.js`) is disjoint from
+all of the above -- `electron-builder.yml` has no repo-URL content for CCA-63 to touch (checked
+directly: only `appId`, a reverse-DNS string, and `StartupWMClass`, a Linux WM class -- neither is a
+GitHub URL). Greedy build in confirmed order: CCA-64 (add) -> CCA-63 (conflicts with CCA-64, skip,
+deferred) -> CCA-14.4 (disjoint, add) -> CCA-14.3 (disjoint from both, add) -> CCA-14.5 (conflicts
+with CCA-14.3, skip, deferred) -> CCA-61 (disjoint from all three added, add). **Wave 18 = {CCA-64,
+CCA-14.4, CCA-14.3, CCA-61}, 4 members. CCA-63 and CCA-14.5 deferred to wave 19.** None need live app
+verification (CCA-64 is a dependency bump verified by `npm test`/build; CCA-14.3/14.4 are
+engine-level and testable without a live app; CCA-61 is a drift-guard + unit-test task, its live
+Windows toast question already resolved by CCA-57's own AC amendment) -- Shared Machine State's
+single-live-verifier constraint does not bind this wave.
 
 **As of wave 17 SETTLEMENT (2026-08-17)**: **29 resolved** (waves 1-17, all Done). CCA-60 recovered
 mid-crash at this restore (see the note below, kept for the record) and carried through to merge:
@@ -717,7 +751,40 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | CCA-61 | tray-notify | CCA-57 (Done) | To Do | | Filed at wave-16 settlement from the integration review, user-approved. CCA-57 closed only the AppUserModelID half of Electron's two-part Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the gap and document it accurately. **Expect a file conflict with CCA-58** (its resolution is doc material) **and with CCA-59** (both may touch `src/main/tray.js`); it also shares `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its notes. |
+| 1 | CCA-64 | security | none | Dispatched | 18 | Dependabot GHSA-5p4m-2wfm-xmqj: js-yaml
+4.3.0's `resolveYamlOmap()` is quadratic in input size (transitive via electron-builder/
+electron-updater/pm2, not imported directly). Bump to >=4.3.1 via `package.json`/`package-lock.json`;
+`npm test`/build verify no regression. |
+| 2 | CCA-63 | rename | none | To Do | | **Deferred from wave 18** (conflicts with CCA-64 on
+`package.json` -- both edit it, over-approximated as a conflict). URL sweep after the GitHub rename
+to `claude-conduit-app`: `package.json`'s `repository`/`homepage`/`publish`, README/CLAUDE/DESIGN,
+and the `REPO_URL` constants in `about-dialog.js`/`menu.js`. **AC#2/#3 require actually publishing a
+real GitHub Release and verifying live auto-update against it -- user-directed: a worker may prepare
+everything (version bump, changelog, build) but the actual publish step is held for the orchestrator,
+run only after explicit chat confirmation, not autonomous.** |
+| 3 | CCA-14.4 | providers | CCA-14.1 (Done) | Dispatched | 18 | Diagnostics keyed off the active
+provider's declared capabilities (`src/engine/diagnostics.js`) instead of hardcoded NIM assumptions.
+Reads but does not edit `registry.js` -- disjoint from CCA-14.3/14.5. |
+| 4 | CCA-14.3 | providers | CCA-14.1 (Done) | Dispatched | 18 | Custom/Local (OpenAI-compatible)
+provider, including the no-API-key case and manual model-ID entry. New provider file +
+registration in `src/engine/providers/registry.js` (which already carries a placeholder comment
+naming this task). Implementation note on file already recorded: bound the model-listing response
+size before parsing JSON, since a Custom/Local base URL is user-typed and untrusted (unlike NVIDIA's
+trusted endpoint). **Over-approximated conflict with CCA-14.5** on `secretStore.js` (the no-API-key
+case may need CCA-14.5's own multi-credential rework) -- confirm at dispatch whether it's real. |
+| 5 | CCA-14.5 | providers | CCA-14.1 (Done) | To Do | | **Deferred from wave 18** (conflicts with
+CCA-14.3 on `secretStore.js`, see above). Manifest format gains a provider-type field;
+`secretStore.js` supports multiple credentials including a no-credential provider; an existing
+NVIDIA-only install migrates automatically. Own implementation note: also thread the provider field
+through `configGen.js`'s `regenerateStaleConfig()`/`resolveExistingNvidiaApiKey()`, which still
+hardcode `NVIDIA_NIM_API_KEY` today. |
+| 6 | CCA-61 | tray-notify | CCA-57 (Done) | Dispatched | 18 | Filed at wave-16 settlement from the
+integration review, user-approved. CCA-57 closed only the AppUserModelID half of Electron's two-part
+Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented
+default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped
+on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the
+gap and document it accurately. Confirmed disjoint from every other wave-18 member by file-citation
+read (see Frontier). |
 
 ## Resolved
 
@@ -757,18 +824,25 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 ## Not queued — needs a human / blocked
 
-- CCA-7: PARKED pending CCA-15 (own implementation notes, 2026-07-31) — rebuilding the
-  Setup wizard now would likely be thrown away once CCA-13/15 land.
-- CCA-11: open design question unresolved — where usage metrics come from against a stock,
-  database-free LiteLLM install is not yet established, so the work isn't scopeable yet.
-- CCA-13: depends on CCA-14, which is itself undecomposed — not resolvable until CCA-14 is
-  split and at least partly landed.
-- CCA-14: self-described as needing decomposition into subtasks before it's agent-sized; a
-  deep multi-provider abstraction, not a single unit of work.
-- CCA-15: same — self-described need to split into subtasks, plus undecided design
-  questions (single vs. multi-proxy, client-config-on-switch behavior) that need a human
-  product decision first.
-- **RE-CHECK FLAGGED at the 2026-08-16 restore**: CCA-14.1 and CCA-14.2 (the NVIDIA + OpenRouter provider abstraction) landed directly on `dev` via commit `a1e282e`, entirely outside this campaign (no PR/worktree/review trail here). CCA-14's own "needs decomposition" framing above may now be stale, and CCA-14.3/14.4/14.5 plus CCA-15 haven't been re-assessed against that landed work. Also newly appeared and never queue-order-confirmed: CCA-62 (evolv hosted gateway provider), CCA-63 (GitHub-rename URL sweep), CCA-64 (Dependabot js-yaml DoS). Next inventory pass should re-run I1/I2 over all of these before assuming the classifications above still hold.
+- CCA-7: still PARKED pending CCA-15 (own implementation notes, 2026-07-31; re-confirmed at the
+  2026-08-17 re-inventory, unaffected by CCA-14.1/14.2 landing) — rebuilding the Setup wizard now
+  would likely be thrown away once CCA-13/15 land.
+- CCA-11: still blocked — the open design question (where usage metrics come from against a stock,
+  database-free LiteLLM install) remains unresolved, and it also depends on CCA-15 (not Done).
+- CCA-13: depends on CCA-14 (the parent), which is still not Done — reclassified 2026-08-17: CCA-14
+  is no longer "undecomposed" (see below), it is genuinely in progress via its own children, but the
+  PARENT task's own aggregate ACs (#7 "no NVIDIA-specific string remains outside the provider
+  implementation", #10 "verified end to end against a real non-NVIDIA provider") only make sense
+  once CCA-14.3/14.4/14.5 land too — so CCA-13 stays blocked on that, not on decomposition.
+- CCA-14 (parent): **RECLASSIFIED 2026-08-17** — no longer "needs decomposition"; it was split into
+  5 subtasks (CCA-14.1 through 14.5), 2 of which (14.1, 14.2) are Done and 3 of which (14.3, 14.4,
+  14.5) are now queued (see Queue table, wave 18). The PARENT task itself stays out of the queue
+  until its own children finish — its ACs are the aggregate/integration-level claims, not
+  independently workable.
+- CCA-15: still blocked — depends on CCA-14 (parent, not Done) and still self-describes undecided
+  design questions (single vs. multi-proxy, client-config-on-switch behavior) needing a human
+  product decision first. Re-confirmed 2026-08-17, unaffected by CCA-14.1/14.2 landing.
+- CCA-62: blocked — depends on CCA-14 (parent) and CCA-15, neither Done. Re-confirmed 2026-08-17.
 
 ## Wave log
 
