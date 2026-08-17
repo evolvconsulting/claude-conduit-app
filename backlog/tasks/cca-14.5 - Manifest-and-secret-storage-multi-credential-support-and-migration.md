@@ -4,7 +4,7 @@ title: 'Manifest and secret storage: multi-credential support and migration'
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 15:20'
+updated_date: '2026-08-17 15:32'
 labels: []
 dependencies:
   - CCA-14.1
@@ -234,4 +234,24 @@ cosmetic/history-only.
 
 CCA-14.5 is now APPROVE, ready for the merge queue. Wave 19 is now fully settled: CCA-63
 (approve), CCA-14.5 (approve), CCA-65 (approve).
+
+WAVE-19 INTEGRATION REVIEW (post-merge, opus): 2 additional latent details extending this
+task's own already-recorded F4 ("the new .credentials/ dir has no lifecycle owner") -- zero
+impact today, recorded here rather than as a new task since they're the same underlying gap:
+
+(a) secretStore.js's saveToPath() creates the .credentials/ directory via mkdirSync with no
+    explicit mode (defaults, not 0o700), unlike configGen.js's config dir which explicitly
+    uses mode:0o700. The secret bytes themselves stay protected (still chmod 0600 individually
+    and still safeStorage-encrypted) -- what's exposed is directory listability (which
+    providers a user has configured), bounded by the parent directory's own permissions.
+
+(b) userDataMigration.js's existing migration logic only copies the single legacy nim-key.enc
+    file (KEY_FILENAME + one copyFileSync) -- it has no knowledge of the new .credentials/
+    sibling directory. A future productName/userData-path rename would silently leave any
+    per-provider credentials behind.
+
+Both zero-impact today since nothing outside tests calls saveFor/loadFor/clearFor yet
+(confirmed by the integration reviewer: no non-test caller exists in src/). Whoever
+eventually wires up CCA-15's multi-connection storage should extend both the dir-mode default
+and userDataMigration.js's copy list to cover .credentials/ at that point.
 <!-- SECTION:NOTES:END -->
