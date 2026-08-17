@@ -224,7 +224,7 @@ function createTray(opts, deps = {}) {
  * NCOW-57 correction: the claim immediately above is narrower in practice
  * than it reads. `Notification.isSupported()` reports whether the platform
  * has a notification API at all — it does NOT detect every condition that
- * can leave a toast never actually visible to the user. Three gaps (wave-16
+ * can leave a toast never actually visible to the user. Four gaps (wave-16
  * cleanup, F4: the previous wording overstated what Electron's docs
  * themselves say — quoting from docs/tutorial/notifications.md, tag
  * v43.2.0, below; see appUserModelId.js and electron-builder.yml's
@@ -248,7 +248,39 @@ function createTray(opts, deps = {}) {
  * full Apple Developer ID (electron-builder.yml's `mac.identity: "-"` — see
  * CLAUDE.md's hard constraints) — whether that ad-hoc signature is enough to
  * avoid the doc's "unsigned" failure mode is not something this comment
- * resolves, and `isSupported()` does not detect this condition either way.
+ * resolves, and `isSupported()` does not detect this condition either way;
+ * (4) on Windows, `isSupported()` also does not check toast *activation*
+ * (clicking a toast) separately from mere toast *display*. Electron's own
+ * `docs/tutorial/notifications.md` (same v43.2.0 tag, lines 100-101) actually
+ * frames the requirement more broadly than "activation alone": "For
+ * notifications on Windows, your Electron app needs to have a Start Menu
+ * shortcut with an AppUserModelID and a corresponding ToastActivatorCLSID" —
+ * tying the CLSID to notifications on Windows generally, not just the
+ * click-through path. Scoping it to "activation" the way the rest of this
+ * item does (following `app.setToastActivatorCLSID`'s own, narrower doc —
+ * Electron docs/api/app.md, same tag, lines 1148-1159) therefore understates
+ * that doc's framing. What the NCOW-57 live testing above can actually speak
+ * to: registry acceptance under the correct AUMID was confirmed on every
+ * configuration tried with no shortcut-side CLSID stamped at all — some
+ * evidence the pipeline still accepts calls without one — but pixel-level
+ * "did a banner render" was never confirmed either way (see above), so that
+ * evidence can't settle whether plain display is affected by the missing
+ * CLSID; this stays an open question, not one this comment resolves.
+ *
+ * `app.setToastActivatorCLSID(id)` — the activation-specific piece — is what
+ * this app does not call, so Electron generates a random CLSID once per run
+ * instead, and no shortcut this app installs has any CLSID stamped on it
+ * either (app-builder-lib 26.15.3 has no support for stamping one at
+ * shortcut-creation time: `grep -rn "ToastActivator\|CLSID"
+ * node_modules/app-builder-lib/` returns zero hits repo-wide). CCA-61
+ * investigated fixing this and found a remedy IS reachable regardless:
+ * Electron itself can stamp a CLSID onto an already-installed shortcut at
+ * runtime, independent of app-builder-lib, via `shell.writeShortcutLink(path,
+ * 'update', { toastActivatorClsid })` (docs/api/shell.md and
+ * docs/api/structures/shortcut-details.md, same v43.2.0 tag). The gap is
+ * being ACCEPTED here on cost/benefit grounds, not because no path exists —
+ * see electron-builder.yml's `win:` block comment for the full reasoning,
+ * including what remains unverified about COM registration.
  * What WAS live-verified on winvm/linuxvm as part of NCOW-57:
  * `createTrayActions()`'s real onStart() failure path, invoked in real
  * running processes (a silently-installed `nsis` build, the standalone
