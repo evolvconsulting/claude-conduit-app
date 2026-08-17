@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-17 00:10'
-updated_date: '2026-08-17 03:48'
+updated_date: '2026-08-17 03:55'
 labels:
   - security
   - dependencies
@@ -84,4 +84,50 @@ serially before testing.
 
 Files touched: `package.json`, `package-lock.json` only. No source code changes, as expected for a
 dependency-version bump.
+
+## Wave-18 review pass 1 verdict — APPROVE (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `9e98bb1`. Every load-bearing claim independently re-derived, not trusted:
+- **pm2@7.0.3 pins js-yaml at an exact `4.3.0`** confirmed via the authoritative registry manifest
+  (`npm view pm2@7.0.3 dependencies.js-yaml` -> `'4.3.0'`); the other 4 consumers use `^4.1.0` --
+  the override mechanism was genuinely required, not just convenient.
+- Post-bump: all 5 resolution paths at 4.3.1, exactly one copy in `node_modules`, confirmed via a
+  clean `npm ci --ignore-scripts` from the committed lockfile alone (0 vulnerabilities).
+- Diff scope: sha256'd every file in both the 4.3.0 and 4.3.1 tarballs -- among `lib/` sources ONLY
+  `lib/type/omap.js` differs; `loader.js`/`dumper.js`/all schemas/`index.js` byte-identical.
+- **Adversarially probed the "no behavioral change" claim** (the reviewer's own initiative, beyond
+  what was asked): ran 10 omap edge cases against both versions -- `__proto__`, `hasOwnProperty`,
+  `constructor`, int-vs-string keys, non-scalar keys -- output identical in all 10. Safe because
+  `pairKey` always comes from a `for...in` loop (always a string) and the fix uses
+  `Object.defineProperty` (dodges the `__proto__` setter trap) + `_hasOwnProperty.call` (dodges
+  inherited-property false positives).
+- `npm audit`: 2 high (CVSS 7.5) -> 0. `npm test`: 522/522, run twice.
+- Packaging verified MORE deeply than the worker's own claim: extracted the real `app.asar` via the
+  asar node API directly -- packaged `js-yaml/package.json` version is 4.3.1, packaged `omap.js` is
+  sha256-byte-identical to the pristine 4.3.1 tarball, the vulnerable `objectKeys.indexOf` pattern is
+  absent from the shipped artifact.
+- Electron's own downloader dependencies (`@electron/get`, `@electron-internal/extract-zip`,
+  `@types/node`) confirmed to NOT include js-yaml -- the mid-session install flake could not have been
+  caused by this bump.
+- AC#3 (Dependabot UI) correctly treated as not independently verifiable from a worktree; the
+  underlying condition (clean audit) is satisfied.
+
+**Findings, all non-blocking**: (a) should-fix/process, not code -- confirm the Dependabot alert
+actually clears on `dev` post-merge; (b) nit -- commit message says the diff is "scoped to
+lib/type/omap.js", technically imprecise since rebuilt `dist/` bundles and the package.json version
+line also differ as artifacts of that same change; (c) nit -- two pre-existing comments elsewhere
+still say js-yaml is "not a declared" dependency, still technically true (an override isn't a
+declaration) but worth a glance if anyone's confused later.
+
+**Two things flagged worth protecting from future well-meaning edits**: `^4.3.1` must NOT be
+tightened to `>=4.3.1` -- js-yaml 5.3.0 is `latest` (4.x is the `v4-legacy` dist-tag), so an unbounded
+`>=` would float to 5.x and break the other `^4.1.0` consumers. And `npm audit fix --force` was
+correctly avoided -- it would have downgraded pm2 to 5.3.1, a breaking change.
+
+**Disclosure, resolved cleanly**: a mid-review `asar extract-file` mistake briefly overwrote the
+worktree's `package.json` and dropped a stray `omap.js` (after the pack run, so packaging results
+unaffected); both restored via `git checkout`, orchestrator independently confirmed `git status`
+clean and HEAD still `9e98bb1` before merging.
+
+npm test (reviewer's own run): 522/522.
 <!-- SECTION:NOTES:END -->
