@@ -78,9 +78,21 @@ const MODEL_COMPLETION_TIMEOUT_MS = 60_000;
  * as a name the user doesn't recognize. See the `displayModel` parameter on
  * checkCompletion/checkToolCalling/checkStreaming below for how the two are
  * kept separate (NCOW-17).
+ *
+ * CCA-14.4: this message used to hardcode "NVIDIA's shared/free endpoint" —
+ * accurate back when NVIDIA NIM was the only upstream this app ever talked
+ * to (see the timeout-budget evidence above, which really was gathered
+ * against NIM), but flatly wrong for an OpenRouter or Custom/Local user
+ * hitting the same timeout for entirely different reasons. `providerLabel`
+ * (declareCapabilities()'s sibling field on the active provider, threaded
+ * the same way capabilities is — see checkModelCatalog above and
+ * engine-context.js) makes this provider-accurate when the caller supplies
+ * it, and falls back to fully generic wording (no provider named at all)
+ * when it doesn't, rather than defaulting back to naming NVIDIA.
  */
-function timeoutDetail(model, timeoutMs) {
-  return `Timed out after ${Math.round(timeoutMs / 1000)}s — ${model} is responding too slowly for interactive use right now (this can happen on NVIDIA's shared/free endpoint under load). Try again later or pick a different model.`;
+function timeoutDetail(model, timeoutMs, providerLabel) {
+  const providerNote = providerLabel ? `this can happen on ${providerLabel}'s endpoint under load` : 'this can happen when the upstream endpoint is under load';
+  return `Timed out after ${Math.round(timeoutMs / 1000)}s — ${model} is responding too slowly for interactive use right now (${providerNote}). Try again later or pick a different model.`;
 }
 
 /**
@@ -263,7 +275,7 @@ async function checkModelCatalog({ apiKey, nimBaseUrl, primaryModelId, smallMode
  * used only in the human-readable timeout message so a user is never told
  * an alias they never chose is "too slow".
  */
-async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal }) {
+async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal, providerLabel }) {
   const started = Date.now();
   try {
     const response = await postMessages({ port, masterKey, body: buildRequestA({ model }), timeoutMs, signal });
@@ -275,7 +287,7 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', d
     const pass = Boolean(text) && Boolean(body.stop_reason);
     return result({ id: 4, label: `Completion (${model})`, critical: true, pass, ms: Date.now() - started, detail: pass ? undefined : 'Missing content[0].text or stop_reason' });
   } catch (err) {
-    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs, providerLabel) : err.message;
     return result({ id: 4, label: `Completion (${model})`, critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
@@ -287,11 +299,14 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', d
  *
  * CCA-14.4: `critical` is keyed off the active provider's declared
  * `capabilities.supportsToolCalling` (registry.js's declareCapabilities()),
- * not hardcoded true. NVIDIA's NIM provider declares 'verified' (this app
- * has confirmed tool calling works for every recommended NIM model), so a
- * failure there is a real regression and this stays critical, exactly as
- * before. OpenRouter's provider declares 'varies-by-model' (tool support
- * genuinely differs per model, sourced from OpenRouter's own
+ * not hardcoded true. NVIDIA's NIM provider declares 'verified' (DESIGN.md
+ * section 4's curated RECOMMENDED_PRIMARY/RECOMMENDED_SMALL shortlists are
+ * chosen specifically for tool-calling/agentic-coding strength, and Setup
+ * only warns "unverified" for a model picked outside that list — see
+ * DESIGN.md section 4 and README.md), so a failure there is a real
+ * regression and this stays critical, exactly as before. OpenRouter's
+ * provider declares 'varies-by-model' (tool support genuinely differs
+ * per model, sourced from OpenRouter's own
  * supported_parameters field — see providers/openrouter.js), so a failure
  * there is expected for some model choices rather than proof of a broken
  * proxy: the check still runs (asking the live model is the only way to
@@ -301,7 +316,7 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', d
  * `capabilities` are given, so pre-CCA-14.4 callers keep their original
  * behavior unchanged.
  */
-async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal, capabilities }) {
+async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal, capabilities, providerLabel }) {
   const started = Date.now();
   const toolCallingSupport = capabilities?.supportsToolCalling ?? 'verified';
   const critical = toolCallingSupport === 'verified';
@@ -323,7 +338,7 @@ async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', 
       detail: pass ? undefined : `Model ${displayModel} does not reliably support tool calling — go to Setup and pick a model from the recommended list.${varyNote}`,
     });
   } catch (err) {
-    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs, providerLabel) : err.message;
     return result({ id: 5, label: 'Tool calling', critical, pass: false, ms: Date.now() - started, detail });
   }
 }
@@ -370,7 +385,7 @@ const READ_BUDGET_EXCEEDED = Symbol('checkStreaming.readBudgetExceeded');
  * `displayModel` (the real, user-chosen model id, NCOW-17 AC#2) are kept
  * separate.
  */
-async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal }) {
+async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal, providerLabel }) {
   const started = Date.now();
   try {
     const response = await postMessages({ port, masterKey, body: buildRequestA({ model, stream: true }), timeoutMs, signal });
@@ -427,23 +442,23 @@ async function checkStreaming({ port, masterKey, model = 'claude-sonnet-4-5', di
     // while still waiting (the same slow-model situation every other
     // model-completion check reports — give it the same accurate message).
     const timedOut = !sawMessageStart && !streamEnded;
-    const detail = sawMessageStart ? undefined : timedOut ? timeoutDetail(displayModel, timeoutMs) : 'No message_start event seen in SSE stream';
+    const detail = sawMessageStart ? undefined : timedOut ? timeoutDetail(displayModel, timeoutMs, providerLabel) : 'No message_start event seen in SSE stream';
     return result({ id: 6, label: 'Streaming', critical: true, pass: sawMessageStart, ms: Date.now() - started, detail });
   } catch (err) {
-    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
+    const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs, providerLabel) : err.message;
     return result({ id: 6, label: 'Streaming', critical: true, pass: false, ms: Date.now() - started, detail });
   }
 }
 
 /** Check 7: small model works. */
-async function checkSmallModel({ port, masterKey, smallModelId, timeoutMs, signal }) {
-  const c = await checkCompletion({ port, masterKey, model: 'claude-haiku-4-5', displayModel: smallModelId, timeoutMs, signal });
+async function checkSmallModel({ port, masterKey, smallModelId, timeoutMs, signal, providerLabel }) {
+  const c = await checkCompletion({ port, masterKey, model: 'claude-haiku-4-5', displayModel: smallModelId, timeoutMs, signal, providerLabel });
   return { ...c, id: 7, label: 'Completion (claude-haiku-4-5)' };
 }
 
 /** Check 8: claude-* wildcard (routes to the primary model — see configGen.js). */
-async function checkClaudeWildcard({ port, masterKey, primaryModelId, timeoutMs, signal }) {
-  const c = await checkCompletion({ port, masterKey, model: 'claude-sonnet-4-6', displayModel: primaryModelId, timeoutMs, signal });
+async function checkClaudeWildcard({ port, masterKey, primaryModelId, timeoutMs, signal, providerLabel }) {
+  const c = await checkCompletion({ port, masterKey, model: 'claude-sonnet-4-6', displayModel: primaryModelId, timeoutMs, signal, providerLabel });
   return { ...c, id: 8, label: 'claude-* wildcard' };
 }
 
@@ -564,9 +579,9 @@ async function runDiagnostics(opts) {
     () => checkProxyAlive(opts),
     () => checkAuthEnforced(opts),
     () => checkModelCatalog(opts),
-    () => checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal }),
-    () => checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal, capabilities: opts.capabilities }),
-    () => checkStreaming({ port: opts.port, masterKey: opts.masterKey, displayModel: opts.primaryModelId, signal }),
+    () => checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal, providerLabel: opts.providerLabel }),
+    () => checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal, capabilities: opts.capabilities, providerLabel: opts.providerLabel }),
+    () => checkStreaming({ port: opts.port, masterKey: opts.masterKey, displayModel: opts.primaryModelId, signal, providerLabel: opts.providerLabel }),
     () => checkSmallModel(opts),
     () => checkClaudeWildcard(opts),
     () => checkCliConfigCoherent(opts),
@@ -598,8 +613,8 @@ async function runDiagnostics(opts) {
 async function runQuickValidation(opts) {
   const results = [
     await checkModelCatalog(opts),
-    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId }),
-    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, capabilities: opts.capabilities }),
+    await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, providerLabel: opts.providerLabel }),
+    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, capabilities: opts.capabilities, providerLabel: opts.providerLabel }),
   ];
   const allCriticalPassed = results.every((r) => !r.critical || r.status === 'pass');
   return { results, allCriticalPassed };

@@ -17,6 +17,7 @@ const {
   checkSmallModel,
   checkClaudeWildcard,
   runDiagnostics,
+  runQuickValidation,
   DEFAULT_TIMEOUT_MS,
   MODEL_COMPLETION_TIMEOUT_MS,
   timeoutDetail,
@@ -200,6 +201,68 @@ test('timeoutDetail: names the model and explains this is an interactive-use jud
   assert.match(msg, /meta\/llama-3\.3-70b-instruct/);
   assert.match(msg, /60s/);
   assert.match(msg, /too slowly for interactive use/);
+});
+
+// CCA-14.4 (finding B, review pass 1): timeoutDetail() used to hardcode
+// "NVIDIA's shared/free endpoint" in every timeout message, regardless of
+// which provider was actually active — flatly wrong for an OpenRouter or
+// Custom/Local user. providerLabel makes the message provider-accurate when
+// supplied, and the fallback (no providerLabel) must not silently keep
+// defaulting back to naming NVIDIA.
+test('timeoutDetail: names the active provider when providerLabel is given, instead of a hardcoded "NVIDIA" mention', () => {
+  const msg = timeoutDetail('some-model', 60_000, 'OpenRouter');
+  assert.match(msg, /OpenRouter/);
+  assert.doesNotMatch(msg, /NVIDIA/i);
+});
+
+test('timeoutDetail: falls back to fully generic wording (no provider named at all) when providerLabel is omitted', () => {
+  const msg = timeoutDetail('some-model', 60_000);
+  assert.doesNotMatch(msg, /NVIDIA/i);
+  assert.doesNotMatch(msg, /OpenRouter/i);
+  assert.match(msg, /upstream endpoint/i);
+});
+
+// The checks below must actually forward a caller-supplied providerLabel
+// into timeoutDetail() — accepting the parameter in isolation (tested above)
+// doesn't prove any real call site threads it through.
+test('checkCompletion: a timeout names the active provider when providerLabel is given', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkCompletion({ port: 4000, masterKey: 'k', timeoutMs: 100, providerLabel: 'OpenRouter' });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /OpenRouter/);
+  });
+});
+
+test('checkToolCalling: a timeout names the active provider when providerLabel is given', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkToolCalling({ port: 4000, masterKey: 'k', timeoutMs: 100, providerLabel: 'OpenRouter' });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /OpenRouter/);
+  });
+});
+
+test('checkStreaming: a timeout names the active provider when providerLabel is given', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkStreaming({ port: 4000, masterKey: 'k', timeoutMs: 100, providerLabel: 'OpenRouter' });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /OpenRouter/);
+  });
+});
+
+test('checkSmallModel: a timeout names the active provider when providerLabel is given', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkSmallModel({ port: 4000, masterKey: 'k', smallModelId: 'x', timeoutMs: 100, providerLabel: 'OpenRouter' });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /OpenRouter/);
+  });
+});
+
+test('checkClaudeWildcard: a timeout names the active provider when providerLabel is given', async () => {
+  await withMockedFetch(neverResolvingFetch(), async () => {
+    const r = await checkClaudeWildcard({ port: 4000, masterKey: 'k', primaryModelId: 'x', timeoutMs: 100, providerLabel: 'OpenRouter' });
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /OpenRouter/);
+  });
 });
 
 test('checkCompletion: timeoutMs is configurable per call, and a timeout reports the accurate slow-model diagnosis, not a generic aborted message', async () => {
@@ -483,7 +546,13 @@ test('checkModelCatalog: AC#2 — a provider that declares supportsModelListing:
   assert.equal(listModelsCalled, false, 'a provider that declares no model-listing support must never actually be asked to list models');
 });
 
-test('checkModelCatalog: AC#1 — real capability difference: both NVIDIA and OpenRouter declare supportsModelListing:true today, so the catalog check still runs (and passes) for either', async () => {
+// AC#1 — review pass 1 nit: this test's title used to claim "real capability
+// difference", but the body below proves the opposite: both real registered
+// providers currently declare the SAME supportsModelListing:true value, so
+// the check runs (and passes) identically for either. The actual capability
+// difference between these two providers is exercised by checkToolCalling's
+// AC#1/AC#4 test further down, where NVIDIA and OpenRouter genuinely diverge.
+test('checkModelCatalog: both NVIDIA and OpenRouter currently declare supportsModelListing:true, so the catalog check still runs (and passes) identically for either', async () => {
   const listModels = async () => ({ ok: true, data: { models: ['m1'] } });
   for (const provider of [nvidiaProvider, openrouterProvider]) {
     const r = await checkModelCatalog({ apiKey: 'k', primaryModelId: 'm1', smallModelId: 'm1', listModels, capabilities: provider.declareCapabilities(), providerLabel: provider.label });
