@@ -6,10 +6,12 @@ const { Menu, shell } = require('electron');
 // allowlist and the About dialog both have to agree with it.
 //
 // NCOW-12: the GitHub repo rename itself (evolvconsulting/nvidia-cowork ->
-// evolvconsulting/claude-conduit) is a manual, out-of-band step a human runs
-// later — this constant just points at where the repo will live once that
-// happens, same org, new slug.
-const REPO_URL = 'https://github.com/evolvconsulting/claude-conduit';
+// evolvconsulting/claude-conduit) was a manual, out-of-band step a human ran
+// after that decision — this constant already tracked it. CCA-63: the repo
+// was renamed again (evolvconsulting/claude-conduit -> claude-conduit-app),
+// also manual/out-of-band; this constant is updated to match, same org,
+// newer slug.
+const REPO_URL = 'https://github.com/evolvconsulting/claude-conduit-app';
 
 /**
  * Without a native Menu containing the standard "editMenu" role, Cmd+C/V/X

@@ -131,8 +131,8 @@ test('checkLatestRelease: no repo configured degrades gracefully', async () => {
 
 test('checkLatestRelease: requests the GitHub Releases API for the given repo', async () => {
   const { fetchImpl, calls } = fakeFetch({ body: { tag_name: 'v1.0.0' } });
-  await checkLatestRelease({ currentVersion: '0.1.0', repo: 'evolvconsulting/claude-conduit', fetchImpl });
-  assert.equal(calls[0].url, 'https://api.github.com/repos/evolvconsulting/claude-conduit/releases/latest');
+  await checkLatestRelease({ currentVersion: '0.1.0', repo: 'evolvconsulting/claude-conduit-app', fetchImpl });
+  assert.equal(calls[0].url, 'https://api.github.com/repos/evolvconsulting/claude-conduit-app/releases/latest');
 });
 
 // NCOW-42: checkLatestRelease()'s own doc comment promises "Always

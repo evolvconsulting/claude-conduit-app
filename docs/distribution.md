@@ -10,7 +10,7 @@ maintained.
 ## Decision 1 — GitHub Releases are the primary (and only) install path
 
 **Every install starts by downloading a per-platform artifact from
-<https://github.com/evolvconsulting/claude-conduit/releases>.** No package manager, no
+<https://github.com/evolvconsulting/claude-conduit-app/releases>.** No package manager, no
 installer script, no `npm install -g`.
 
 Why:
@@ -340,7 +340,7 @@ touch this doesn't have to re-discover it by reading a corrupted filename on a r
 
 `.github/workflows/release.yml` builds and publishes a Release automatically.
 
-**Trigger:** push a tag matching `v*.*.*` (e.g. `v0.2.0`) to `evolvconsulting/claude-conduit`.
+**Trigger:** push a tag matching `v*.*.*` (e.g. `v0.2.0`) to `evolvconsulting/claude-conduit-app`.
 It also accepts a manual `workflow_dispatch` run against an already-pushed tag, for
 re-running the publish step (e.g. after a transient failure) without cutting a new tag.
 

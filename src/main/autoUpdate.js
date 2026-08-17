@@ -28,7 +28,7 @@
 
 const { describeThrownValue, safeStringify, safeReadProperty } = require('../engine/configGen');
 
-const DEFAULT_REPO = 'evolvconsulting/claude-conduit';
+const DEFAULT_REPO = 'evolvconsulting/claude-conduit-app';
 
 /**
  * @param {{
