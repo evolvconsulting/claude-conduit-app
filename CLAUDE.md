@@ -77,7 +77,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 562 tests. Run before AND after any change.
+npm test          # node --test, 583 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change
@@ -113,9 +113,11 @@ step that could produce it, and the packaging allowlist copies it straight off d
   `test/**/*.test.js`, but `npm test` is a bare `node --test`, whose real default discovery
   ALSO runs any `.js`/`.cjs`/`.mjs` file found anywhere under a directory named `test`,
   whatever that file is called (verified empirically in CCA-60). Shared, non-test helper
-  modules therefore live under a **dot-prefixed** directory — `test/engine/.helpers/` — which
-  that discovery skips; a plain `test/**/helpers/*.js` gets picked up as its own
-  zero-assertion "test" and silently inflates the reported test count.
+  modules therefore live under a **dot-prefixed** directory — `test/engine/.helpers/` and
+  `test/main/.helpers/` (the latter added by CCA-65, holding `licenses-drift.js`) are both
+  instances of this convention — which that discovery skips; a plain `test/**/helpers/*.js`
+  gets picked up as its own zero-assertion "test" and silently inflates the reported test
+  count.
 
 ## Safe manual testing (load-bearing)
 

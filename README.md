@@ -385,7 +385,7 @@ is not required; installing the new one over it is fine.
 
 ```sh
 npm install
-npm test              # 562 tests (one live NVIDIA API check unless CI is set)
+npm test              # 583 tests (one live NVIDIA API check unless CI is set)
 npm run dev           # run from source
 npm run icons         # regenerate icons from build/icon.svg
 ```
