@@ -229,6 +229,35 @@ function createEngineContext(deps) {
   // this task to close — see NCOW-31's review notes for the follow-up.
   const mutexes = deps.mutexes ?? createDomainMutexes();
 
+  // CCA-14.5: resolve the regen path's provider-specific env var/litellm
+  // prefix from the MANIFEST's own recorded `provider` field (this task's
+  // AC#1), not from the `activeProvider` constant above. The two happen to
+  // agree today (activeProvider is hard-pinned to 'nvidia-nim' until CCA-15),
+  // but the manifest is the actual source of truth for which provider a
+  // given install was configured with — reading activeProvider here instead
+  // would silently stop being correct the moment CCA-15 makes that pin
+  // per-connection, since a regen on an OLDER install could then pick up a
+  // NEWER, unrelated active provider's env var name. Reading the manifest
+  // back is also what makes AC#1's stamped field non-cosmetic rather than
+  // write-only.
+  //
+  // A manifest with no `provider` at all (every real pre-CCA-14.5 install)
+  // resolves to 'nvidia-nim' via manifestStore.resolveManifestProviderId,
+  // since that was the only provider that could ever have been configured
+  // before this field existed. An unrecognized id (e.g. a manifest written
+  // by a newer app version, then downgraded) falls back to activeProvider's
+  // values rather than throwing out of createEngineContext() —
+  // regenerateStaleConfig's own no-existing-secrets/no-litellm-path guards
+  // make an actually-wrong guess here safe: it just fails to find a matching
+  // key under the wrong env var name and skips regeneration, same as any
+  // other not-yet-regenerable state, instead of crashing app startup.
+  let regenProvider;
+  try {
+    regenProvider = providers.getProvider(manifestStore.resolveManifestProviderId(manifestForRegenCheck));
+  } catch {
+    regenProvider = activeProvider;
+  }
+
   const configRegeneration = configGen
     .regenerateStaleConfig({
       files,
@@ -239,6 +268,7 @@ function createEngineContext(deps) {
       startOrRestart: pm2Control.startOrRestart,
       runProxyOperation: (fn) => mutexes.proxy.run(fn),
       logger: deps.logger ?? console,
+      provider: { id: regenProvider.id, apiKeyEnvVar: regenProvider.apiKeyEnvVar, litellmProvider: regenProvider.litellmProvider },
     })
     .catch((err) => ({ regenerated: false, reason: 'error', error: err }));
 
@@ -404,6 +434,10 @@ function createEngineContext(deps) {
           pm2_app: pm2Control.APP_NAME,
           cli_configured: existing?.cli_configured ?? false,
           secret_store_backend: 'electron-safeStorage',
+          // CCA-14.5 AC#1: records which registry.js Provider this
+          // connection uses, read back by regenerateStaleConfig() above (via
+          // manifestStore.resolveManifestProviderId) on every later launch.
+          provider: activeProvider.id,
           // NCOW-30: stamps the app version that produced this generation of
           // ecosystem.config.cjs/run.js, so a later launch under a newer app
           // version can detect this content is stale and regenerate it — see

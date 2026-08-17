@@ -210,6 +210,186 @@ test('createEngineContext: an upgraded install (stale generated config, older/no
   });
 });
 
+// CCA-14.5 AC#3: writes the encrypted-key file exactly where engine-context.js
+// derives it (path.join(deps.userDataDir, 'nim-key.enc')), in the same
+// enc:<plaintext> shape fakeSafeStorage()'s encryptString/decryptString round
+// trips through — reproducing what a REAL pre-CCA-14.5 install already has on
+// disk from a prior apiKey.validateAndSave() call (that handler calls
+// secretStore.save(key), which is exactly this file/format, just via the real
+// Electron safeStorage instead of this test double).
+function seedLegacySecretStoreFile(userDataDir, plaintextApiKey) {
+  fs.mkdirSync(userDataDir, { recursive: true });
+  fs.writeFileSync(path.join(userDataDir, 'nim-key.enc'), `enc:${plaintextApiKey}`, 'utf8');
+}
+
+// CCA-14.5 AC#3: a REAL migration test, not a read-the-code assertion. This
+// constructs the full on-disk shape of a genuine pre-CCA-14.5 NVIDIA-only
+// install — manifest.json with no `provider` field at all (that field didn't
+// exist yet), litellm.env with the NVIDIA key under NVIDIA_NIM_API_KEY
+// (seedStaleInstall, unchanged), AND the encrypted nim-key.enc a real
+// apiKey.validateAndSave() call would have produced (seedLegacySecretStoreFile,
+// new above) — then runs the ACTUAL upgrade path (createEngineContext() with a
+// bumped appVersion, the same trigger a real app upgrade hits on next launch)
+// and proves, by reading back through the real handlers, that: (1) the
+// manifest is rewritten to carry the new `provider` field (AC#1, genuinely
+// migrated on disk, not just defaulted at read time), and (2) the previously
+// saved credential is still readable with zero manual steps — nothing here
+// re-prompts for a key or requires the user to do anything.
+test('createEngineContext: CCA-14.5 AC#3 — a real pre-CCA-14.5 NVIDIA-only install (no manifest.provider, legacy secretStore file) migrates and keeps working after an upgrade, with no manual step', async () => {
+  await withFakeHome(async (homeDir) => {
+    const files = seedStaleInstall(homeDir);
+    const userDataDir = path.join(homeDir, 'userData');
+    seedLegacySecretStoreFile(userDataDir, 'nvapi-old-install');
+
+    const manifestBefore = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestBefore.provider, undefined, 'sanity check: the seeded fixture predates the provider field');
+
+    const { pm2Control, calls } = fakePm2Control({ status: 'not-installed' });
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir,
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+      logger: recordingLogger(),
+    });
+
+    const result = await context.configRegeneration;
+    assert.deepEqual(result, { regenerated: true, restarted: false });
+
+    // (1) The on-disk manifest genuinely migrated — `provider` is now
+    // recorded, not just assumed at read time by resolveManifestProviderId.
+    const manifestAfter = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestAfter.provider, 'nvidia-nim');
+    assert.equal(manifestAfter.generated_by_version, '0.2.0');
+
+    // (2) The regenerated litellm.env still carries the SAME key under the
+    // SAME env var name — proving the provider-aware regen path correctly
+    // resolved NVIDIA's apiKeyEnvVar from the (absent) manifest field's
+    // legacy default, not some other/blank value.
+    const env = fs.readFileSync(files.litellmEnv, 'utf8');
+    assert.match(env, /^NVIDIA_NIM_API_KEY=nvapi-old-install$/m);
+
+    // (3) The credential is still readable through the real IPC-shaped
+    // handler with zero manual re-entry — this is the actual "continues
+    // working" proof, exercised through the same code path the renderer uses.
+    const maskedResult = await context.handlers.apiKey.getMasked();
+    assert.equal(maskedResult.ok, true);
+    assert.notEqual(maskedResult.data.maskedKey, null);
+
+    // Never touched pm2 beyond the single status check (proxy wasn't running
+    // at launch) — an upgrade must not spuriously start/restart anything.
+    assert.equal(calls.getStatus, 1);
+    assert.equal(calls.startOrRestart.length, 0);
+  });
+});
+
+// CCA-14.5 fix-pass (reviewer request_changes): a REAL regression test for
+// the one line engine-context.js's regen path actually changed for this
+// task — resolving its provider via
+// `providers.getProvider(manifestStore.resolveManifestProviderId(manifestForRegenCheck))`
+// instead of the hardcoded module-level `activeProvider` constant (still
+// pinned to 'nvidia-nim' until CCA-15). The reviewer proved nothing in this
+// suite discriminated the two: reverting just that line to `activeProvider`
+// in a scratch copy left the full suite green. This constructs a real
+// openrouter-configured install — manifest.provider === 'openrouter', and a
+// litellm.env holding ONLY OPENROUTER_API_KEY (no NVIDIA_NIM_API_KEY
+// anywhere on disk) — so a regen path that ignored the manifest and always
+// looked for NVIDIA's env var would find nothing to reuse and report
+// 'no-existing-secrets' instead of actually regenerating.
+function seedStaleOpenRouterInstall(homeDir) {
+  // NCOW-60: same win32 override reasoning as seedStaleInstall above.
+  const configDir = paths.resolveConfigDir({ homedir: homeDir, ...paths.resolveWindowsAppDataOverrides(homeDir) });
+  const files = paths.getFilePaths(configDir);
+
+  generateAll({
+    files,
+    primaryModelId: 'anthropic/claude-3.5-sonnet',
+    smallModelId: 'anthropic/claude-3.5-haiku',
+    nimBaseUrl: undefined,
+    port: 4000,
+    litellmAbsPath: '/usr/local/bin/litellm',
+    // generateAll's param is named nvidiaApiKey for historical (NVIDIA-only)
+    // reasons, but it's just the value written under whichever apiKeyEnvVar
+    // is passed below — here that's OPENROUTER_API_KEY, not NVIDIA's.
+    nvidiaApiKey: 'or-test-key',
+    litellmProvider: 'openrouter',
+    apiKeyEnvVar: 'OPENROUTER_API_KEY',
+  });
+
+  const manifest = {
+    version: 1,
+    port: 4000,
+    primary_model: 'anthropic/claude-3.5-sonnet',
+    small_model: 'anthropic/claude-3.5-haiku',
+    nim_base_url: null,
+    litellm_path: '/usr/local/bin/litellm',
+    pm2_app: 'litellm-nim',
+    cli_configured: false,
+    secret_store_backend: 'electron-safeStorage',
+    // The field this task added — no generated_by_version, so this still
+    // reads as stale against any currentVersion, exactly like seedStaleInstall.
+    provider: 'openrouter',
+  };
+  fs.writeFileSync(files.manifestJson, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+
+  return files;
+}
+
+test('createEngineContext: CCA-14.5 fix-pass — the regen path resolves its provider from manifest.provider (openrouter), not the hardcoded NVIDIA activeProvider constant', async () => {
+  await withFakeHome(async (homeDir) => {
+    const files = seedStaleOpenRouterInstall(homeDir);
+
+    // Sanity check on the fixture itself: no NVIDIA env var anywhere on
+    // disk. If the regen path fell back to activeProvider (hard-pinned to
+    // 'nvidia-nim'), it would look for NVIDIA_NIM_API_KEY and find nothing.
+    const envBefore = fs.readFileSync(files.litellmEnv, 'utf8');
+    assert.doesNotMatch(envBefore, /NVIDIA_NIM_API_KEY/);
+    assert.match(envBefore, /^OPENROUTER_API_KEY=or-test-key$/m);
+
+    const { pm2Control, calls } = fakePm2Control({ status: 'not-installed' });
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir: path.join(homeDir, 'userData'),
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+      logger: recordingLogger(),
+    });
+
+    const result = await context.configRegeneration;
+    // If the regen path ignored the manifest's provider, resolveExistingApiKeyForEnvVar
+    // would look for NVIDIA_NIM_API_KEY, find nothing, and this would instead
+    // be { regenerated: false, reason: 'no-existing-secrets' }.
+    assert.deepEqual(result, { regenerated: true, restarted: false });
+
+    const envAfter = fs.readFileSync(files.litellmEnv, 'utf8');
+    assert.match(
+      envAfter,
+      /^OPENROUTER_API_KEY=or-test-key$/m,
+      'the regenerated litellm.env must still carry the OpenRouter key under its own env var'
+    );
+
+    const configYaml = fs.readFileSync(files.configYaml, 'utf8');
+    assert.match(configYaml, /openrouter\//, 'the regenerated config.yaml must use the openrouter/ litellm model prefix');
+    assert.doesNotMatch(
+      configYaml,
+      /nvidia_nim/,
+      'must not fall back to the NVIDIA litellm prefix for an openrouter-configured install'
+    );
+
+    const manifestAfter = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestAfter.provider, 'openrouter', 'must not clobber the already-recorded provider field');
+    assert.equal(manifestAfter.generated_by_version, '0.2.0');
+
+    // Not running at launch — no restart, matching AC's fresh-launch case.
+    assert.equal(calls.getStatus, 1);
+    assert.equal(calls.startOrRestart.length, 0);
+  });
+});
+
 test('createEngineContext: AC#2 — regenerating while the proxy is already running restarts it the same way proxy.start()/restart() do', async () => {
   await withFakeHome(async (homeDir) => {
     const files = seedStaleInstall(homeDir);

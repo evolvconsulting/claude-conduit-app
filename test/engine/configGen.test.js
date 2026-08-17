@@ -14,6 +14,7 @@ const {
   writeSecretsEnvFile,
   generateAll,
   resolveExistingNvidiaApiKey,
+  resolveExistingApiKeyForEnvVar,
   needsRegeneration,
   regenerateStaleConfig,
 } = require('../../src/engine/configGen');
@@ -545,6 +546,25 @@ test('resolveExistingNvidiaApiKey: reads the key back out of an existing litellm
   assert.equal(resolveExistingNvidiaApiKey(envPath), 'nvapi-existing');
 });
 
+// CCA-14.5: resolveExistingApiKeyForEnvVar is the generic form regenerateStaleConfig
+// uses so it can reuse whichever provider's env var an install was actually
+// configured with — resolveExistingNvidiaApiKey above is now just this
+// function pinned to NVIDIA's env var name.
+
+test('resolveExistingApiKeyForEnvVar: reads a non-NVIDIA env var name back out of litellm.env', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-configgen-test-'));
+  const envPath = path.join(dir, 'litellm.env');
+  writeSecretsEnvFile(envPath, { nvidiaApiKey: 'sk-or-existing', masterKey: 'sk-litellm-abc', apiKeyEnvVar: 'OPENROUTER_API_KEY' });
+
+  assert.equal(resolveExistingApiKeyForEnvVar(envPath, 'OPENROUTER_API_KEY'), 'sk-or-existing');
+  assert.equal(resolveExistingApiKeyForEnvVar(envPath, 'NVIDIA_NIM_API_KEY'), null, 'must not cross-match a different env var name');
+});
+
+test('resolveExistingApiKeyForEnvVar: a falsy apiKeyEnvVar (a hypothetical structurally-keyless provider) short-circuits to null rather than throwing', () => {
+  assert.equal(resolveExistingApiKeyForEnvVar('/nonexistent/litellm.env', null), null);
+  assert.equal(resolveExistingApiKeyForEnvVar('/nonexistent/litellm.env', undefined), null);
+});
+
 function makeStaleInstallFixture() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-configgen-regen-test-'));
   const files = getFilePaths(configDir);
@@ -622,7 +642,12 @@ test('regenerateStaleConfig: a stale pre-NCOW-30 install (no generated_by_versio
   });
 
   assert.deepEqual(result, { regenerated: true, restarted: false });
-  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0' }]);
+  // CCA-14.5 AC#1/AC#3: this pre-CCA-14.5 fixture's manifest has no `provider`
+  // field at all — the regen path must backfill it (defaulting to
+  // 'nvidia-nim', the only provider that could have configured a pre-CCA-14.5
+  // install) so the on-disk manifest actually migrates, not just "reads
+  // correctly via a runtime default forever."
+  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0', provider: 'nvidia-nim' }]);
 
   // Regenerated ecosystem.config.cjs must be fresh, current-version content —
   // i.e. it actually carries NCOW-27/28's fixes, proving this is a real
@@ -702,6 +727,122 @@ test('regenerateStaleConfig: no litellm.env on disk to reuse a key from — skip
 
   assert.deepEqual(result, { regenerated: false, reason: 'no-existing-secrets' });
   assert.equal(fs.existsSync(files.ecosystemConfig), false);
+});
+
+// CCA-14.5: regenerateStaleConfig honors an explicit `provider` opt, reading
+// back whichever env var/litellm prefix a NON-NVIDIA install actually used
+// instead of assuming NVIDIA — this is the fix for the forward-flagged gap in
+// this task's own notes ("configGen.js hardcodes NVIDIA_NIM_API_KEY because
+// there was nothing else to read yet").
+
+function makeStaleOpenrouterInstallFixture() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-configgen-regen-or-test-'));
+  const files = getFilePaths(configDir);
+
+  generateAll({
+    files,
+    primaryModelId: 'qwen/qwen3-coder',
+    smallModelId: 'qwen/qwen3-8b',
+    port: 4000,
+    litellmAbsPath: '/usr/local/bin/litellm',
+    nvidiaApiKey: 'sk-or-old-install',
+    litellmProvider: 'openrouter',
+    apiKeyEnvVar: 'OPENROUTER_API_KEY',
+  });
+
+  const manifest = {
+    port: 4000,
+    primary_model: 'qwen/qwen3-coder',
+    small_model: 'qwen/qwen3-8b',
+    litellm_path: '/usr/local/bin/litellm',
+    provider: 'openrouter',
+    // No generated_by_version — stale, needs regeneration.
+  };
+
+  return { files, manifest };
+}
+
+test('regenerateStaleConfig: an explicit `provider` opt reads the RIGHT env var for a non-NVIDIA install and never falls back to NVIDIA defaults', async () => {
+  const { files, manifest } = makeStaleOpenrouterInstallFixture();
+
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => {},
+    getStatus: async () => ({ status: 'not-installed' }),
+    startOrRestart: async () => { throw new Error('must not restart a not-installed proxy'); },
+    logger: recordingLogger(),
+    provider: { id: 'openrouter', apiKeyEnvVar: 'OPENROUTER_API_KEY', litellmProvider: 'openrouter' },
+  });
+
+  assert.deepEqual(result, { regenerated: true, restarted: false });
+
+  const env = fs.readFileSync(files.litellmEnv, 'utf8');
+  assert.match(env, /^OPENROUTER_API_KEY=sk-or-old-install$/m);
+  assert.doesNotMatch(env, /NVIDIA_NIM_API_KEY/);
+
+  const yaml = fs.readFileSync(files.configYaml, 'utf8');
+  assert.match(yaml, /model: openrouter\//);
+  assert.doesNotMatch(yaml, /nvidia_nim/);
+});
+
+test('regenerateStaleConfig: an explicit `provider` opt fails safe (no-existing-secrets) when NVIDIA\'s env var happens to be on disk but the install is actually a different provider', async () => {
+  // Guards against the exact bug this task fixes: if regenerateStaleConfig
+  // still hardcoded NVIDIA_NIM_API_KEY, it would find nothing to read for an
+  // OpenRouter install whose litellm.env has no such key at all — this test
+  // pins that the OPENROUTER_API_KEY-keyed lookup is what actually runs.
+  const { files, manifest } = makeStaleOpenrouterInstallFixture();
+
+  const result = await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: () => { throw new Error('must not stamp when no matching secret is found'); },
+    getStatus: async () => { throw new Error('must not check proxy status when regeneration is skipped'); },
+    startOrRestart: async () => { throw new Error('must not restart when regeneration is skipped'); },
+    // Omitted `provider` -> defaults to NVIDIA's apiKeyEnvVar, which this
+    // fixture's litellm.env does NOT contain (it only has OPENROUTER_API_KEY).
+  });
+
+  assert.deepEqual(result, { regenerated: false, reason: 'no-existing-secrets' });
+});
+
+test('regenerateStaleConfig: backfills manifest.provider using the passed-in provider.id when the manifest predates the field', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  delete manifest.provider;
+
+  const savedPatches = [];
+  await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: (patch) => savedPatches.push(patch),
+    getStatus: async () => ({ status: 'not-installed' }),
+    startOrRestart: async () => { throw new Error('must not restart a not-installed proxy'); },
+    logger: recordingLogger(),
+    provider: { id: 'nvidia-nim', apiKeyEnvVar: 'NVIDIA_NIM_API_KEY', litellmProvider: 'nvidia_nim' },
+  });
+
+  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0', provider: 'nvidia-nim' }]);
+});
+
+test('regenerateStaleConfig: preserves an already-recorded manifest.provider verbatim rather than overwriting it with the passed-in provider.id', async () => {
+  const { files, manifest } = makeStaleInstallFixture();
+  manifest.provider = 'nvidia-nim';
+
+  const savedPatches = [];
+  await regenerateStaleConfig({
+    files,
+    manifest,
+    currentVersion: '0.2.0',
+    saveManifest: (patch) => savedPatches.push(patch),
+    getStatus: async () => ({ status: 'not-installed' }),
+    startOrRestart: async () => { throw new Error('must not restart a not-installed proxy'); },
+    logger: recordingLogger(),
+  });
+
+  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0', provider: 'nvidia-nim' }]);
 });
 
 // NCOW-31 — the two gaps NCOW-30 deferred. Both live in this same restart path.
@@ -1326,7 +1467,9 @@ test('regenerateStaleConfig: AC#3b — a failed restart is genuinely retried on 
 
   assert.deepEqual(second, { regenerated: true, restarted: true });
   assert.equal(secondRestarts.length, 1, 'the retry actually re-attempted the restart');
-  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0' }]);
+  // CCA-14.5: same backfill as the test above — this fixture's manifest also
+  // predates the `provider` field.
+  assert.deepEqual(savedPatches, [{ generated_by_version: '0.2.0', provider: 'nvidia-nim' }]);
   assert.equal(needsRegeneration(manifest, '0.2.0'), false, 'and now it finally settles');
 
   // Launch 3: nothing left to do.

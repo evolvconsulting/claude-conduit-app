@@ -376,10 +376,14 @@ function resolveMasterKey(litellmEnvPath) {
 }
 
 /**
- * `apiKeyEnvVar` defaults to 'NVIDIA_NIM_API_KEY' (today's only provider) so
- * existing callers keep writing the same file; it must match whatever
- * `renderConfigYaml` was given, since that's the name the generated
- * config.yaml reads via `os.environ/<name>`.
+ * `apiKeyEnvVar` defaults to 'NVIDIA_NIM_API_KEY' so existing callers keep
+ * writing the same file; it must match whatever `renderConfigYaml` was
+ * given, since that's the name the generated config.yaml reads via
+ * `os.environ/<name>`. (CCA-14.5: the "today's only provider" framing this
+ * comment used to carry is stale — three providers each declare their own
+ * apiKeyEnvVar as of CCA-14.1-14.3 — the default here just matches
+ * `renderConfigYaml`'s own NVIDIA default for the same backward-compat
+ * reason.)
  *
  * @param {string} litellmEnvPath
  * @param {{nvidiaApiKey: string, masterKey: string, apiKeyEnvVar?: string}} secrets
@@ -459,19 +463,37 @@ function generateAll(opts) {
 }
 
 /**
+ * Generic form of resolveExistingNvidiaApiKey below, parameterized on the env
+ * var name — CCA-14.5's regenerateStaleConfig() needs this for whichever
+ * provider a given install was actually configured with, not just NVIDIA's.
+ * A falsy `apiKeyEnvVar` (a hypothetical provider that structurally never
+ * has a credential — registry.js's typedef allows `apiKeyEnvVar: null`, no
+ * currently-registered provider actually sets it) short-circuits to null
+ * rather than building a regex out of a non-string.
+ *
  * @param {string} litellmEnvPath
- * @returns {string|null} the NVIDIA key currently in litellm.env, or null if
- *   the file doesn't exist or has no key recorded.
+ * @param {string|null|undefined} apiKeyEnvVar
+ * @returns {string|null}
  */
-function resolveExistingNvidiaApiKey(litellmEnvPath) {
+function resolveExistingApiKeyForEnvVar(litellmEnvPath, apiKeyEnvVar) {
+  if (!apiKeyEnvVar) return null;
   try {
     const raw = fs.readFileSync(litellmEnvPath, 'utf8');
-    const match = /^NVIDIA_NIM_API_KEY=(.*)$/m.exec(raw);
+    const match = new RegExp(`^${apiKeyEnvVar}=(.*)$`, 'm').exec(raw);
     if (match && match[1].trim()) return match[1].trim();
   } catch {
     // No existing file (or unreadable) — nothing to reuse.
   }
   return null;
+}
+
+/**
+ * @param {string} litellmEnvPath
+ * @returns {string|null} the NVIDIA key currently in litellm.env, or null if
+ *   the file doesn't exist or has no key recorded.
+ */
+function resolveExistingNvidiaApiKey(litellmEnvPath) {
+  return resolveExistingApiKeyForEnvVar(litellmEnvPath, 'NVIDIA_NIM_API_KEY');
 }
 
 /**
@@ -545,6 +567,17 @@ function needsRegeneration(manifest, currentVersion) {
  *    existing master key), so a retry rewrites byte-identical content and
  *    re-attempts the restart.
  *
+ * CCA-14.5: the regenerated litellm.env/config.yaml must reuse whichever
+ * provider's env var/litellm prefix this install was ACTUALLY configured
+ * with, not blindly assume NVIDIA — `opts.provider` carries that (defaulting
+ * to NVIDIA's values so every pre-CCA-14.5 caller/test keeps working
+ * unchanged). The caller (engine-context.js) resolves it from the
+ * manifest's own recorded `provider` field (manifest.js's
+ * resolveManifestProviderId()) rather than from whatever provider the
+ * currently-running code happens to be hard-pinned to — see this task's own
+ * notes for why that distinction matters once CCA-15 stops that pin from
+ * always agreeing with what a given install actually used.
+ *
  * @param {object} opts
  * @param {import('./paths').getFilePaths extends (...a: any) => infer R ? R : never} opts.files
  * @param {object|null} opts.manifest
@@ -556,6 +589,10 @@ function needsRegeneration(manifest, currentVersion) {
  *   Runs its callback inside the shared proxy-domain critical section. Must
  *   propagate both the resolved value and any rejection.
  * @param {{warn: Function, info: Function}} [opts.logger]
+ * @param {{id: string, apiKeyEnvVar: string|null, litellmProvider: string}} [opts.provider]
+ *   Defaults to NVIDIA NIM's values — every real install before CCA-14.5 was
+ *   NVIDIA-only by construction, so that's the correct assumption for a
+ *   manifest with no recorded provider at all.
  * @returns {Promise<{regenerated: boolean, restarted?: boolean, reason?: string, error?: any}>}
  */
 async function regenerateStaleConfig(opts) {
@@ -568,11 +605,12 @@ async function regenerateStaleConfig(opts) {
     startOrRestart,
     runProxyOperation = (fn) => fn(),
     logger = console,
+    provider = { id: 'nvidia-nim', apiKeyEnvVar: 'NVIDIA_NIM_API_KEY', litellmProvider: 'nvidia_nim' },
   } = opts;
 
   if (!needsRegeneration(manifest, currentVersion)) return { regenerated: false, reason: 'up-to-date' };
 
-  const apiKey = resolveExistingNvidiaApiKey(files.litellmEnv);
+  const apiKey = resolveExistingApiKeyForEnvVar(files.litellmEnv, provider.apiKeyEnvVar);
   if (!apiKey) return { regenerated: false, reason: 'no-existing-secrets' };
   if (!manifest.litellm_path) return { regenerated: false, reason: 'no-litellm-path' };
 
@@ -584,6 +622,8 @@ async function regenerateStaleConfig(opts) {
     port: manifest.port,
     litellmAbsPath: manifest.litellm_path,
     nvidiaApiKey: apiKey,
+    litellmProvider: provider.litellmProvider,
+    apiKeyEnvVar: provider.apiKeyEnvVar,
   });
 
   // NCOW-30 AC#2: a live proxy from a previous session must pick up the
@@ -646,7 +686,14 @@ async function regenerateStaleConfig(opts) {
     return { regenerated: false, reason: 'restart-failed', error };
   }
 
-  saveManifest({ generated_by_version: currentVersion });
+  // AC#1/AC#3: backfill `provider` onto disk in the same pass that already
+  // stamps generated_by_version, so a pre-CCA-14.5 manifest (no `provider`
+  // field at all) genuinely migrates to the new schema on its first
+  // post-upgrade launch — not just "reads correctly via a runtime default
+  // forever." `manifest.provider` is preserved verbatim if it was somehow
+  // already set (shouldn't happen given how the caller derives `provider`
+  // from it, but keeps this idempotent rather than clobbering).
+  saveManifest({ generated_by_version: currentVersion, provider: manifest.provider ?? provider.id });
   logger.info(
     `[config-regen] regenerated config for version ${currentVersion}` +
       (attempt.attempted ? ' and restarted the running proxy' : ' (proxy was not running; no restart needed)')
@@ -798,6 +845,7 @@ module.exports = {
   writeSecretsEnvFile,
   generateAll,
   resolveExistingNvidiaApiKey,
+  resolveExistingApiKeyForEnvVar,
   needsRegeneration,
   regenerateStaleConfig,
   safeStringify,
