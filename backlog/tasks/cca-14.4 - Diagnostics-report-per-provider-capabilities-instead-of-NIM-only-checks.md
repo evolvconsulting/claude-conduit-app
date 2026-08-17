@@ -1,10 +1,10 @@
 ---
 id: CCA-14.4
 title: 'Diagnostics: report per-provider capabilities instead of NIM-only checks'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 04:15'
+updated_date: '2026-08-17 04:16'
 labels: []
 dependencies:
   - CCA-14.1
@@ -22,9 +22,9 @@ Update the diagnostics suite (src/engine/diagnostics.js) to report what the acti
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Diagnostics checks are keyed off the active provider's declared capabilities rather than hardcoded NIM assumptions
-- [ ] #2 A provider that does not support a given check (e.g. no catalog listing) reports that plainly rather than failing
-- [ ] #3 npm test passes
+- [x] #1 Diagnostics checks are keyed off the active provider's declared capabilities rather than hardcoded NIM assumptions
+- [x] #2 A provider that does not support a given check (e.g. no catalog listing) reports that plainly rather than failing
+- [x] #3 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -216,3 +216,15 @@ real, verified DESIGN.md/README.md text instead of an invented verification reco
 
 npm test (reviewer's own run): 542/542.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Keyed diagnostics checks off the active provider's declareCapabilities() instead of hardcoded NIM assumptions: model-catalog reachability now gates on supportsModelListing (reporting a plain, non-critical "skipped" result rather than attempting-then-failing when unsupported), and tool-calling criticality now derives from supportsToolCalling. Also fixed a hardcoded "NVIDIA's shared/free endpoint" timeout message to be provider-accurate.
+
+2 review passes, 1 fix cycle. Pass 1 confirmed the capability-gating logic but found the new "skipped" status rendered as a red-X "failure" in all three renderer views (diagnostics-view.js, setup-view.js, dashboard-view.js) -- directly against AC#2. Fix pass added a genuine third neutral UI state (.skip, matching this codebase's existing --muted precedent) across all three views, plus threaded providerLabel through every timeoutDetail() call site. Pass 2 independently re-rendered the real templates from both dev and HEAD to confirm the visual difference is real (distinct color values, not just a renamed class), confirmed all 4 timeout call sites now provider-accurate, and re-swept the whole src/ tree for any other status-consumer assuming only two states -- none found.
+
+One review-noted correction for the record: the original rationale that CCA-14.3's Custom/Local provider would be "the first real trigger" for the skipped path turned out factually wrong -- that provider actually declares supportsModelListing:true. No provider in the repo currently declares false, so the skipped path is unreachable in production today (exercised only by tests) until CCA-15 unpins the active-provider selection. The fix itself remains correct and AC#2-required regardless.
+
+npm test: 562/562 (542 baseline + 20 new tests across two commits, 0 regressions). Merged as PR #70 (dab0728).
+<!-- SECTION:FINAL_SUMMARY:END -->
