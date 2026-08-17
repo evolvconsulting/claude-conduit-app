@@ -119,7 +119,10 @@ win:
   # shortcut's AUMID also does not by itself prove toast *activation*
   # (clicking a toast to refocus/relaunch the app) will resolve correctly —
   # that additionally depends on a second, distinct API this app does not
-  # call: `app.setToastActivatorCLSID(id)`.
+  # call: `app.setToastActivatorCLSID(id)`. (Electron's own tutorial doc
+  # actually frames the AUMID+CLSID pairing more broadly than activation
+  # alone — see the re-verified reasoning below for the exact wording and
+  # what that does and doesn't change here.)
   #
   # CCA-61 decided this deliberately, not by default: accept the gap and
   # document it accurately, rather than call `app.setToastActivatorCLSID()`
@@ -135,31 +138,70 @@ win:
   #   CLSID is generated once per run and exposed via
   #   `app.toastActivatorCLSID`." So today, every run of this app gets a
   #   fresh random CLSID; nothing is broken by that alone.
+  # - Electron's own `docs/tutorial/notifications.md` (same v43.2.0 tag,
+  #   lines 100-101) states the requirement more broadly than "activation
+  #   alone": "For notifications on Windows, your Electron app needs to have
+  #   a Start Menu shortcut with an AppUserModelID and a corresponding
+  #   ToastActivatorCLSID." That ties the CLSID to Windows notifications
+  #   generally, not just the click-through path — broader than this
+  #   comment's earlier "activation" framing (which follows
+  #   `setToastActivatorCLSID`'s own, narrower doc instead, app.md lines
+  #   1148-1159). What the live testing above can actually speak to:
+  #   registry acceptance under the correct AUMID was confirmed on every
+  #   configuration tried with no shortcut-side CLSID stamped at all — some
+  #   evidence the pipeline still accepts calls without one — but
+  #   pixel-level "did a banner render" was never confirmed either way (see
+  #   above), so that can't settle whether plain display is affected by the
+  #   missing CLSID. Left as an open question, not resolved in either
+  #   direction here.
   # - electron-builder writes no ToastActivatorCLSID onto either Windows
-  #   target's shortcut — re-verified for CCA-61 across the ENTIRE
-  #   currently-installed app-builder-lib package (26.15.3), not just its
-  #   `templates/nsis/` subdirectory: `grep -rn "ToastActivator\|CLSID"
-  #   node_modules/app-builder-lib/` returns zero hits repo-wide. More
-  #   specifically, the WinShell NSIS plugin this repo's own
-  #   `installer.nsh` calls (see the `SetLnkAUMI` citation above) exposes
-  #   exactly `SetLnkAUMI`, `UninstShortcut`, and `UninstAppUserModelId` —
-  #   no shortcut-side CLSID-stamping call exists anywhere in the plugin
-  #   surface these templates use.
-  # - Consequence: even if this app called `setToastActivatorCLSID(fixedGuid)`
-  #   with a hardcoded, never-changing GUID, nothing in the currently
-  #   installed electron-builder can stamp that same GUID onto the Start
-  #   Menu shortcut's `System.AppUserModel.ToastActivatorCLSID` property —
-  #   the one place Windows Shell would need to read it from to route a
-  #   background/Action-Center toast activation to this app's registered
-  #   CLSID. A fixed-but-unstamped CLSID would be exactly as functionally
-  #   inert for that purpose as today's random-per-run default — just
-  #   deterministically inert instead of randomly inert, not an actual fix.
-  #   Implementing it would look done in code review while changing nothing
-  #   a user could observe.
-  # - This app's `notifyFailure()` calls are simple informational toasts
-  #   that don't register an activation handler, so this specific gap isn't
-  #   currently exercised by anything this codebase does — but it remains a
-  #   real, open, and now-accurately-documented gap (see also
+  #   target's shortcut AT SHORTCUT-CREATION TIME — re-verified for CCA-61
+  #   across the ENTIRE currently-installed app-builder-lib package
+  #   (26.15.3), not just its `templates/nsis/` subdirectory: `grep -rn
+  #   "ToastActivator\|CLSID" node_modules/app-builder-lib/` returns zero
+  #   hits repo-wide. More specifically, the WinShell NSIS plugin this
+  #   repo's own `installer.nsh` calls (see the `SetLnkAUMI` citation above)
+  #   exposes exactly `SetLnkAUMI`, `UninstShortcut`, and
+  #   `UninstAppUserModelId` — no shortcut-side CLSID-stamping call exists
+  #   anywhere in the plugin surface these templates use. This bounds what
+  #   the INSTALLER can stamp onto a shortcut at creation time only — it
+  #   says nothing about whether the running app can update that same
+  #   shortcut afterward.
+  # - A remedy IS reachable regardless, independent of app-builder-lib:
+  #   Electron itself can stamp a CLSID onto an already-installed shortcut
+  #   at runtime via `shell.writeShortcutLink(shortcutPath, 'update',
+  #   { toastActivatorClsid })` — `docs/api/shell.md` (same tag, lines
+  #   97-105) documents `update` as "Updates specified properties only on
+  #   an existing shortcut," and `docs/api/structures/shortcut-details.md`
+  #   (same tag) documents `toastActivatorClsid` as "The Application Toast
+  #   Activator CLSID. Needed for participating in Action Center." Nothing
+  #   about app-builder-lib's installer-time gap above blocks this
+  #   runtime-side call — it is a genuine, currently-reachable path, not a
+  #   theoretical one.
+  # - The gap is being ACCEPTED anyway, on cost/benefit grounds — not
+  #   because no remedy exists. The full remedy would need: (a) locating the
+  #   actual installed shortcut path at runtime; (b) calling
+  #   `writeShortcutLink` to stamp a fixed CLSID onto it; and (c) almost
+  #   certainly registering a COM server for that CLSID — Windows' contract
+  #   requires a stamped CLSID to correspond to a REGISTERED COM activator,
+  #   and it is NOT clear from Electron's docs alone whether
+  #   `setToastActivatorCLSID` handles that registration itself or whether
+  #   more registry/native work is needed (Electron's own notifications doc
+  #   separately notes that even its "advanced," interactive-reply
+  #   notifications need a distinct userland module,
+  #   `electron-windows-interactive-notifications`, which "helps with
+  #   registering the required COM components" — suggestive that COM
+  #   registration isn't automatic, but not proof either way for the plain
+  #   activation case here; left as an open, unverified question rather than
+  #   a claim in either direction). (d) Real Windows testing has already
+  #   proven expensive/limited on this campaign's available VM: NCOW-57's
+  #   own history shows pixel-level toast verification proved unobtainable
+  #   there across multiple repeated strategies.
+  # - Given all that cost, and that this app's `notifyFailure()` calls are
+  #   simple informational toasts that don't register an activation handler
+  #   at all today, the cost is disproportionate to the benefit — a
+  #   legitimate reason to accept the gap, distinct from "no remedy exists."
+  #   It remains a real, open, and now-accurately-documented gap (see also
   #   `src/main/tray.js`'s own gap enumeration), not something ruled out or
   #   silently assumed unfixable.
   #
