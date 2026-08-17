@@ -4,7 +4,7 @@ title: 'Diagnostics: report per-provider capabilities instead of NIM-only checks
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 04:09'
+updated_date: '2026-08-17 04:15'
 labels: []
 dependencies:
   - CCA-14.1
@@ -172,4 +172,47 @@ finding's own "neutral/muted style" instruction). `engine-context.js` and `src/e
 confirmed untouched (empty diff against those paths).
 
 Review pass 2 dispatched next, into the same worktree, against `60400f7`.
+
+## Wave-18 review pass 2 verdict — APPROVE (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `f73371f`+`3f49918`+`c11f586`+`60400f7`. All 3 ACs re-confirmed fresh against the post-fix
+state (not carried forward from pass 1).
+
+**Finding A CLOSED**: independently rendered the real extracted templates from BOTH `dev` and `HEAD`
+against a constructed `status:'skipped'` result -- confirmed the row genuinely changes from
+`class="fail"`/`X` to `class="skip"`/`-` in all three consumers. Not cosmetic: `.skip` uses
+`var(--muted)` (grey, #6b6b70 light / #9a9a9e dark) vs `.fail`'s `var(--danger)` (red #e74c3c, not
+redefined in dark) -- visually distinct in both themes. Confirmed the `--muted` precedent is real
+(`.status-pill.status-not-installed`/`.status-unknown` already use it identically). Swept every
+`status ===` consumer in `src/` -- no remaining two-state assumption anywhere.
+
+**Finding B CLOSED**: all 4 real `timeoutDetail(` call sites pass `providerLabel`; generic fallback
+verified by direct execution to contain no vendor name at all. Nuance recorded: `providerLabel` was
+already present in `engine-context.js` from the ORIGINAL implementation commit (`3f49918`), not
+something fix pass 1 also had to add there -- "already supplied, just not threaded through
+internally" is accurate as claimed.
+
+Both nits confirmed genuinely fixed (test title no longer self-contradicts; the NIM comment now cites
+real, verified DESIGN.md/README.md text instead of an invented verification record).
+
+### New findings from this pass, all non-blocking
+
+- **[Medium, premise correction, NOT a code defect]**: pass 1's own rationale for treating Finding A as
+  urgent was factually wrong -- CCA-14.3's Custom/Local provider (now merged) actually declares
+  `supportsModelListing: TRUE`, not false. **No provider in the repo currently declares false**; the
+  `skipped` path is unreachable in production today (only exercised by tests), since `activeProvider`
+  is still hard-pinned to `'nvidia-nim'` (CCA-15's job to change). The FIX itself is still correct and
+  structurally required by AC#2 regardless -- **just don't carry forward the "CCA-14.3 is the first
+  real trigger" claim into the campaign record**, it's the one thing about this branch that turned out
+  false.
+- **[Low]**: a comment says "a future provider's `'unverified'` gets the same non-critical treatment"
+  -- CCA-14.3's `customLocal` provider already declares `'unverified'` TODAY (merged same wave). Stale
+  the moment both branches land together; the code path itself is correct.
+- **[Low]**: branch needs a rebase (dev moved 6 commits since `52a7f7e`, including CCA-14.3) --
+  `git merge-tree` confirms ZERO file overlap, trivial fast rebase, no conflict risk expected.
+- Two cosmetic nits (a skipped row's criticality column still reads "warn-only"; a pre-existing,
+  out-of-scope `setup-view.js` warning styled red that a dedicated warn class would suit better) --
+  neither blocking, left as-is.
+
+npm test (reviewer's own run): 542/542.
 <!-- SECTION:NOTES:END -->
