@@ -12,6 +12,7 @@ const { resolveCliCommand } = require('../../src/engine/platform');
 
 const licenses = require('../../src/assets/licenses.json');
 const pkg = require('../../package.json');
+const { appVersionMismatch, entryVersionMismatches } = require('./.helpers/licenses-drift');
 
 function findByLabel(template, label) {
   for (const top of template) {
@@ -80,6 +81,32 @@ test('licenses: every bundled entry has either license text or a declared licens
   for (const entry of licenses.bundled) {
     assert.ok(entry.license && entry.license !== 'UNKNOWN' ? true : entry.text, `${entry.name} has neither`);
   }
+});
+
+// CCA-65. The count/membership checks elsewhere in this file only prove
+// nothing was added or removed — they say nothing about *which* version
+// shipped. That is exactly how CCA-64's js-yaml 4.3.0 -> 4.3.1 bump (and,
+// separately, an app.version left at "0.1.0" for ~2 weeks) sailed through a
+// full review and merge undetected: package.json/package-lock.json moved,
+// licenses.json didn't, and nothing here noticed. The comparison logic lives
+// in ./.helpers/licenses-drift.js, not inline, so the exact same code these
+// two tests run can be proven non-vacuous by experiment against a scratch
+// copy of licenses.json (see that file's header) without ever touching the
+// real tracked one.
+
+test('licenses: app.version matches package.json (drift guard)', () => {
+  const mismatch = appVersionMismatch(licenses, pkg);
+  assert.equal(mismatch, null, mismatch || '');
+});
+
+test('licenses: every bundled entry\'s version matches package-lock.json (drift guard)', () => {
+  const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
+  const mismatches = entryVersionMismatches(licenses, lock);
+  assert.deepEqual(
+    mismatches,
+    [],
+    `licenses.json has stale version(s) vs package-lock.json — run \`npm run licenses\`:\n${mismatches.join('\n')}`,
+  );
 });
 
 // NCOW-19. licenses.json is generated on whichever machine ran `npm run
