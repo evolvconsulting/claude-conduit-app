@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-07 15:13'
+updated_date: '2026-08-17 00:29'
 labels: []
 dependencies: []
 priority: high
@@ -400,4 +400,54 @@ artifact of comparing against a stale local ref.
 
 Fix pass 2 dispatched into the same worktree with all findings verbatim, instructed to adopt
 tolerate-and-recover, revert the pre-existing-test edit, and remove the `require.main` fragility.
+
+## Wave-17 fix pass 2 (fresh worker, same worktree, commits `8f1e595` + `cf00842`; pushed force-with-lease, branch now `cf00842`, matches origin exactly)
+
+Restored/finished the fix pass 2 that was found mid-flight uncommitted in the worktree at this
+session's restore (see tracker doc-5's restore note). The existing WIP (scanner logic extracted to
+new `test/engine/.helpers/win32-override-scanner.js`, both guard test files requiring it, the
+pre-existing-test Unicode-escape reverted) was read in full, judged coherent and on-brief, and
+committed rather than redone.
+
+**B1 (tolerate-and-recover) CLOSED.** `stripCommentsAndStrings` no longer lets a backtick-opened
+phantom string search past its own line end; on failure it rewinds and treats the backtick as
+ordinary code instead of throwing. Proved two ways: (1) extracted fix-pass-1's own
+`findOverrideViolations` (from `c59e93f`) and ran it against the reviewer's exact "two single-line
+regexes each with one bare backtick, offending call between them" shape -- returned ZERO offenders,
+no throw (reproducing the silent miss); the new helper's version on the same fixture correctly
+finds it. (2) Against the real file the reviewer named, `test/renderer/dashboard-view.test.js`
+(already carries 4 bare backticks / 2 regex literals), injecting an offending call between its two
+flagged lines is now correctly detected. Cross-checked the helper's own disclosed-residual claim
+("4 genuine multi-line template-literal spans") against the actual suite: exactly 3 in
+engine-context-config-regen.test.js's tray-spread fixtures + 1 in licenses.test.js -- all other
+naive hits were backticks inside `//` comments, not real template literals.
+
+**S1 (require.main fragility) CLOSED.** Ran `node --test --experimental-test-isolation=none` with
+both guard files loaded together (the reviewer's exact repro): all 6 tests (4 scanner-unit + 2
+suite-wide guard assertions) now register and pass, where before this fix the guard showed as a bare
+`ok` with zero subtests. Also independently verified the `.helpers/` dot-prefix itself is required
+for `node --test`'s default discovery to skip the file (a non-dot `test/helpers/*.js` is picked up
+as its own spurious zero-assertion test).
+
+**S3 (stale `CALL_RE`) CLOSED.** `grep -rn "CALL_RE\b" test/ src/` now returns zero hits; `callRegex()`
+is the only name used.
+
+**AC re-verification against the final version:** AC#1 -- both call sites (now lines 97/321) thread
+`resolveWindowsAppDataOverrides(homeDir)`. AC#2/#3 -- reverted both call sites, guard failed naming
+both lines exactly; restored, guard passed; guard is new, not a copy. AC#4 -- win32-simulation test
+passes. AC#5 -- diffed against the true pre-task original (`420eec0^`): only remaining diffs are the
+two in-scope AC#1 edits and the AC#4 test's own new comment wording; `findKeyAfterTraySpread` is
+byte-identical to its pre-task form again (the Unicode-escape edit fully reverted).
+
+npm test: **494/494 pass, 0 fail** (both pre- and post-commit).
+
+Push: plain push rejected non-fast-forward (expected -- origin still had the pre-rebase copy);
+`--force-with-lease` succeeded. `git fetch` confirms local HEAD and
+`origin/fix/NCOW-60-test-real-windows-config` both now point to `cf00842`.
+
+Files touched: `test/engine/.helpers/win32-override-scanner.js` (new),
+`test/engine/paths-win32-override-guard.test.js`, `test/engine/paths-win32-override-guard-scanner.test.js`,
+`test/main/engine-context-config-regen.test.js`. Nothing outside this task's scope touched.
+
+Review pass 3 dispatched next, into the same worktree, against `cf00842`.
 <!-- SECTION:NOTES:END -->
