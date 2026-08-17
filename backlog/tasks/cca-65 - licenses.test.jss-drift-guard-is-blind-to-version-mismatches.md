@@ -1,9 +1,10 @@
 ---
 id: CCA-65
 title: licenses.test.js's drift guard is blind to version mismatches
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-17 13:17'
+updated_date: '2026-08-17 13:49'
 labels:
   - bug
   - test-infra
