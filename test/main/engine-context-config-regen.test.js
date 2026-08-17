@@ -137,8 +137,9 @@ function seedStaleInstall(homeDir) {
 // technique (set realistic-looking APPDATA/LOCALAPPDATA env vars, since those
 // are the two things a real Windows machine always has set and this app's
 // own resolver deliberately prefers over a bare homedir guess — see
-// paths.js's resolveConfigDirNamed header comment). Before the NCOW-60 fix,
-// this exact assertion would have failed on ANY host, for two DIFFERENT
+// paths.js's resolveConfigDirNamed header comment). With the pre-fix call
+// shape (`resolveConfigDir({ homedir: homeDir })`, no platform forced), this
+// exact assertion would have failed on ANY host, for two DIFFERENT
 // reasons depending on platform: on win32, because process.env.APPDATA wins
 // over the bare homedir guess; on macOS/Linux, because
 // resolveConfigDirNamed's non-win32 branch resolves via the `.config` path
@@ -1678,18 +1679,7 @@ test('index.js: findKeyAfterTraySpread() fails loud (throws) when the spread is 
   );
   assert.throws(
     () => findKeyAfterTraySpread(truncatedBlock),
-    // NCOW-60 F1: written with a Unicode escape instead of a literal
-    // backtick character on purpose — a JS regex pattern matches the exact
-    // same text either way, but a bare backtick sitting here, outside any
-    // real string, is indistinguishable to
-    // test/engine/paths-win32-override-guard.test.js's stripCommentsAndStrings
-    // from an unterminated template literal, and (after that guard's F1
-    // fix) that ambiguity is now a loud thrown failure naming the file and
-    // line, rather than a silently blanked region reaching to EOF — which is
-    // exactly what this bare backtick did to this file's own lines
-    // 1692-1696 before this fix. See that guard's stripCommentsAndStrings
-    // docblock for the full mechanism.
-    /no \u0060\.\.\.createTrayActions/,
+    /no `\.\.\.createTrayActions/,
     'expected findKeyAfterTraySpread() to throw rather than silently report "no override found" for a ' +
       'block that never contained the spread at all'
   );
