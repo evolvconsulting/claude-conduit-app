@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 13:49'
+updated_date: '2026-08-17 16:05'
 ---
 # Backlog campaign tracker
 
@@ -90,21 +90,17 @@ pre-CCA-64 version, and the app version drifted ~2 weeks earlier and unrelated t
 stale test counts, cross-references, and comments), fixed via cleanup PR #72 (`f7fe24a`), 1 review
 pass. Final npm test on merged dev: **562/562**.
 
-**Wave 19 dispatched (2026-08-17)**: CCA-63, CCA-14.5, CCA-65 -- all three re-inventoried fresh at
-this restore. Dependencies re-verified live: CCA-63 none, CCA-14.5 -> CCA-14.1 (Done), CCA-65 none.
-Conflict graph re-verified live by file-citation read against real `git ls-files` paths (the
-package.json/secretStore.js conflicts noted at wave-18 deferral are gone -- CCA-64/CCA-14.3 both
-merged): CCA-63 touches package.json, README.md, CLAUDE.md, src/main/menu.js,
-src/renderer/components/about-dialog.js, src/main/autoUpdate.js, test/engine/updateCheck.test.js,
-docs/auto-update.md, docs/distribution.md, .github/release-notes-template.md (wider than the
-wave-18 deferral note guessed -- DEFAULT_REPO in autoUpdate.js and the docs/ references were not
-previously cited); CCA-14.5 touches src/engine/manifest.js, src/engine/secretStore.js,
-src/engine/configGen.js; CCA-65 touches test/main/licenses.test.js only. All three sets disjoint --
-zero pairwise conflict. None require live app/proxy verification during the wave itself (CCA-63's
-own AC#2/#3 live-publish step is explicitly held for the orchestrator post-wave, never autonomous
-inside worker dispatch -- user re-confirmed this rule stands, 2026-08-17 restore). User confirmed
-CCA-65 appends last (position 3) in queue order, and re-confirmed the CCA-63 publish-gating rule,
-both via AskUserQuestion at this restore. All three dispatched together as Wave 19.
+**Wave 19 SETTLED (2026-08-17)**: CCA-14.5 and CCA-65 Done and merged (PRs #74, #75). **CCA-63 is
+merged but only PARTIALLY Done** -- its AC#1 (URL sweep) is complete and merged as PR #73, but
+AC#2/#3 (publish a real GitHub Release, verify live auto-update) remain deliberately unattempted,
+gated on the user's explicit go-ahead to actually cut a release -- see "Not queued" below. The
+mandatory wave-19 integration review found real material for the 19th consecutive wave (two stale
+test-count locations, not one -- CLAUDE.md AND README.md; a CLAUDE.md convention sentence that
+under-described a second `.helpers/` dir CCA-65 added; a stale in-code cross-reference in
+configGen.js), fixed via cleanup PR #76 (`7f0840c`), 1 review pass. That review also surfaced a
+genuine test-infra reliability gap -- a full-suite concurrency flake that silently drops ~22 tests
+from the reported count on an affected run -- filed with user approval as **CCA-66**. Final npm
+test on merged dev: **583/583**.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
@@ -776,28 +772,14 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | CCA-63 | rename | none | Dispatched | 19 | URL sweep after the GitHub rename to
-`claude-conduit-app`: `package.json`'s `repository`/`homepage`, README/CLAUDE.md, the `REPO_URL`
-constants in `about-dialog.js`/`menu.js`, `autoUpdate.js`'s `DEFAULT_REPO`,
-`test/engine/updateCheck.test.js`'s literal, and `docs/auto-update.md`/`docs/distribution.md`/
-`.github/release-notes-template.md`. **AC#2/#3 require actually publishing a real GitHub Release and
-verifying live auto-update against it -- user re-confirmed 2026-08-17: a worker may prepare
-everything (version bump, changelog, build) but the actual publish step is held for the orchestrator,
-run only after explicit chat confirmation, not autonomous.** |
-| 2 | CCA-14.5 | providers | CCA-14.1 (Done) | Dispatched | 19 | Manifest format gains a
-provider-type field; `secretStore.js` supports multiple credentials including a no-credential
-provider; an existing NVIDIA-only install migrates automatically. Own implementation notes carry TWO
-forward-flagged findings from CCA-14.3's and wave-18's own reviews: (1) `configGen.js`'s
-`apiBaseLine` is only emitted on the first of three model entries -- harmless for `nvidia_nim` today,
-but would silently route `claude-haiku-4-5`/`claude-*` wildcard entries to `api.openai.com` once a
-Custom/Local connection is wired up end to end (litellm's `openai` provider defaults there with no
-`api_base`); also, `api_key` is emitted unconditionally with no keyless-provider handling. (2)
-`configGen.js:379`'s comment ("today's only provider") is now stale -- three providers each declare
-their own `apiKeyEnvVar`. |
-| 3 | CCA-65 | test-infra | none | Dispatched | 19 | `test/main/licenses.test.js`'s drift guard
-checks entry count/name membership but never compares a `version` field -- exactly why the js-yaml
-staleness (CCA-64) shipped through a full task review and merge undetected. Queue-order confirmed
-2026-08-17 via AskUserQuestion: appended last (position 3). |
+| 1 | CCA-66 | test-infra | none | To Do | | Filed 2026-08-17 (user-approved) from wave-19's
+integration review: two independent reviewers hit a full-suite `node --test` concurrency flake
+where `licenses.test.js`/`menu.test.js`/`about-dialog.test.js` intermittently fail to LOAD under
+load (not flaky assertions), silently dropping ~22 tests from the reported count on an affected
+run. Not yet queue-order-confirmed -- fold into the next inventory pass.
+
+(CCA-63 is NOT in this table -- its AC#1 is done/merged (PR #73) but AC#2/#3 remain outstanding,
+gated on a human decision; see "Not queued" below rather than Resolved, since it isn't finished.)
 
 ## Resolved
 
@@ -840,6 +822,9 @@ staleness (CCA-64) shipped through a full task review and merge undetected. Queu
 | 32 | CCA-14.4 | Done, 2026-08-17, wave 18 | Keyed `diagnostics.js` checks off the active provider's `declareCapabilities()` instead of hardcoded NIM assumptions: model-catalog reachability gates on `supportsModelListing` (a new non-critical `skipped` status rather than attempting-then-failing), tool-calling criticality derives from `supportsToolCalling`. **2 review passes, 1 fix cycle.** Pass 1 confirmed the gating logic but found the new `skipped` status rendered as a red-X "failure" in all three renderer views -- directly against AC#2. Fix pass added a genuine third neutral UI state (`.skip`, matching this codebase's existing `--muted` precedent) across all three views, plus made timeout messages provider-accurate via `providerLabel`. Pass 2 independently re-rendered the real templates from both `dev` and `HEAD` to confirm the visual difference is real (distinct color values, not a renamed class) and re-swept `src/` for any other two-state `status` assumption -- none found. One review-noted correction: the original rationale calling CCA-14.3 "the first real trigger" for the skipped path was factually wrong (that provider actually declares `supportsModelListing: true`) -- no provider currently declares `false`, so the path is production-untested until CCA-15 unpins provider selection; the fix itself remains correct and AC#2-required regardless. npm test 562/562 (542 + 20). Merged as PR #70 (`dab0728`). |
 | 33 | CCA-61 | Done, 2026-08-17, wave 18 | Decision: accept the ToastActivatorCLSID gap, document it accurately (AC#2's "if implemented" path not taken). Re-verified against the actually-installed app-builder-lib (repo-wide grep, zero CLSID support) and the real Electron docs at the pinned tag, rather than carrying either claim forward on trust. Also closed two latent bypasses in the existing `appId` drift guard and hardened the `WIN_BLOCK` sanity assert, both proven non-vacuous by experiment. **3 review passes, 2 fix cycles -- all on the same underlying defect class.** The decision itself was correct from pass 1; what took three passes was the WRITTEN JUSTIFICATION, which first claimed "no remedy exists" (false -- Electron's own `shell.writeShortcutLink` can update a CLSID on an already-installed shortcut at runtime, independent of app-builder-lib) rather than the real, more nuanced reason (cost/benefit: COM-registration uncertainty, no activation handler exists today, this campaign's own established Windows-testing cost). Had to be corrected in three separate comment sites one at a time (`tray.js`, `electron-builder.yml`, then a test-file comment the first fix pass missed); pass 3 swept the whole branch and confirmed no fourth site remained and no new overstatement was introduced in the opposite direction. npm test 562/562 (unchanged -- comment/test-hardening only). Merged as PR #71 (`a7fadae`). |
 
+| 34 | CCA-14.5 | Done, 2026-08-17, wave 19 | Manifest format gains a `provider` field + `resolveManifestProviderId()` (AC#1); `secretStore.js` gains additive per-provider `saveFor`/`loadFor`/`clearFor`, legacy single-slot untouched (AC#2). AC#3 (migration) proven non-vacuously: a real pre-CCA-14.5 fixture (no manifest.provider, litellm.env with NVIDIA_NIM_API_KEY, a legacy encrypted nim-key.enc in the real apiKey.validateAndSave() shape) run through the actual upgrade path genuinely migrates on disk and keeps working with zero manual steps. **2 review passes (opus, deeper scrutiny as migration-adjacent work), 1 fix cycle.** Pass 1 confirmed all 4 ACs substantively but found the engine-context.js manifest-derived provider resolution (the change that makes AC#1's field load-bearing, not write-only) had ZERO regression protection -- reverting it left the suite green. Fix pass added a discriminating regression test (real OpenRouter fixture, no NVIDIA key on disk); pass 2 independently reproduced the non-vacuity itself (reverted the line, watched the new test fail with the exact predicted reason and the full suite go 580/1-fail, restored, confirmed clean) and re-confirmed all 4 ACs. A forward-flagged configGen.js finding (`apiBaseLine`/keyless-provider gap) deliberately left out of scope, verified structurally unreachable today. npm test 581/581 both passes. Merged as PR #74 (`37d116f`). Wave-19 integration review added 2 more latent, zero-impact-today details to this task's own already-recorded lifecycle-ownership finding (`.credentials/` dir mode, `userDataMigration.js` coverage) -- recorded on the task, no new task needed. |
+| 35 | CCA-65 | Done, 2026-08-17, wave 19 | Added a pure comparison helper (`test/main/.helpers/licenses-drift.js`) + two new tests guarding `src/assets/licenses.json`'s `app.version` (AC#1) and each bundled entry's version (AC#2, set-membership against package-lock.json's resolved versions per name) -- closing the exact gap that let CCA-64's js-yaml bump ship undetected. Non-vacuity (AC#3) proven by staling both fields in a scratch copy and observing real failures naming the mismatch, then clean passes on restore -- independently reproduced by the reviewer against both the helper AND the shipped test file, plus an independent re-derivation of the lockfile-parsing logic against all 352 real entries. Approved on the first review pass (opus): all 4 ACs confirmed. npm test 564/564 standalone, 583/583 on merged dev (AC#4) -- independently cross-checked against CCA-63's version bump before that PR merged, and confirmed clean by the wave-19 integration review after both merged. Merged as PR #75 (`1520b55`). |
+
 ## Not queued — needs a human / blocked
 
 - CCA-7: still PARKED pending CCA-15 (own implementation notes, 2026-07-31; re-confirmed at the
@@ -861,9 +846,39 @@ staleness (CCA-64) shipped through a full task review and merge undetected. Queu
   design questions (single vs. multi-proxy, client-config-on-switch behavior) needing a human
   product decision first. Re-confirmed 2026-08-17, unaffected by CCA-14.1/14.2 landing.
 - CCA-62: blocked — depends on CCA-14 (parent) and CCA-15, neither Done. Re-confirmed 2026-08-17.
+- **CCA-63: partially done, blocked on a human decision, not an agent limitation.** AC#1 (URL
+  sweep) is complete, reviewed, and merged as PR #73 (`8e3b29c`). AC#2/#3 (publish a real GitHub
+  Release built at the now-bumped 0.1.2, verify an existing packaged install detects/applies it,
+  verify a fresh build publishes/auto-updates against the renamed repo) remain deliberately
+  unattempted -- this campaign's standing rule holds them for the orchestrator, run only after
+  explicit chat confirmation with the user, never autonomous inside a wave. Backlog status left
+  as In Progress (not Done) since 2 of 3 ACs are outstanding. Next session: ask the user whether
+  to proceed with the actual release cut now, or continue deferring.
 
 ## Wave log
 
+- 2026-08-17 — **wave 19 settled (tasks: CCA-63 [AC#1 only], CCA-14.5, CCA-65)**: fresh restore
+  found all 3 wave-19 workers had stalled ~55 minutes on an unanswered tool-permission prompt
+  (not a real hang) -- user approved it mid-session, all 3 resumed immediately with no lost work.
+  CCA-63's review (pass 1) found a real blocking defect: the version bump to 0.1.2 was never
+  propagated into `licenses.json`, which would have broken sibling CCA-65's brand-new drift guard
+  on merge -- fixed in 1 fix cycle, re-approved pass 2 (also applied 2 optional non-blocking
+  wording polish items from pass 1). CCA-14.5's review (pass 1) confirmed all 4 ACs but found the
+  `engine-context.js` manifest-derived-provider change had zero regression protection -- fixed
+  with a discriminating regression test in 1 fix cycle, re-approved pass 2. CCA-65 approved
+  first-pass, all 4 ACs confirmed. Merged serially in confirmed queue order (PRs #73, #74, #75) --
+  each rebase was clean, each mandatory re-verify passed (562 -> 581 -> 583 across the three).
+  **Wave-level integration review found real material for the 19th consecutive wave**: two stale
+  test-count locations (CLAUDE.md AND README.md, not just the one CCA-14.5's own review had
+  flagged), a CLAUDE.md convention sentence under-describing a second `.helpers/` dir CCA-65
+  added, and a stale in-code cross-reference in `configGen.js` -- all fixed via cleanup PR #76
+  (`7f0840c`), 1 review pass. That review also surfaced a genuine test-infra reliability gap (a
+  full-suite `node --test` concurrency flake silently dropping ~22 tests from the reported count
+  on an affected run) -- proposed to the user and filed with approval as **CCA-66**. CCA-63 itself
+  stays open (Backlog status In Progress, not Done) since AC#2/#3 -- an actual GitHub Release
+  publish + live auto-update verification -- remain gated on a separate, explicit user go-ahead
+  never given this session; everything else in the wave settled cleanly. Final npm test on merged
+  dev: **583/583**.
 - 2026-08-17 — **wave 18 settled (tasks: CCA-64, CCA-14.4, CCA-14.3, CCA-61, all Done)**: dispatch
   ground-truth check found real drift needing reconciliation first -- CCA-58/CCA-59 had already merged
   in a prior session but the tracker doc was never updated to match, and CCA-60 was genuinely
