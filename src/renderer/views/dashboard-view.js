@@ -81,7 +81,15 @@ function render() {
       el.innerHTML = `<span class="fail">${escapeHtml(r.error?.message ?? 'Test failed')}</span>`;
       return;
     }
-    const summary = r.data.results.map((c) => `${c.status === 'pass' ? '✓' : '✗'} ${escapeHtml(c.label)}`).join(' · ');
+    // CCA-14.4 (review pass 1, finding A): a result can be 'pass', 'fail', or
+    // 'skipped' (a capability the active provider plainly does not support —
+    // never attempted, so never a failure; see diagnostics.js's
+    // notApplicable()). Before this fix, 'skipped' fell through the
+    // ternary's else branch and rendered identically to 'fail' (✗), which
+    // reads as a broken check, exactly what AC#2 forbids.
+    const summary = r.data.results
+      .map((c) => `${c.status === 'pass' ? '✓' : c.status === 'skipped' ? '–' : '✗'} ${escapeHtml(c.label)}`)
+      .join(' · ');
     el.innerHTML = `<span class="${r.data.allCriticalPassed ? 'pass' : 'fail'}">${summary}</span>`;
   });
   root.querySelector('#open-logs-folder-btn').addEventListener('click', () => nimProxy.app.openLogsFolder());

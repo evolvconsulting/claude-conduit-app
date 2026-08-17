@@ -76,3 +76,32 @@ test('dashboard: a failed startLogTail surfaces a toast and resets logTailStarte
     'failure must be surfaced to the user via toast, not left silent');
   assert.match(failureBlock, /return;/, 'the failure branch must not fall through into subscribing onLogLine');
 });
+
+// CCA-14.4 (review pass 1, finding A): the #test-connection-btn summary used
+// to map every non-'pass' status (including the new 'skipped' status — a
+// capability the active provider plainly does not support, never a failure;
+// see diagnostics.js's notApplicable()) to the ✗ symbol. Behavioral
+// reproduction, same technique as diagnostics-view.test.js/setup-view.test.js
+// and test/main/index.test.js's extractConfigRegenBlock(): the exact
+// per-check template literal is extracted from source and executed via the
+// Function constructor against a real result object, proving the actual
+// rendered output rather than just grepping for matching text.
+test('dashboard: the Test Connection summary renders a "skipped" result with a non-✗ symbol, not the failure symbol (CCA-14.4 finding A)', () => {
+  const source = read('views', 'dashboard-view.js');
+
+  const templateMatch = source.match(/\.map\(\(c\) => (`[\s\S]*?`)\)/);
+  assert.ok(templateMatch, 'expected the per-check summary template literal in the #test-connection-btn handler');
+
+  const renderItem = new Function('c', 'escapeHtml', `return ${templateMatch[1]};`);
+  const escapeHtml = (value) => String(value);
+
+  const skippedText = renderItem({ status: 'skipped', label: 'Model catalog' }, escapeHtml);
+  assert.doesNotMatch(skippedText, /✗/, `a skipped check must not render the ✗ failure symbol, got: ${skippedText}`);
+
+  // Controls, so this test would fail against a regression that collapsed
+  // 'skipped' back into the old two-way ternary.
+  const failText = renderItem({ status: 'fail', label: 'Completion' }, escapeHtml);
+  assert.match(failText, /✗/);
+  const passText = renderItem({ status: 'pass', label: 'Tool calling' }, escapeHtml);
+  assert.match(passText, /✓/);
+});

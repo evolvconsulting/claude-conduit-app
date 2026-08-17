@@ -206,6 +206,11 @@ th, td {
 
 .pass { color: var(--ok); font-weight: 600; }
 .fail { color: var(--danger); font-weight: 600; }
+/* CCA-14.4: a capability the active provider plainly does not support
+   (diagnostics status 'skipped') — neutral, not a failure. Uses --muted,
+   the same neutral color this stylesheet already uses for other non-pass/
+   fail states (.status-pill.status-not-installed/.status-unknown above). */
+.skip { color: var(--muted); font-weight: 600; }
 
 .toast-host {
   position: fixed;
