@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
-updated_date: '2026-08-17 16:02'
+updated_date: '2026-08-17 16:19'
 labels: []
 dependencies: []
 priority: high
@@ -151,6 +151,43 @@ content within AC#1's carve-out; CLAUDE.md has mild tense-mixing in one paragrap
 Scope clean: exactly CLAUDE.md/DESIGN.md/licenses.json touched by the fix commit.
 
 CCA-63 is now APPROVE, ready for the merge queue once the rest of wave 19 settles.
+
+ATTEMPTED THE ACTUAL RELEASE (2026-08-17, user-approved): pushed tag v0.1.2, triggering
+.github/workflows/release.yml. Result: FAILED. The prepare job succeeded (tag/version match
+confirmed, draft release pre-created cleanly, no race). Of the 4 platform build jobs, only
+macOS passed its own `npm test` and completed its build+publish step (assets landed on the
+still-DRAFT release). Windows, Linux x64, and Linux arm64 all failed at the "Run tests" step
+-- TWO DIFFERENT pre-existing bugs, neither touched by wave 19 or any task in this campaign:
+
+1. Linux (both x64 and arm64): test/engine/pm2Control.test.js:914 ("spawnDaemon: a rejecting
+   attempt does not leak the daemon it spawned") failed with "Missing expected rejection" --
+   the test writes a bogus non-socket file at the daemon's rpc socket path and expects
+   spawnDaemon() to reject on every attempt; on real Linux CI runners it apparently did not
+   reject as expected. Root cause not fully diagnosed -- needs investigation.
+
+2. Windows: test/main/ipc-mutex.test.js:956 ("index.js: passes engine-context's own mutexes
+   into registerIpcHandlers") failed with "must pass those same mutexes to registerIpcHandlers"
+   -- this is a static-source regex test reading index.js's raw text and matching a
+   newline-sensitive pattern (\n\s*mutexes,\n\s*\}\);). Likely broken by CRLF line-ending
+   conversion on Windows git checkout, though not yet confirmed by direct inspection of the
+   actual failing text.
+
+Since finalize needs ALL 4 build jobs to succeed, the release never un-drafted -- nothing was
+ever published or visible via electron-updater's /releases/latest feed. The incomplete draft
+(macOS assets only) was deleted immediately after to leave a clean slate; v0.1.1 is Latest
+again, unchanged.
+
+SIGNIFICANT FINDING: this appears to be the first time this campaign's release workflow has
+actually run npm test on real Windows/Linux CI runners -- every prior test-count claim in this
+campaign's history (562/562, 583/583, etc.) was only ever verified on macOS (locally, and by
+every worker/reviewer subagent, which all ran on this same machine). Two platform-specific
+bugs surfaced immediately on first real cross-platform CI run.
+
+AC#2/#3 remain NOT satisfied -- the release did not successfully build, let alone get
+published or live-verified. CCA-63 stays In Progress. The v0.1.2 git tag remains pushed
+(accurate -- package.json really is 0.1.2) but a future successful release at this version
+will need either these two bugs fixed and the tag moved, or a bump to v0.1.3 -- decision
+deferred, proposed as follow-up tasks to the user rather than fixed ad hoc mid-release.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
