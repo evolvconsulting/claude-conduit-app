@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 03:57'
+updated_date: '2026-08-17 04:07'
 labels: []
 dependencies:
   - CCA-57
@@ -151,4 +151,56 @@ block comment now names `setToastActivatorCLSID`, its default, and the re-verifi
 `src/main/tray.js` (gap-enumeration extended from three items to four, naming the same API/default/
 gap instead of omitting it as before). Untouched, per the accept-and-document decision:
 `src/main/appUserModelId.js`, `src/main/index.js` (no runtime call added).
+
+## Wave-18 review pass 1 verdict — REQUEST_CHANGES (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `c391627`+`38fdf77`. AC#3-#8 all independently confirmed with the reviewer's own
+reproductions (citation verified verbatim against the real `docs/api/app.md` at Electron tag v43.2.0,
+line numbers exact; AC#4 re-verified via a full DLL string-table dump of `WinShell.dll` itself, not
+just a grep, confirming zero CLSID-stamping capability; AC#6/#7's bypasses and catches both
+reproduced directly, plus the reviewer's own 16-style stress test found no NEW blind spot in the
+hardened regex; AC#5 confirmed -- exactly 3 non-comment lines changed, all mandated by AC#6/#7; own
+npm test: 522/522).
+
+### BLOCKING-1 — the core decision's recorded justification contains a false absolute
+
+`src/main/tray.js`'s new comment says CCA-61 "found no remedy currently reachable" because
+app-builder-lib 26.15.3 has no CLSID-stamping support. **That's false as stated**: Electron ITSELF can
+stamp/update the CLSID on an existing shortcut at runtime, independent of app-builder-lib --
+`shell.writeShortcutLink(path, 'update', {toastActivatorClsid})` (confirmed against the real
+`docs/api/shell.md` and `docs/api/structures/shortcut-details.md` at v43.2.0, corroborated in the
+installed `electron.d.ts`). The colon in the sentence presents the app-builder-lib fact as proof of
+the broader "no remedy reachable" claim, but it doesn't follow -- no app-builder-lib support is
+required for the runtime side.
+
+**Decision itself likely still correct, per the reviewer's own explicit assessment** -- the
+underlying Windows contract (a stamped CLSID must correspond to a registered COM server) does make a
+BARE fixed CLSID with nothing registered just as inert as today's random default, and the real full
+remedy (shortcut discovery + probable COM server registration + Windows testing) is disproportionate
+for an app that ships only informational toasts with no activation handler. **What must change is the
+JUSTIFICATION, not necessarily the outcome**: say the remedy is reachable but disproportionate, not
+unreachable. The reviewer explicitly flagged two things it could NOT verify either way and declined
+to guess: whether Electron auto-registers the COM server when `setToastActivatorCLSID` is called
+(undocumented), and whether the running-app toast-click path even needs the CLSID at all (the gap may
+be scoped to Action-Center/app-not-running activation specifically) -- these bear on the write-up, not
+on redoing the investigation.
+
+### should-fix — citation narrower than what the cited doc actually says
+Both new comments scope the CLSID requirement to "activation" specifically, but
+`docs/tutorial/notifications.md` (the same file `tray.js` already quotes) states the AUMID+CLSID pair
+is needed for "notifications on Windows" generally, not activation alone.
+
+### nit — a residual regex blind spot, not introduced by this task
+A YAML tag style (`appId: !!str com.DRIFT`) parses to the same drifted value but is caught by NEITHER
+the old NOR the new regex (the anchor-skip pattern doesn't also skip tags). Outside AC#6's two named
+styles; worth a follow-up, not blocking.
+
+**Positive note from the reviewer**: the AC#6/#7 comment blocks are unusually honest -- they
+explicitly say the PRIOR comment "overstated what that companion assertion actually did," exactly the
+self-correction this campaign wants to see happen proactively rather than be caught by a later pass.
+
+Fix pass 1 dispatched into the same worktree with the finding verbatim: reword the `tray.js` sentence
+(and the parallel `electron-builder.yml` framing) to state a remedy IS reachable via
+`shell.writeShortcutLink`'s `toastActivatorClsid`, with the gap accepted on cost/benefit grounds
+rather than for lack of a path, plus the should-fix citation-scope correction.
 <!-- SECTION:NOTES:END -->
