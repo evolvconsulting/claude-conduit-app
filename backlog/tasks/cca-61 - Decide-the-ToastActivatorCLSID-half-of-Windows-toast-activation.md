@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 04:16'
+updated_date: '2026-08-17 04:23'
 labels: []
 dependencies:
   - CCA-57
@@ -245,4 +245,42 @@ Files touched: `src/main/tray.js`, `electron-builder.yml` only. No `setToastActi
 `writeShortcutLink` call added; `appUserModelId.js`/`index.js`/the AC#6-7 drift-guard tests untouched.
 
 Review pass 2 dispatched next, into the same worktree, against `f5149a9`.
+
+## Wave-18 review pass 2 verdict — REQUEST_CHANGES, one narrow finding (reviewer, Opus, in the
+branch's own worktree)
+
+Reviewed `f5149a9`. AC#1/#3/#4/#5/#6/#7/#8 all independently re-confirmed with fresh reproduction
+(fetched all 4 Electron doc citations directly from github.com/electron/electron at tag v43.2.0 and
+matched verbatim; re-grepped app-builder-lib fresh -- zero CLSID hits across 659 files; reproduced
+both AC#6 bypasses and the AC#7 empty-string bypass end to end against scratch-mutated copies, never
+the real files). Confirmed pass 1's should-fix (citation scope) is genuinely closed, and confirmed no
+NEW overstatement was introduced in the opposite direction while fixing the old one.
+
+### BLOCKING (narrow) — the fix reached 2 of 3 sites carrying the refuted rationale
+
+`tray.js` and `electron-builder.yml` are genuinely fixed. But
+`test/main/app-user-model-id.test.js:96-102` (introduced alongside the AC#6/#7 hardening, untouched
+by fix pass 1) still states the EXACT reasoning pass 1 blocked on: "...the installed app-builder-lib
+(26.15.3) has no way to stamp a matching ToastActivatorCLSID... so a fixed runtime value would be
+exactly as functionally inert..." -- framing app-builder-lib's limitation as THE reason the gap was
+accepted, which both corrected files now explicitly disclaim ("not because no path exists" /
+"not because no remedy exists"). The recorded decision's basis is now inconsistent across the three
+sites -- and this is the comment a maintainer reads when the drift guard actually fires. The clause
+does defer to `electron-builder.yml` "for the full reasoning", and the literal claim (a bare fixed
+value alone is inert) is true -- so this is narrow, not a re-litigation of the decision itself. Fix is
+one clause.
+
+### Confirmed clean
+Scope: exactly the 3 files across the whole branch, nothing else. Zero `HEAD`/`HEAD~N`/`HEAD^`/`@{}`
+references anywhere. The one unsourced premise in the new text ("Windows' contract requires a
+registered COM activator") sits under an explicit "almost certainly" hedge, not blocking, but noted as
+the one assertion without a citation behind it.
+
+npm test (reviewer's own run): 542/542.
+
+**Rebase needed before merge** (informational, reviewer flagged, not itself a review finding): dev has
+moved 4 commits since this branch's last rebase (CCA-14.4 merged as PR #70) -- no file overlap
+expected, should be clean, but will raise the test count.
+
+Fix pass 2 dispatched into the same worktree with the finding verbatim.
 <!-- SECTION:NOTES:END -->
