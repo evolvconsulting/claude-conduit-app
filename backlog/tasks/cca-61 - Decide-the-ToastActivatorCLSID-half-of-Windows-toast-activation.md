@@ -1,10 +1,10 @@
 ---
 id: CCA-61
 title: Decide the ToastActivatorCLSID half of Windows toast activation
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 04:32'
+updated_date: '2026-08-17 04:34'
 labels: []
 dependencies:
   - CCA-57
@@ -34,14 +34,14 @@ Primary files: `src/main/appUserModelId.js`, `src/main/index.js`, `electron-buil
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded — set a fixed ToastActivatorCLSID, or accept the gap — with the Electron doc citation (app.md:1148-1159 at the pinned Electron version) supporting it
+- [x] #1 A decision is recorded — set a fixed ToastActivatorCLSID, or accept the gap — with the Electron doc citation (app.md:1148-1159 at the pinned Electron version) supporting it
 - [ ] #2 If implemented: app.setToastActivatorCLSID() is called before any notification is shown, per app.md:1159's own timing guidance, and a drift guard covers the CLSID value if it is duplicated anywhere (mirroring the existing appId drift guard)
-- [ ] #3 If deferred: electron-builder.yml's comment names app.setToastActivatorCLSID AND the random-per-run default explicitly, so no future reader concludes the gap is unaddressable
-- [ ] #4 The claim that electron-builder writes no ToastActivatorCLSID for either Windows target is re-verified against the then-current app-builder-lib, not carried forward on trust
-- [ ] #5 All pre-existing tests continue to pass unmodified and npm test passes
-- [ ] #6 The two surviving appId drift-guard bypasses recorded in this task's notes are closed: a quoted key (`  "appId": com.DRIFT`) and an anchored scalar (`appId: &wid com.DRIFT`) inside the `win:` block are both DETECTED by the guard, each proven by making the mutation and observing the guard fail
-- [ ] #7 The WIN_BLOCK sanity assert in test/main/app-user-model-id.test.js makes its own comment exactly true: an empty-string WIN_BLOCK fails loudly rather than skipping silently (e.g. `assert.ok(WIN_BLOCK, ...)` or a `.trim() !== ''` check), proven by simulating an empty return with a real drift present and observing a failure
-- [ ] #8 Every guard change above is proven non-vacuous BY EXPERIMENT, not by reading: for each, state the exact mutation applied, that the guard failed with it and passes without it, and confirm the guard was not already catching it before the change
+- [x] #3 If deferred: electron-builder.yml's comment names app.setToastActivatorCLSID AND the random-per-run default explicitly, so no future reader concludes the gap is unaddressable
+- [x] #4 The claim that electron-builder writes no ToastActivatorCLSID for either Windows target is re-verified against the then-current app-builder-lib, not carried forward on trust
+- [x] #5 All pre-existing tests continue to pass unmodified and npm test passes
+- [x] #6 The two surviving appId drift-guard bypasses recorded in this task's notes are closed: a quoted key (`  "appId": com.DRIFT`) and an anchored scalar (`appId: &wid com.DRIFT`) inside the `win:` block are both DETECTED by the guard, each proven by making the mutation and observing the guard fail
+- [x] #7 The WIN_BLOCK sanity assert in test/main/app-user-model-id.test.js makes its own comment exactly true: an empty-string WIN_BLOCK fails loudly rather than skipping silently (e.g. `assert.ok(WIN_BLOCK, ...)` or a `.trim() !== ''` check), proven by simulating an empty return with a real drift present and observing a failure
+- [x] #8 Every guard change above is proven non-vacuous BY EXPERIMENT, not by reading: for each, state the exact mutation applied, that the guard failed with it and passes without it, and confirm the guard was not already catching it before the change
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -53,11 +53,19 @@ Primary files: `src/main/appUserModelId.js`, `src/main/index.js`, `electron-buil
    repo's actual installed Electron version (43.2.0) via the real docs/api/app.md at that tag.
 3. Re-verify electron-builder's actual NSIS/WinShell plugin surface for CLSID-stamping support against
    the installed app-builder-lib 26.15.3 -- repo-wide grep, not just templates/nsis/.
-4. Decide fix-vs-accept based on findings: since nothing in the installed electron-builder can stamp a
-   CLSID onto the shortcut, a runtime-set fixed CLSID would be exactly as functionally inert as
-   today's random default -- rules out the "fix" path. Decision: accept the gap, document accurately.
+4. Decide fix-vs-accept based on findings: app-builder-lib 26.15.3 stamps no CLSID onto either
+   Windows target's shortcut at creation time, but Electron's own shell.writeShortcutLink CAN update a
+   CLSID on an already-installed shortcut at runtime, independent of app-builder-lib -- so this is not
+   a "no remedy exists" case. Decision: accept the gap anyway, on cost/benefit grounds -- the full
+   remedy would also need locating the shortcut path and almost certainly registering a COM server
+   (undocumented whether Electron does this automatically), disproportionate for an app with no
+   activation handler today, combined with this campaign's own established cost of Windows-VM
+   verification. (Corrected 2026-08-17: the first two review passes caught this exact plan clause
+   overstating "no remedy exists" when a reachable-but-disproportionate remedy actually exists --
+   fixed in the code comments across 3 sites; this plan text is corrected to match, not to rewrite
+   history.)
 5. Correct electron-builder.yml's win: block comment and tray.js's gap-enumeration comment to name the
-   real API and default behavior.
+   real API and default behavior, and the real cost/benefit reasoning for accepting the gap anyway.
 6. Close AC#6 (two drift-guard bypasses) and AC#7 (WIN_BLOCK sanity assert) as independent hardening
    on the EXISTING appId guard mechanism, each proven by experiment against scratch-mutated copies.
 <!-- SECTION:PLAN:END -->
@@ -339,3 +347,15 @@ npm test (reviewer's own run): 562/562.
    path."** That is the exact refuted wording, now contradicted by this task's own later notes and the
    merged code. To be corrected at settlement (final-summary), not a branch defect.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Decision: accept the ToastActivatorCLSID gap, document it accurately (AC#2's "if implemented" path was not taken; N/A, left unchecked). Re-verified against the actually-installed app-builder-lib (26.15.3, repo-wide grep, zero CLSID-stamping support) and the real Electron docs at the pinned tag (v43.2.0) rather than carrying either claim forward on trust. Also closed two latent bypasses in the existing appId drift guard (a quoted-key style and an anchored-scalar style) and hardened the WIN_BLOCK sanity assert to fail loudly on an empty string rather than skip silently, both proven non-vacuous by experiment.
+
+3 review passes, 2 fix cycles -- all on the same underlying defect class, not new issues each time. The decision itself (accept the gap) was correct from the first pass. What took three passes was the WRITTEN JUSTIFICATION: the first draft said app-builder-lib's limitation meant "no remedy exists," which is false -- Electron's own shell.writeShortcutLink can update a CLSID on an already-installed shortcut at runtime, independent of app-builder-lib. The real, more nuanced reason to accept the gap anyway is cost/benefit (COM-registration uncertainty, no activation handler exists in this app today, this campaign's own established cost of Windows-VM testing) -- not "no path exists." This had to be corrected in three separate places one at a time (tray.js, electron-builder.yml, then a test-file comment fix pass 1 missed), with review pass 3 sweeping the whole branch afterward and confirming no fourth site remained and no new overstatement was introduced in the opposite direction.
+
+npm test: 562/562 (unchanged -- comment/test-hardening only, zero production behavior change). Merged as PR #71 (a7fadae).
+
+Two follow-ups noted, not fixed here: README.md's own CLSID section will go stale on this merge (still cites the narrower templates/nsis/-only grep the yml has since superseded, and says "CCA-61 is open" -- candidate for the wave-18 integration review to catch). This task's own Implementation Plan text has been corrected directly (a stale clause carried the same refuted "no remedy exists" wording review pass 1 first caught in code).
+<!-- SECTION:FINAL_SUMMARY:END -->
