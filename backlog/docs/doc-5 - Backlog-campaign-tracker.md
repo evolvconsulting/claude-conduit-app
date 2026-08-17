@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 03:40'
+updated_date: '2026-08-17 04:59'
 ---
 # Backlog campaign tracker
 
@@ -80,6 +80,28 @@ actual publish step is held for the orchestrator to run only after explicit chat
 done autonomously inside a worker's wave dispatch (a worker may prepare everything short of that).
 
 ## Frontier
+
+**As of wave 18 SETTLEMENT (2026-08-17)**: **33 resolved** (waves 1-18, all Done). All four wave-18
+tasks merged and settled: CCA-64 (PR #68), CCA-14.3 (PR #69), CCA-14.4 (PR #70, 1 fix cycle), CCA-61
+(PR #71, 2 fix cycles -- same underlying "no remedy exists" overclaim corrected across 3 separate
+comment sites one at a time). The mandatory wave-18 integration review found real material for the
+18th consecutive wave (`src/assets/licenses.json` was stale in two independent ways -- js-yaml at the
+pre-CCA-64 version, and the app version drifted ~2 weeks earlier and unrelated to this wave -- plus
+stale test counts, cross-references, and comments), fixed via cleanup PR #72 (`f7fe24a`), 1 review
+pass. Final npm test on merged dev: **562/562**.
+
+**Queue is now 2 confirmed-but-deferred items**: CCA-63 (rename/URL sweep, HIGH -- its own AC#2/#3
+live-release-publish step remains gated on explicit user chat confirmation before any worker
+attempts it) and CCA-14.5 (manifest/secret-storage multi-credential support, HIGH -- now carrying two
+forward-flagged `configGen.js` integration risks from this wave's reviews). Both were deferred from
+wave 18 purely on conflict grounds (package.json / secretStore.js) with tasks that have SINCE merged
+-- **re-check the conflict graph fresh at next dispatch rather than assuming CCA-63/14.5 still
+conflict with anything**, since the tasks they conflicted with are gone from the ready set.
+
+**One candidate new task surfaced by wave-18's integration review, not yet proposed to the user**:
+`test/main/licenses.test.js`'s drift guard checks entry count/name membership but never compares a
+`version` field, which is exactly why the js-yaml staleness above shipped through a full task review
+and a merge undetected. Needs AskUserQuestion before filing, per this campaign's rule.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
@@ -751,40 +773,25 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | CCA-64 | security | none | Dispatched | 18 | Dependabot GHSA-5p4m-2wfm-xmqj: js-yaml
-4.3.0's `resolveYamlOmap()` is quadratic in input size (transitive via electron-builder/
-electron-updater/pm2, not imported directly). Bump to >=4.3.1 via `package.json`/`package-lock.json`;
-`npm test`/build verify no regression. |
-| 2 | CCA-63 | rename | none | To Do | | **Deferred from wave 18** (conflicts with CCA-64 on
-`package.json` -- both edit it, over-approximated as a conflict). URL sweep after the GitHub rename
-to `claude-conduit-app`: `package.json`'s `repository`/`homepage`/`publish`, README/CLAUDE/DESIGN,
-and the `REPO_URL` constants in `about-dialog.js`/`menu.js`. **AC#2/#3 require actually publishing a
-real GitHub Release and verifying live auto-update against it -- user-directed: a worker may prepare
+| 1 | CCA-63 | rename | none | To Do | | **Confirmed queue order, deferred from wave 18**
+(conflicted with CCA-64 on `package.json`, now merged/Done -- re-check the conflict graph fresh at
+next dispatch rather than assuming it still applies). URL sweep after the GitHub rename to
+`claude-conduit-app`: `package.json`'s `repository`/`homepage`/`publish`, README/CLAUDE/DESIGN, and
+the `REPO_URL` constants in `about-dialog.js`/`menu.js`. **AC#2/#3 require actually publishing a real
+GitHub Release and verifying live auto-update against it -- user-directed: a worker may prepare
 everything (version bump, changelog, build) but the actual publish step is held for the orchestrator,
 run only after explicit chat confirmation, not autonomous.** |
-| 3 | CCA-14.4 | providers | CCA-14.1 (Done) | Dispatched | 18 | Diagnostics keyed off the active
-provider's declared capabilities (`src/engine/diagnostics.js`) instead of hardcoded NIM assumptions.
-Reads but does not edit `registry.js` -- disjoint from CCA-14.3/14.5. |
-| 4 | CCA-14.3 | providers | CCA-14.1 (Done) | Dispatched | 18 | Custom/Local (OpenAI-compatible)
-provider, including the no-API-key case and manual model-ID entry. New provider file +
-registration in `src/engine/providers/registry.js` (which already carries a placeholder comment
-naming this task). Implementation note on file already recorded: bound the model-listing response
-size before parsing JSON, since a Custom/Local base URL is user-typed and untrusted (unlike NVIDIA's
-trusted endpoint). **Over-approximated conflict with CCA-14.5** on `secretStore.js` (the no-API-key
-case may need CCA-14.5's own multi-credential rework) -- confirm at dispatch whether it's real. |
-| 5 | CCA-14.5 | providers | CCA-14.1 (Done) | To Do | | **Deferred from wave 18** (conflicts with
-CCA-14.3 on `secretStore.js`, see above). Manifest format gains a provider-type field;
-`secretStore.js` supports multiple credentials including a no-credential provider; an existing
-NVIDIA-only install migrates automatically. Own implementation note: also thread the provider field
-through `configGen.js`'s `regenerateStaleConfig()`/`resolveExistingNvidiaApiKey()`, which still
-hardcode `NVIDIA_NIM_API_KEY` today. |
-| 6 | CCA-61 | tray-notify | CCA-57 (Done) | Dispatched | 18 | Filed at wave-16 settlement from the
-integration review, user-approved. CCA-57 closed only the AppUserModelID half of Electron's two-part
-Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented
-default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped
-on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the
-gap and document it accurately. Confirmed disjoint from every other wave-18 member by file-citation
-read (see Frontier). |
+| 2 | CCA-14.5 | providers | CCA-14.1 (Done) | To Do | | **Confirmed queue order, deferred from wave
+18** (conflicted with CCA-14.3 on `secretStore.js`, now merged/Done -- re-check fresh at next
+dispatch). Manifest format gains a provider-type field; `secretStore.js` supports multiple
+credentials including a no-credential provider; an existing NVIDIA-only install migrates
+automatically. Own implementation notes now include TWO forward-flagged findings from CCA-14.3's and
+wave-18's own reviews: (1) `configGen.js`'s `apiBaseLine` is only emitted on the first of three
+model entries -- harmless for `nvidia_nim` today, but would silently route `claude-haiku-4-5`/
+`claude-*` wildcard entries to `api.openai.com` once a Custom/Local connection is wired up end to
+end (litellm's `openai` provider defaults there with no `api_base`); also, `api_key` is emitted
+unconditionally with no keyless-provider handling. (2) `configGen.js:379`'s comment ("today's only
+provider") is now stale -- three providers each declare their own `apiKeyEnvVar`. |
 
 ## Resolved
 
@@ -822,6 +829,11 @@ read (see Frontier). |
 | 28 | CCA-59 | Done, 2026-08-07, wave 17 | Contained a throwing `Notification.isSupported()` inside `notifyFailure()`'s existing `try`, so a throw can no longer escape into `runAction()`'s trailing `.catch()` — pre-fix this produced a misattributed second `console.error`, a promise rejection contradicting the module's own "none of the three ever reject" JSDoc, and no notification shown. One line moved, two regression tests added. Approved on the first review pass (opus, no fix cycle): all 5 ACs confirmed, including the reviewer's own from-scratch reproduction (moved the guard back outside `try`, both new tests failed, restored and verified byte-exact via SHA-256) plus a 13-arrangement adversarial probe (throwing getter, thrown bare string/null, throwing constructor/`show()`, a throwing `Proxy`, truthy/falsy non-boolean returns — all correctly contained). Scope verified clean (`git diff --numstat`: 1/1 `tray.js`, 108/0 test file) and the defect class confirmed PRE-EXISTING since CCA-55 via `git blame`/`git log -S` provenance, not by reading. npm test 487/487 (485 base + 2). Merged as PR #65 (`de6c1c3`), squashed from `b00fa02` after rebase onto dev. Four follow-up candidates from the implementer's class sweep, confirmed by the reviewer BY EXPERIMENT and correctly left out of this task's scope, carried to wave-17 settlement for user approval (raised to the user at restore alongside CCA-61/62/63/64's own queue-order confirmation, not yet decided). |
 | 29 | CCA-60 | Done, 2026-08-17, wave 17 | Threaded `paths.resolveWindowsAppDataOverrides(homeDir)` into both direct `paths.resolveConfigDir` call sites in `test/main/engine-context-config-regen.test.js`, so `npm test` no longer silently writes into a real Windows user's `%APPDATA%\claude-conduit`. Added a suite-wide static guard (`test/engine/paths-win32-override-guard.test.js` + `test/engine/.helpers/win32-override-scanner.js` + `test/engine/paths-win32-override-guard-scanner.test.js`) against the same failure class recurring, plus an export-drift test forcing classification of any future `paths.js` export. **3 review passes, 2 fix cycles — the session that resolved this task began with recovering it from a crash**: at restore, review pass 2's fix (fix pass 2 — adopt tolerate-and-recover instead of a throw-based diagnostic, since the throw itself was measured unreliable; revert an unrelated pre-existing-test edit; remove a `require.main === module` fragility that could silently disable the whole guard) was found mid-flight, uncommitted, sitting in its worktree — recovered and finished rather than restarted. Pass 3 approved, independently re-deriving every claim (a 12,903-position canary sweep found zero regressions and zero live blind positions; reproduced the `require.main` fragility's closure from scratch), flagging 3 non-blocking items for the wave cleanup rather than a 4th review cycle. npm test: 494/494 standalone, **522/522 on merged dev** (the gap from CCA-58/59's 487 baseline is `a1e282e`'s unrelated provider-abstraction tests, landed mid-wave outside this campaign). Merged as PR #66 (`60a8fee`). **Wave-level integration review found real material for the 17th consecutive wave**: a test-count staleness bigger than CCA-58's own review had predicted (485->522, not 489, exactly because of that same mid-wave `a1e282e` landing), two further latent gaps in the new guard (an unbalanced `/*` inside a multi-line template literal, and a resolver call inside a template interpolation — both zero live occurrences), a diagnostic-message improvement, an NCOW->CCA citation sweep scoped to only the 3 wholly-new files, and two other stale CLAUDE.md passages (one attributable to `a1e282e`, not this wave's own three tasks). All fixed via cleanup PR #67 (`26eb47e`), 1 review pass — that reviewer built an independent AST-based ground-truth implementation of the guard's own detection rule and confirmed zero live false negatives of any kind in the current suite, not just the two named gaps. Final npm test on merged dev: **522/522**. |
 
+| 30 | CCA-64 | Done, 2026-08-17, wave 18 | Pinned js-yaml to >=4.3.1 via a `package.json` `overrides` entry (pm2@7.0.3 pins js-yaml at an exact, non-caret 4.3.0, so a plain `npm update` couldn't fix this). Closes GHSA-5p4m-2wfm-xmqj (quadratic-CPU DoS in `resolveYamlOmap()`'s dedupe loop). Approved on the first review pass (opus): every claim independently re-derived, including a byte-level diff of the real 4.3.0 vs 4.3.1 tarballs (fix scoped to the omap dedupe, no other behavioral change) and an adversarial 10-case prototype-key probe (identical output both versions). `npm audit`: 2 high (CVSS 7.5) -> 0. npm test 522/522, unchanged (dependency bump only). Packaging verified by extracting the real `app.asar` directly: 4.3.1 genuinely ships. Merged as PR #68 (`806f5ce`). AC#3 (GitHub's own Dependabot rescan) left unchecked as not independently verifiable from a worktree. |
+| 31 | CCA-14.3 | Done, 2026-08-17, wave 18 | Implemented `src/engine/providers/customLocal.js` against the full `Provider` interface for any OpenAI-compatible base URL (Ollama/vLLM/LM Studio/self-hosted), including the no-API-key case, plus a new `validateManualModelId(id)` export filling a real interface gap. Applied an untrusted-endpoint response-size bound (`Content-Length` pre-check + hard streamed-byte cap) to `listModels`. Approved on the first review pass (opus): security bound tested well beyond the implementer's own tests, including a real 200MB gzip bomb (1029:1 ratio) with an honest tiny declared `Content-Length` -- blocked at 2MB, proving the streamed cap (not just the pre-check) is what actually protects against a compressed payload. All 4 ACs independently confirmed via real socket-level header inspection, 25 model-ID shapes, and structural unconditional-`'unverified'` verification. npm test 542/542 (522 + 20). Merged as PR #69 (`17818f0`). Two forward-looking `configGen.js` integration risks (not this task's own defect) recorded on CCA-14.5. |
+| 32 | CCA-14.4 | Done, 2026-08-17, wave 18 | Keyed `diagnostics.js` checks off the active provider's `declareCapabilities()` instead of hardcoded NIM assumptions: model-catalog reachability gates on `supportsModelListing` (a new non-critical `skipped` status rather than attempting-then-failing), tool-calling criticality derives from `supportsToolCalling`. **2 review passes, 1 fix cycle.** Pass 1 confirmed the gating logic but found the new `skipped` status rendered as a red-X "failure" in all three renderer views -- directly against AC#2. Fix pass added a genuine third neutral UI state (`.skip`, matching this codebase's existing `--muted` precedent) across all three views, plus made timeout messages provider-accurate via `providerLabel`. Pass 2 independently re-rendered the real templates from both `dev` and `HEAD` to confirm the visual difference is real (distinct color values, not a renamed class) and re-swept `src/` for any other two-state `status` assumption -- none found. One review-noted correction: the original rationale calling CCA-14.3 "the first real trigger" for the skipped path was factually wrong (that provider actually declares `supportsModelListing: true`) -- no provider currently declares `false`, so the path is production-untested until CCA-15 unpins provider selection; the fix itself remains correct and AC#2-required regardless. npm test 562/562 (542 + 20). Merged as PR #70 (`dab0728`). |
+| 33 | CCA-61 | Done, 2026-08-17, wave 18 | Decision: accept the ToastActivatorCLSID gap, document it accurately (AC#2's "if implemented" path not taken). Re-verified against the actually-installed app-builder-lib (repo-wide grep, zero CLSID support) and the real Electron docs at the pinned tag, rather than carrying either claim forward on trust. Also closed two latent bypasses in the existing `appId` drift guard and hardened the `WIN_BLOCK` sanity assert, both proven non-vacuous by experiment. **3 review passes, 2 fix cycles -- all on the same underlying defect class.** The decision itself was correct from pass 1; what took three passes was the WRITTEN JUSTIFICATION, which first claimed "no remedy exists" (false -- Electron's own `shell.writeShortcutLink` can update a CLSID on an already-installed shortcut at runtime, independent of app-builder-lib) rather than the real, more nuanced reason (cost/benefit: COM-registration uncertainty, no activation handler exists today, this campaign's own established Windows-testing cost). Had to be corrected in three separate comment sites one at a time (`tray.js`, `electron-builder.yml`, then a test-file comment the first fix pass missed); pass 3 swept the whole branch and confirmed no fourth site remained and no new overstatement was introduced in the opposite direction. npm test 562/562 (unchanged -- comment/test-hardening only). Merged as PR #71 (`a7fadae`). |
+
 ## Not queued — needs a human / blocked
 
 - CCA-7: still PARKED pending CCA-15 (own implementation notes, 2026-07-31; re-confirmed at the
@@ -845,6 +857,47 @@ read (see Frontier). |
 - CCA-62: blocked — depends on CCA-14 (parent) and CCA-15, neither Done. Re-confirmed 2026-08-17.
 
 ## Wave log
+
+- 2026-08-17 — **wave 18 settled (tasks: CCA-64, CCA-14.4, CCA-14.3, CCA-61, all Done)**: dispatch
+  ground-truth check found real drift needing reconciliation first -- CCA-58/CCA-59 had already merged
+  in a prior session but the tracker doc was never updated to match, and CCA-60 was genuinely
+  mid-flight with fix pass 2 sitting uncommitted in its treehouse worktree, discovered only because the
+  repo's own rename/move (evolvconsulting/claude-conduit -> claude-conduit-app, on GitHub and on disk)
+  had broken all 4 pool worktrees' back-links and appeared to drop treehouse's own pool registration
+  entirely. Resumed CCA-60's fix pass in place (`git worktree repair` fixed the links; a worker adopted
+  tolerate-and-recover for review pass 2's blocking finding, reverted an unrelated edit, removed a
+  `require.main` fragility) rather than restarting, force-pushed over the stale pre-rebase commits
+  still on origin, review pass 3 approved, merged as PR #66, wave-17 integration review (PR #67) found
+  real material for the 17th consecutive wave. A fresh I1/I2 re-inventory then found CCA-14.3/14.4/14.5
+  already decomposed (created 2026-08-16, depending only on CCA-14.1 which was Done) -- not still
+  blocked as the stale tracker assumed -- surfacing 6 ready tasks; user confirmed order
+  (CCA-64/63/14.4/14.3/14.5/61) and directed that CCA-63's live-release-publish ACs be held for
+  explicit chat sign-off rather than run autonomously. File-citation conflict graph computed live:
+  CCA-64<->CCA-63 conflict (`package.json`), CCA-14.3<->CCA-14.5 conflict (`secretStore.js`) -- wave 18
+  = {CCA-64, CCA-14.4, CCA-14.3, CCA-61}, CCA-63/CCA-14.5 deferred. All four dispatched in parallel
+  worktrees (treehouse's pool being unregistered, fell back to plain `git worktree add` per the skill's
+  documented fallback). CCA-64: approved first pass, reviewer independently extracted the real packaged
+  `app.asar` to confirm the fix ships. CCA-14.3: approved first pass, reviewer's security-bound
+  adversarial testing (a real 200MB gzip bomb) exceeded what the implementer itself tried. CCA-14.4: 1
+  fix cycle -- pass 1 found a new `skipped` diagnostic status rendering as a UI failure in all 3
+  renderer views, directly against its own AC#2; fixed and re-approved. CCA-61: 2 fix cycles, all on
+  the same "no remedy exists" overclaim recurring across 3 separate comment sites, each caught by the
+  next pass, the last pass sweeping the whole branch to confirm none remained. All four merged serially
+  via the standard queue (rebase + mandatory re-verify + squash + worktree/branch cleanup; the CCA-64
+  merge's `package.json`/lockfile change required an `npm install` resync in every sibling worktree
+  before their own rebases would test-run cleanly -- worth remembering for any future wave where an
+  early merge touches dependencies). **Wave-level integration review found real material for the 18th
+  consecutive wave**: `src/assets/licenses.json` was stale in two genuinely different ways with two
+  different causes (js-yaml wave-18-caused; the app version pre-existing, drifted ~2 weeks earlier,
+  merely surfaced by the same regeneration command) -- both user-visible in Help > Licenses and
+  undetected by the existing drift guard, which checks count/membership but never a version field.
+  Plus stale test counts, CLAUDE.md's CCA-14 status block, README's CLSID section (stale the moment
+  CCA-61 merged), and two provider-related comments made false by CCA-14.3 landing the same wave. Fixed
+  via cleanup PR #72 (`f7fe24a`), 1 review pass -- that reviewer regenerated `licenses.json` from a
+  clean `dev` checkout in an isolated scratch tree and confirmed byte-identical output, then traced
+  both staleness modes back through git history to correctly distinguish which one wave 18 actually
+  caused. Final npm test on merged dev: **562/562**. One candidate new task (the licenses guard's
+  blind spot to version drift) surfaced, not yet proposed to the user.
 
 - 2026-08-17 — **wave 17 settled (tasks: CCA-58, CCA-59, CCA-60, all Done)**: CCA-58/CCA-59 had
   already merged in the prior session (PRs #64/#65) but the tracker doc itself was never updated to
