@@ -118,13 +118,50 @@ win:
   # earlier limitation was expected to change. Separately: matching the
   # shortcut's AUMID also does not by itself prove toast *activation*
   # (clicking a toast to refocus/relaunch the app) will resolve correctly —
-  # that additionally depends on the ToastActivatorCLSID Electron's doc
-  # mentions alongside the AUMID, and electron-builder writes none for either
-  # target (`grep -rn "ToastActivator\|CLSID"
-  # node_modules/app-builder-lib/templates/nsis/` returns zero hits). This
-  # app's `notifyFailure()` calls are simple informational toasts that don't
-  # register an activation handler, so that gap is not currently exercised,
-  # but it is not closed by this fix either.
+  # that additionally depends on a second, distinct API this app does not
+  # call: `app.setToastActivatorCLSID(id)`.
+  #
+  # CCA-61 decided this deliberately, not by default: accept the gap and
+  # document it accurately, rather than call `app.setToastActivatorCLSID()`
+  # with a fixed value. The reasoning, re-verified against this repo's own
+  # pinned versions (not carried forward from a prior task's citation):
+  #
+  # - Electron's own doc (docs/api/app.md, tag v43.2.0 — the version actually
+  #   installed here, node_modules/electron/package.json — lines 1148-1159)
+  #   states plainly: "If one is not set via this method, it will be
+  #   randomly generated for the app... This method should be called early
+  #   (before showing notifications) so the value is baked into the
+  #   registration/shortcut... If this method is never called, a random
+  #   CLSID is generated once per run and exposed via
+  #   `app.toastActivatorCLSID`." So today, every run of this app gets a
+  #   fresh random CLSID; nothing is broken by that alone.
+  # - electron-builder writes no ToastActivatorCLSID onto either Windows
+  #   target's shortcut — re-verified for CCA-61 across the ENTIRE
+  #   currently-installed app-builder-lib package (26.15.3), not just its
+  #   `templates/nsis/` subdirectory: `grep -rn "ToastActivator\|CLSID"
+  #   node_modules/app-builder-lib/` returns zero hits repo-wide. More
+  #   specifically, the WinShell NSIS plugin this repo's own
+  #   `installer.nsh` calls (see the `SetLnkAUMI` citation above) exposes
+  #   exactly `SetLnkAUMI`, `UninstShortcut`, and `UninstAppUserModelId` —
+  #   no shortcut-side CLSID-stamping call exists anywhere in the plugin
+  #   surface these templates use.
+  # - Consequence: even if this app called `setToastActivatorCLSID(fixedGuid)`
+  #   with a hardcoded, never-changing GUID, nothing in the currently
+  #   installed electron-builder can stamp that same GUID onto the Start
+  #   Menu shortcut's `System.AppUserModel.ToastActivatorCLSID` property —
+  #   the one place Windows Shell would need to read it from to route a
+  #   background/Action-Center toast activation to this app's registered
+  #   CLSID. A fixed-but-unstamped CLSID would be exactly as functionally
+  #   inert for that purpose as today's random-per-run default — just
+  #   deterministically inert instead of randomly inert, not an actual fix.
+  #   Implementing it would look done in code review while changing nothing
+  #   a user could observe.
+  # - This app's `notifyFailure()` calls are simple informational toasts
+  #   that don't register an activation handler, so this specific gap isn't
+  #   currently exercised by anything this codebase does — but it remains a
+  #   real, open, and now-accurately-documented gap (see also
+  #   `src/main/tray.js`'s own gap enumeration), not something ruled out or
+  #   silently assumed unfixable.
   #
   # `portable`'s still-open gap, restated precisely: its runtime AUMID is now
   # correct (matches `nsis`'s shortcut AUMID, confirmed live above), but it

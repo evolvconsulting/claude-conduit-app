@@ -224,7 +224,7 @@ function createTray(opts, deps = {}) {
  * NCOW-57 correction: the claim immediately above is narrower in practice
  * than it reads. `Notification.isSupported()` reports whether the platform
  * has a notification API at all — it does NOT detect every condition that
- * can leave a toast never actually visible to the user. Three gaps (wave-16
+ * can leave a toast never actually visible to the user. Four gaps (wave-16
  * cleanup, F4: the previous wording overstated what Electron's docs
  * themselves say — quoting from docs/tutorial/notifications.md, tag
  * v43.2.0, below; see appUserModelId.js and electron-builder.yml's
@@ -248,7 +248,22 @@ function createTray(opts, deps = {}) {
  * full Apple Developer ID (electron-builder.yml's `mac.identity: "-"` — see
  * CLAUDE.md's hard constraints) — whether that ad-hoc signature is enough to
  * avoid the doc's "unsigned" failure mode is not something this comment
- * resolves, and `isSupported()` does not detect this condition either way.
+ * resolves, and `isSupported()` does not detect this condition either way;
+ * (4) on Windows, `isSupported()` also does not check toast *activation*
+ * (clicking a toast) separately from mere toast *display* — activation
+ * additionally depends on `app.setToastActivatorCLSID(id)` (Electron
+ * docs/api/app.md, same v43.2.0 tag, lines 1148-1159), which this app does
+ * not call, so Electron generates a random CLSID once per run instead.
+ * CCA-61 investigated fixing this (a hardcoded CLSID plus a matching
+ * shortcut stamp) and found no remedy currently reachable: the installed
+ * app-builder-lib (26.15.3) has no support for stamping a
+ * ToastActivatorCLSID onto either Windows target's shortcut at all (zero
+ * hits for `grep -rn "ToastActivator\|CLSID" node_modules/app-builder-lib/`,
+ * repo-wide, not just its nsis templates) — see electron-builder.yml's
+ * `win:` block comment for the full citation trail and reasoning. This is a
+ * real, open, deliberately-accepted-and-documented gap, not one this
+ * comment implies is unfixable in principle or unworthy of a future fix if
+ * app-builder-lib ever adds that support.
  * What WAS live-verified on winvm/linuxvm as part of NCOW-57:
  * `createTrayActions()`'s real onStart() failure path, invoked in real
  * running processes (a silently-installed `nsis` build, the standalone
