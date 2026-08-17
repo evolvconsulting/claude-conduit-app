@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
-updated_date: '2026-08-17 15:04'
+updated_date: '2026-08-17 15:10'
 labels: []
 dependencies: []
 priority: high
@@ -117,4 +117,38 @@ DESIGN.md's header disclaimer both now note the repo was renamed a second time t
 claude-conduit-app rather than stating the first rename as a present-tense end state.
 
 Commit on feat/CCA-63-repo-rename-sweep (pushed): 9883553.
+
+REVIEW PASS 2 (opus): APPROVE. Confirmed AC indices: [1] (AC#2/#3 remain unconfirmed by
+design -- gated to orchestrator, not faulted).
+
+npm test personally observed: 562/562, exit 0.
+
+F1 fix independently verified as genuine, not cosmetic: re-ran npm run licenses itself,
+output byte-identical (SHA-256 match) to the committed file -- the committed licenses.json is
+the generator's real output, not hand-edited. git show --numstat confirms exactly 1
+insertion/1 deletion (version string only). Cross-checked CCA-65's own drift-guard functions
+(read-only, CCA-65 worktree untouched) against CCA-63's tracked files: appVersionMismatch =
+null, entryVersionMismatches = 0/91 -- CCA-63 will pass CCA-65's guard on merge.
+
+AC#1 re-confirmed in full: git grep repo-wide for the old slug pattern returns zero live
+hits; every github.com/evolvconsulting URL now points at claude-conduit-app; remaining bare
+"claude-conduit" strings are all legitimate (npm package name, config-dir constant/migration
+prefixes which must not change, deliberate historical prose). electron-builder.yml has no
+explicit publish block (infers from package.json); release.yml uses ${{ github.repository }}
+(dynamic, rename-proof).
+
+AC#2/#3 gate compliance intact: only v0.1.0/v0.1.1 tags exist locally and on remote, no
+v0.1.2 tag, nothing published.
+
+F2/F3 wording tweaks independently assessed as accurate and safe (read full surrounding
+paragraphs in both files, cross-checked against git log).
+
+Non-blocking only (3 minor items, not gating): DESIGN.md's "CCA-63" attribution reads
+slightly like CCA-63 performed the rename rather than swept it (defensible per DESIGN.md's
+own citation convention); 2 remaining bare "claude-conduit" mentions are historical/observed
+content within AC#1's carve-out; CLAUDE.md has mild tense-mixing in one paragraph, not wrong.
+
+Scope clean: exactly CLAUDE.md/DESIGN.md/licenses.json touched by the fix commit.
+
+CCA-63 is now APPROVE, ready for the merge queue once the rest of wave 19 settles.
 <!-- SECTION:NOTES:END -->
