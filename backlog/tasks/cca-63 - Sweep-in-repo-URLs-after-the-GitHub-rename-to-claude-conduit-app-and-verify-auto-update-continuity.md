@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
-updated_date: '2026-08-17 15:01'
+updated_date: '2026-08-17 15:04'
 labels: []
 dependencies: []
 priority: high
@@ -107,4 +107,14 @@ gate compliance clean (only pre-existing tags, no accidental publish trigger); v
 otherwise consistent; menu.js comment verified accurate against git history; test change not
 weakened; npm run pack reproduced independently; scope exactly the 10 files; zero overlap with
 CCA-14.5/CCA-65 at the file level (F1 is a semantic collision with CCA-65, not a file one).
+
+FIX PASS 1 (worker): addressed blocking F1. Ran npm run licenses; diff to
+src/assets/licenses.json confirmed version-only (1 insertion/1 deletion, app.version
+0.1.1 -> 0.1.2, js-yaml entry and everything else untouched). npm test 562/562 before and
+after. Also applied F2/F3 as one-line safe wording tweaks (own judgment call, checked no test
+parses DESIGN.md/CLAUDE.md content before doing so): CLAUDE.md's CCA-12 paragraph and
+DESIGN.md's header disclaimer both now note the repo was renamed a second time to
+claude-conduit-app rather than stating the first rename as a present-tense end state.
+
+Commit on feat/CCA-63-repo-rename-sweep (pushed): 9883553.
 <!-- SECTION:NOTES:END -->
