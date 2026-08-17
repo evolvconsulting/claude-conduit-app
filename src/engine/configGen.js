@@ -530,12 +530,13 @@ function needsRegeneration(manifest, currentVersion) {
  * regenerated ecosystem.config.cjs actually takes effect instead of a stale
  * in-memory pm2 process description lingering until the next manual restart.
  *
- * The NVIDIA API key is re-read straight out of the existing litellm.env
- * (resolveExistingNvidiaApiKey) rather than via the OS secret store: this
- * path only ever needs to reproduce content that already worked, and
- * skipping secretStore/safeStorage here means a stale-config regeneration
- * can never be blocked by something unrelated failing independently (e.g. a
- * platform keyring temporarily unavailable).
+ * The API key is re-read straight out of the existing litellm.env
+ * (resolveExistingApiKeyForEnvVar, keyed by whichever provider's env var this
+ * install actually uses — see the CCA-14.5 note below) rather than via the OS
+ * secret store: this path only ever needs to reproduce content that already
+ * worked, and skipping secretStore/safeStorage here means a stale-config
+ * regeneration can never be blocked by something unrelated failing
+ * independently (e.g. a platform keyring temporarily unavailable).
  *
  * getStatus/startOrRestart are injected (rather than a pm2Control instance
  * required at the top of this module) so this stays plain-Node and testable
