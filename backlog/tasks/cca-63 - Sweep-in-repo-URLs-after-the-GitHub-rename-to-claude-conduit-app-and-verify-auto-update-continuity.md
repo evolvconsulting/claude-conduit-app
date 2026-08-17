@@ -3,9 +3,10 @@ id: CCA-63
 title: >-
   Sweep in-repo URLs after the GitHub rename to claude-conduit-app and verify
   auto-update continuity
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
+updated_date: '2026-08-17 13:49'
 labels: []
 dependencies: []
 priority: high
