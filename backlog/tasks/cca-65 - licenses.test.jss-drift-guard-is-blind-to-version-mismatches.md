@@ -1,10 +1,10 @@
 ---
 id: CCA-65
 title: licenses.test.js's drift guard is blind to version mismatches
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-17 13:17'
-updated_date: '2026-08-17 15:01'
+updated_date: '2026-08-17 16:03'
 labels:
   - bug
   - test-infra
@@ -27,10 +27,10 @@ The fix is a guard addition, not a one-off correction of the two instances above
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Guard compares src/assets/licenses.json's app.version against package.json's real version, and fails if they differ
-- [ ] #2 Guard compares each bundled entry's version against what package-lock.json actually resolves that package to, and fails on any mismatch
-- [ ] #3 Both checks are proven non-vacuous by experiment: deliberately stale each field in a scratch copy, observe the guard fail naming the mismatch; restore, observe it pass
-- [ ] #4 npm test passes
+- [x] #1 Guard compares src/assets/licenses.json's app.version against package.json's real version, and fails if they differ
+- [x] #2 Guard compares each bundled entry's version against what package-lock.json actually resolves that package to, and fails on any mismatch
+- [x] #3 Both checks are proven non-vacuous by experiment: deliberately stale each field in a scratch copy, observe the guard fail naming the mismatch; restore, observe it pass
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -86,3 +86,21 @@ CCA-63 was found to have exactly this bug live (see CCA-63's own notes).
 
 Reviewer's own scope/overlap checks: clean, no drive-bys, disjoint from CCA-63/CCA-14.5.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added a pure comparison helper (test/main/.helpers/licenses-drift.js) plus two new tests to
+test/main/licenses.test.js: app.version must match package.json's real version (AC#1), and
+every bundled entry's version must be among the versions package-lock.json actually resolves
+that package name to (AC#2, set-membership since some names legitimately resolve to more than
+one version in this tree). Non-vacuity proven by staling both fields in a scratch copy (never
+the real tracked file) and observing real failures naming the exact mismatch, then restoring
+and observing clean passes (AC#3) -- reproduced independently by the reviewer against both the
+helper functions and the shipped test file, including an independent re-derivation of the
+lockfile-parsing logic against all 352 real package-lock.json entries. 1 review pass (opus),
+approved with all 4 ACs confirmed; npm test 564/564 standalone, 583/583 on merged dev (AC#4).
+The guard was independently cross-checked against CCA-63's version bump before that PR merged,
+and confirmed clean on the real merged dev by the wave-19 integration review. Merged as PR #75
+(1520b55).
+<!-- SECTION:FINAL_SUMMARY:END -->

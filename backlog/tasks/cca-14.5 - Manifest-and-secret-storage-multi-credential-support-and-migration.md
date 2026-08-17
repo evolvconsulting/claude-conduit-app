@@ -1,10 +1,10 @@
 ---
 id: CCA-14.5
 title: 'Manifest and secret storage: multi-credential support and migration'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 15:32'
+updated_date: '2026-08-17 16:03'
 labels: []
 dependencies:
   - CCA-14.1
@@ -22,10 +22,10 @@ Extend the manifest format to carry provider type, and extend secretStore.js to 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The manifest format records provider type per configured provider
-- [ ] #2 secretStore.js supports multiple stored credentials, including a provider with no credential
-- [ ] #3 An existing NVIDIA-only install migrates and continues working after upgrade with no manual intervention
-- [ ] #4 npm test passes
+- [x] #1 The manifest format records provider type per configured provider
+- [x] #2 secretStore.js supports multiple stored credentials, including a provider with no credential
+- [x] #3 An existing NVIDIA-only install migrates and continues working after upgrade with no manual intervention
+- [x] #4 npm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -255,3 +255,25 @@ Both zero-impact today since nothing outside tests calls saveFor/loadFor/clearFo
 eventually wires up CCA-15's multi-connection storage should extend both the dir-mode default
 and userDataMigration.js's copy list to cover .credentials/ at that point.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extended the manifest format with a `provider` field + resolveManifestProviderId() as the
+single fallback point (AC#1). Added saveFor/loadFor/clearFor(providerId) to secretStore.js,
+additive per-provider credential storage alongside the untouched legacy single-slot save/
+load/clear (AC#2). Proved AC#3 non-vacuously: a real pre-CCA-14.5 fixture (no manifest.provider
+field, litellm.env with NVIDIA_NIM_API_KEY, a legacy encrypted nim-key.enc in the real
+apiKey.validateAndSave() shape) run through the actual upgrade path (createEngineContext()
+with a bumped appVersion) genuinely migrates the manifest on disk and keeps the credential
+working with zero manual steps. 2 review passes (opus, given deeper scrutiny as
+concurrency/migration-adjacent work), 1 fix cycle -- pass 1 confirmed all 4 ACs but found the
+engine-context.js manifest-derived provider resolution had zero regression protection; a fix
+pass added a discriminating regression test (real OpenRouter fixture, no NVIDIA key on disk),
+independently reproduced as non-vacuous by the reviewer. npm test 581/581 (AC#4). A
+forward-flagged configGen.js finding (apiBaseLine/api_key keyless-provider gap) deliberately
+left out of scope, verified structurally unreachable today. 4 latent, zero-impact-today items
+(credentialPathFor injectivity, unresolvable-provider self-heal, .credentials/ dir lifecycle
+ownership, a stale test count) recorded on this task's notes for whoever wires up CCA-15's
+multi-connection storage. Merged as PR #74 (37d116f).
+<!-- SECTION:FINAL_SUMMARY:END -->

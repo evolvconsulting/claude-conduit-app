@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
-updated_date: '2026-08-17 15:10'
+updated_date: '2026-08-17 16:02'
 labels: []
 dependencies: []
 priority: high
@@ -21,7 +21,7 @@ The GitHub repo was renamed evolvconsulting/claude-conduit -> evolvconsulting/cl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No in-repo URL or slug still points at evolvconsulting/claude-conduit except deliberate historical references
+- [x] #1 No in-repo URL or slug still points at evolvconsulting/claude-conduit except deliberate historical references
 - [ ] #2 An existing packaged install (built before the rename) still detects and applies an update published after the rename, verified live
 - [ ] #3 A fresh packaged build publishes and auto-updates against the renamed repo, verified live
 <!-- AC:END -->
@@ -152,3 +152,19 @@ Scope clean: exactly CLAUDE.md/DESIGN.md/licenses.json touched by the fix commit
 
 CCA-63 is now APPROVE, ready for the merge queue once the rest of wave 19 settles.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Swept every in-repo URL/slug pointing at the old evolvconsulting/claude-conduit GitHub name
+to claude-conduit-app (package.json, README.md, menu.js/about-dialog.js REPO_URL,
+autoUpdate.js DEFAULT_REPO, docs/, .github/release-notes-template.md, updateCheck.test.js),
+verified by a repo-wide grep with zero remaining live hits (AC#1). Bumped package.json/
+package-lock.json version 0.1.1 -> 0.1.2 and regenerated licenses.json to match (a fix-cycle
+correction after review caught it initially left stale, which would have broken sibling task
+CCA-65's new drift guard). AC#2/#3 (live GitHub Release publish + auto-update verification)
+deliberately left unattempted per this campaign's standing rule: that step is held for the
+orchestrator, to run only after explicit chat confirmation with the user -- no tag was
+created, nothing was published. 2 review passes (opus), 1 fix cycle; npm test 562/562 both
+passes. Merged as PR #73 (8e3b29c).
+<!-- SECTION:FINAL_SUMMARY:END -->
