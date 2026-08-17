@@ -4,7 +4,8 @@
 > originally built and shipped. Decisions made since then live in Backlog tasks (CCA-2
 > onward) and **override this document where they conflict**; sections corrected that way
 > are marked with the task ID (see §7.4). **CCA-12 has landed**: the product is now
-> **Claude Conduit** and the repository is `claude-conduit` — every `claude-nim-proxy` /
+> **Claude Conduit** and the repository was `claude-conduit` (renamed again to
+> `claude-conduit-app`, CCA-63) — every `claude-nim-proxy` /
 > "NIM Proxy Manager" reference below has been updated to match (the hypothetical CLI
 > wizard this spec describes was never built; see §2/§11 for what that means for this
 > document). **CCA-14** is still pending and will invalidate the sections below that

@@ -52,7 +52,7 @@ contained malware. If you already have one of them, upgrade before continuing.
 ## Install
 
 **Download the build for your OS from the
-[Releases page](https://github.com/evolvconsulting/claude-conduit/releases/latest).**
+[Releases page](https://github.com/evolvconsulting/claude-conduit-app/releases/latest).**
 That's the only install path: no Homebrew cask, no `winget`, no apt repository, and
 deliberately no `curl … | sh` installer script. The reasoning behind both of those
 choices is written up in [docs/distribution.md](docs/distribution.md).

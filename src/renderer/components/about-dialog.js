@@ -13,7 +13,7 @@ import { escapeHtml } from './dom.js';
  * gives a focus trap, Esc-to-close and a backdrop for free.
  */
 
-const REPO_URL = 'https://github.com/evolvconsulting/claude-conduit';
+const REPO_URL = 'https://github.com/evolvconsulting/claude-conduit-app';
 
 const GOTCHAS = [
   "Not \"free Claude\": responses come from the chosen NIM model — agentic-coding quality differs from Claude models.",

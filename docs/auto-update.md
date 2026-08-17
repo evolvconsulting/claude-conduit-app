@@ -58,7 +58,7 @@ So on `darwin`, `src/main/autoUpdate.js` **never touches `electron-updater` at a
 it calls `src/engine/updateCheck.js`, which hits the GitHub Releases API
 (`GET /repos/<owner>/<repo>/releases/latest`) directly and compares the tag against the
 running version. If newer, the renderer shows a dismissible banner ("Update x.y.z available —
-View release") that opens `https://github.com/evolvconsulting/claude-conduit/releases/latest`
+View release") that opens `https://github.com/evolvconsulting/claude-conduit-app/releases/latest`
 via the already-allowlisted `app:open-external` channel. That's the entire macOS mechanism —
 no download, no install, no Squirrel.Mac involvement whatsoever.
 
