@@ -16,10 +16,16 @@ configDirMigration.js` / `userDataMigration.js` implement the ones that migrate.
 GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-conduit`) is
 now done — it was performed manually out of band, and `REPO_URL` and the git remote both
 point at the new location.
-**CCA-14 is still pending**: it will drop the NVIDIA-only framing so NIM becomes one
-provider among several — don't invest in new NVIDIA-specific abstractions (the pm2 app name
-`litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by CCA-12
-for exactly this reason; see README).
+**CCA-14 is partly landed.** CCA-14.1 (define the provider interface, reimplement NVIDIA NIM
+against it) and CCA-14.2 (OpenRouter end to end) are Done: `src/engine/providers/` now holds
+the `Provider` shape and its `registry.js`, and `engine-context.js` goes through
+`providers.getProvider(...)` instead of importing `nvidiaKey`/`modelCatalog` directly — pinned
+to `'nvidia-nim'` until CCA-15 adds multiple saved connections. CCA-14.3 (Custom/Local),
+CCA-14.4 (per-provider diagnostics) and CCA-14.5 (multi-credential manifest/secret storage)
+are still open, and so is the parent CCA-14, so the NVIDIA-only framing is not fully dropped
+yet — keep implementing against the `Provider` interface rather than adding new
+NVIDIA-specific abstractions (the pm2 app name `litellm-nim` and the icon's NVIDIA/evolv
+amalgam mark are deliberately untouched by CCA-12 for exactly this reason; see README).
 
 **Three-repo split (2026-08-07).** This repo was renamed again, `evolvconsulting/
 claude-conduit` → `evolvconsulting/claude-conduit-app` (GitHub redirects the old name;
@@ -67,7 +73,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 485 tests. Run before AND after any change.
+npm test          # node --test, 522 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change
@@ -99,7 +105,13 @@ step that could produce it, and the packaging allowlist copies it straight off d
   `licenses.json`.
 - `scripts/` — dev/build tooling: icon generation, license generation, and the macOS
   dev-bundle rename.
-- `test/engine/`, `test/main/`, `test/renderer/` — the test glob is `test/**/*.test.js`.
+- `test/engine/`, `test/main/`, `test/renderer/` — the naming convention is
+  `test/**/*.test.js`, but `npm test` is a bare `node --test`, whose real default discovery
+  ALSO runs any `.js`/`.cjs`/`.mjs` file found anywhere under a directory named `test`,
+  whatever that file is called (verified empirically in CCA-60). Shared, non-test helper
+  modules therefore live under a **dot-prefixed** directory — `test/engine/.helpers/` — which
+  that discovery skips; a plain `test/**/helpers/*.js` gets picked up as its own
+  zero-assertion "test" and silently inflates the reported test count.
 
 ## Safe manual testing (load-bearing)
 
@@ -135,7 +147,12 @@ encrypted-key userData dir all resolved under the fake home, and the real
 `%APPDATA%\claude-conduit` (5 files) plus the real Electron userData directory were
 SHA-256/timestamp-identical before and after. Any *new* path resolver added to `paths.js` with
 a win32 branch needs the same override wired through its call site, or it will silently repeat
-this bug.
+this bug. Since CCA-60 there is a **partial** automated backstop for that:
+`test/engine/paths-win32-override-guard.test.js` fails if any `test/**/*.test.js` calls one of
+those resolvers with a homedir-only override, and its export-drift check fails until a human
+classifies each new `paths.js` export as win32-branching or exempt. It scans `test/` only, so
+production call sites (`engine-context.js`, `main/index.js`) still have no automated check —
+and it is a text scan, with its gaps listed in that file's own "Known, still-open gaps" comment.
 
 ```sh
 NIM_PROXY_TEST_HOME=/tmp/fake-home NIM_TEST_API_KEY=$(grep NVIDIA_NIM_API_KEY .env | cut -d= -f2) \
