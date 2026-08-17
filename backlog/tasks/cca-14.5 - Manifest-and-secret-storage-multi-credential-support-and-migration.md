@@ -1,10 +1,10 @@
 ---
 id: CCA-14.5
 title: 'Manifest and secret storage: multi-credential support and migration'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 04:57'
+updated_date: '2026-08-17 13:49'
 labels: []
 dependencies:
   - CCA-14.1
