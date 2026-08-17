@@ -17,6 +17,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "postinstall": "node -e \"require('electron')\"",
     "prestart": "node scripts/patch-dev-bundle-name.js",
     "start": "electron .",
     "predev": "node scripts/patch-dev-bundle-name.js",
