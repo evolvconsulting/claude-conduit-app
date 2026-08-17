@@ -4,8 +4,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { getProvider, listProviderIds } = require('../../../src/engine/providers/registry');
 
-test('listProviderIds: includes nvidia-nim and openrouter', () => {
-  assert.deepEqual(listProviderIds(), ['nvidia-nim', 'openrouter']);
+test('listProviderIds: includes nvidia-nim, openrouter, and custom-local', () => {
+  assert.deepEqual(listProviderIds(), ['nvidia-nim', 'openrouter', 'custom-local']);
+});
+
+test('getProvider: returns the Custom/Local provider by id', () => {
+  const provider = getProvider('custom-local');
+  assert.equal(provider.id, 'custom-local');
+  assert.equal(provider.label, 'Custom / Local');
 });
 
 test('getProvider: returns the OpenRouter provider by id', () => {

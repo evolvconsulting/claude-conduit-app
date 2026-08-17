@@ -2,6 +2,7 @@
 
 const { nvidiaProvider } = require('./nvidia');
 const { openrouterProvider } = require('./openrouter');
+const { customLocalProvider } = require('./customLocal');
 
 /**
  * The seam every upstream (NVIDIA NIM, OpenRouter, and later Custom/Local —
@@ -37,6 +38,7 @@ const { openrouterProvider } = require('./openrouter');
 const PROVIDERS = {
   [nvidiaProvider.id]: nvidiaProvider,
   [openrouterProvider.id]: openrouterProvider,
+  [customLocalProvider.id]: customLocalProvider,
 };
 
 /**
