@@ -13,9 +13,10 @@ should be corrected. CCA-4 already reversed a documented v1 decision this way.
 new name; README documents the persisted-state migration decisions (config dir, pm2 app
 name, Electron userData/encrypted key, Claude Desktop entry) and `src/engine/
 configDirMigration.js` / `userDataMigration.js` implement the ones that migrate. The actual
-GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-conduit`) is
-now done — it was performed manually out of band, and `REPO_URL` and the git remote both
-point at the new location.
+GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-conduit`) was
+done — it was performed manually out of band, and `REPO_URL` and the git remote both
+pointed at that location (superseded by a second rename to `claude-conduit-app` — see
+below).
 **CCA-14 is partly landed.** CCA-14.1 (define the provider interface, reimplement NVIDIA NIM
 against it), CCA-14.2 (OpenRouter end to end), CCA-14.3 (Custom/Local — any OpenAI-compatible
 base URL) and CCA-14.4 (diagnostics keyed off the active provider's declared capabilities)
