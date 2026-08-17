@@ -10,7 +10,7 @@ const {
   buildRequestB,
   checkCliConfigCoherent,
   buildLiveCliSmokeEnv,
-  checkNimReachable,
+  checkModelCatalog,
   checkCompletion,
   checkToolCalling,
   checkStreaming,
@@ -404,17 +404,19 @@ test('checkSmallModel: AC#2 — timeout message names the real small model id (s
   });
 });
 
-// CCA-14.1: checkNimReachable takes an injectable listModels(...), matching
-// the Provider contract (src/engine/providers/registry.js), so this check no
-// longer has to import modelCatalog.js directly.
+// CCA-14.1: checkModelCatalog (renamed from checkNimReachable — CCA-14.4:
+// this check is no longer NIM-specific, see below) takes an injectable
+// listModels(...), matching the Provider contract
+// (src/engine/providers/registry.js), so this check no longer has to import
+// modelCatalog.js directly.
 
-test('checkNimReachable: uses the injected listModels(...) (Provider contract) instead of importing modelCatalog directly', async () => {
+test('checkModelCatalog: uses the injected listModels(...) (Provider contract) instead of importing modelCatalog directly', async () => {
   let calledWith;
   const listModels = async ({ apiKey, baseUrl }) => {
     calledWith = { apiKey, baseUrl };
     return { ok: true, data: { models: ['meta/llama-3.3-70b-instruct', 'meta/llama-3.1-8b-instruct'] } };
   };
-  const r = await checkNimReachable({
+  const r = await checkModelCatalog({
     apiKey: 'nvapi-x',
     nimBaseUrl: 'https://self-hosted.example/v1',
     primaryModelId: 'meta/llama-3.3-70b-instruct',
@@ -426,23 +428,111 @@ test('checkNimReachable: uses the injected listModels(...) (Provider contract) i
   assert.deepEqual(calledWith, { apiKey: 'nvapi-x', baseUrl: 'https://self-hosted.example/v1' });
 });
 
-test('checkNimReachable: surfaces the injected listModels(...) failure verbatim', async () => {
+test('checkModelCatalog: surfaces the injected listModels(...) failure verbatim', async () => {
   const listModels = async () => ({ ok: false, error: { code: 'NETWORK_ERROR', message: 'could not reach example.com' } });
-  const r = await checkNimReachable({ apiKey: 'k', primaryModelId: 'p', smallModelId: 's', listModels });
+  const r = await checkModelCatalog({ apiKey: 'k', primaryModelId: 'p', smallModelId: 's', listModels });
   assert.equal(r.id, 3);
   assert.equal(r.status, 'fail');
   assert.match(r.detail, /could not reach example\.com/);
 });
 
-test('checkNimReachable: falls back to modelCatalog.fetchCatalog when no listModels is injected', async () => {
+test('checkModelCatalog: falls back to modelCatalog.fetchCatalog when no listModels is injected', async () => {
   await withMockedFetch(
     async () => new Response(JSON.stringify({ data: [{ id: 'meta/llama-3.3-70b-instruct' }] }), { status: 200 }),
     async () => {
-      const r = await checkNimReachable({ apiKey: 'k', primaryModelId: 'meta/llama-3.3-70b-instruct', smallModelId: 'meta/llama-3.1-8b-instruct' });
+      const r = await checkModelCatalog({ apiKey: 'k', primaryModelId: 'meta/llama-3.3-70b-instruct', smallModelId: 'meta/llama-3.1-8b-instruct' });
       assert.equal(r.id, 3);
       assert.equal(r.status, 'pass');
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// CCA-14.4: diagnostics keyed off the active provider's declared
+// capabilities (src/engine/providers/registry.js's declareCapabilities()),
+// instead of hardcoded NIM-only assumptions. AC#1/AC#2/AC#4 below use the
+// two real registered providers (NVIDIA NIM and OpenRouter) wherever their
+// real declared capabilities already differ, and a constructed
+// capabilities object for the one case neither real provider exercises today
+// (supportsModelListing: false) — exactly as the task allows.
+// ---------------------------------------------------------------------------
+
+const { nvidiaProvider } = require('../../src/engine/providers/nvidia');
+const { openrouterProvider } = require('../../src/engine/providers/openrouter');
+
+test('checkModelCatalog: AC#2 — a provider that declares supportsModelListing:false reports "skipped" plainly, and never calls listModels at all', async () => {
+  let listModelsCalled = false;
+  const listModels = async () => {
+    listModelsCalled = true;
+    return { ok: true, data: { models: ['should-not-be-reached'] } };
+  };
+  const r = await checkModelCatalog({
+    apiKey: 'k',
+    primaryModelId: 'p',
+    smallModelId: 's',
+    listModels,
+    capabilities: { requiresApiKey: true, supportsModelListing: false, supportsToolCalling: 'unverified' },
+    providerLabel: 'Fake Provider',
+  });
+  assert.equal(r.id, 3);
+  assert.equal(r.status, 'skipped');
+  assert.equal(r.critical, false, 'a skipped check must never be able to fail allCriticalPassed');
+  assert.match(r.detail, /Fake Provider/);
+  assert.match(r.detail, /does not support/i);
+  assert.doesNotMatch(r.detail, /fail/i);
+  assert.equal(listModelsCalled, false, 'a provider that declares no model-listing support must never actually be asked to list models');
+});
+
+test('checkModelCatalog: AC#1 — real capability difference: both NVIDIA and OpenRouter declare supportsModelListing:true today, so the catalog check still runs (and passes) for either', async () => {
+  const listModels = async () => ({ ok: true, data: { models: ['m1'] } });
+  for (const provider of [nvidiaProvider, openrouterProvider]) {
+    const r = await checkModelCatalog({ apiKey: 'k', primaryModelId: 'm1', smallModelId: 'm1', listModels, capabilities: provider.declareCapabilities(), providerLabel: provider.label });
+    assert.equal(r.status, 'pass', `${provider.label} declares supportsModelListing:true, so the check must actually run`);
+  }
+});
+
+test('checkModelCatalog: omitting capabilities entirely keeps the original NIM-shaped default (supportsModelListing assumed true)', async () => {
+  const listModels = async () => ({ ok: true, data: { models: ['m1'] } });
+  const r = await checkModelCatalog({ apiKey: 'k', primaryModelId: 'm1', smallModelId: 'm1', listModels });
+  assert.equal(r.status, 'pass');
+});
+
+test('checkToolCalling: AC#1/AC#4 — real capability difference between the two registered providers changes `critical`, not just messaging', async () => {
+  const passingFetch = async () => new Response(JSON.stringify({ content: [{ type: 'tool_use', input: { city: 'Paris' } }] }), { status: 200 });
+  await withMockedFetch(passingFetch, async () => {
+    const nvidiaResult = await checkToolCalling({ port: 4000, masterKey: 'k', capabilities: nvidiaProvider.declareCapabilities() });
+    const openrouterResult = await checkToolCalling({ port: 4000, masterKey: 'k', capabilities: openrouterProvider.declareCapabilities() });
+    // Both pass here (the mocked response includes a valid tool_use), but
+    // NVIDIA's declared 'verified' support makes this check critical while
+    // OpenRouter's declared 'varies-by-model' support makes it non-critical
+    // — a real, provider-driven behavioral difference, not just wording.
+    assert.equal(nvidiaResult.critical, true);
+    assert.equal(openrouterResult.critical, false);
+  });
+});
+
+test('checkToolCalling: AC#2/AC#4 — a failure is reported non-critical (with a plain "varies by model" note) for a provider whose tool-calling support is not verified, but stays a critical failure for one where it is', async () => {
+  const failingFetch = async () => new Response(JSON.stringify({ content: [] }), { status: 200 });
+  await withMockedFetch(failingFetch, async () => {
+    const verified = await checkToolCalling({ port: 4000, masterKey: 'k', displayModel: 'some-model', capabilities: { requiresApiKey: true, supportsModelListing: true, supportsToolCalling: 'verified' } });
+    assert.equal(verified.status, 'fail');
+    assert.equal(verified.critical, true);
+    assert.doesNotMatch(verified.detail, /varies/i);
+
+    const varies = await checkToolCalling({ port: 4000, masterKey: 'k', displayModel: 'some-model', capabilities: { requiresApiKey: true, supportsModelListing: true, supportsToolCalling: 'varies-by-model' } });
+    assert.equal(varies.status, 'fail');
+    assert.equal(varies.critical, false, 'a provider whose tool-calling support genuinely varies by model must not have a per-model failure sink allCriticalPassed');
+    assert.match(varies.detail, /not guaranteed/i);
+  });
+});
+
+test('checkToolCalling: omitting capabilities entirely keeps the original hardcoded-critical default (backward compatible)', async () => {
+  const failingFetch = async () => new Response(JSON.stringify({ content: [] }), { status: 200 });
+  await withMockedFetch(failingFetch, async () => {
+    const r = await checkToolCalling({ port: 4000, masterKey: 'k' });
+    assert.equal(r.status, 'fail');
+    assert.equal(r.critical, true);
+  });
 });
 
 test('checkClaudeWildcard: AC#2 — timeout message names the real primary model id (primaryModelId), not the "claude-sonnet-4-6" alias', async () => {

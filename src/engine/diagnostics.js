@@ -121,6 +121,19 @@ function result({ id, label, critical, pass, detail, fixHint, ms }) {
   return { id, label, critical, status: pass ? 'pass' : 'fail', detail, fixHint, ms };
 }
 
+/**
+ * A check result for a capability the active provider plainly does not
+ * support (CCA-14.4 AC#2) — distinct from both 'pass' (verified working) and
+ * 'fail' (verified broken): nothing was actually exercised against the
+ * upstream, so status is 'skipped', critical is always false (a check that
+ * never ran can never sink allCriticalPassed), and `detail` says so in plain
+ * language rather than the check being silently dropped from the results
+ * list.
+ */
+function notApplicable({ id, label, detail }) {
+  return { id, label, critical: false, status: 'skipped', detail, fixHint: undefined, ms: 0 };
+}
+
 /** Check 1: proxy alive. */
 async function checkProxyAlive({ port, signal }) {
   const started = Date.now();
@@ -178,15 +191,33 @@ async function checkAuthEnforced({ port, signal }) {
 }
 
 /**
- * Check 3: NIM reachable & models exist. Verified live: NVIDIA's hosted
- * GET /models is a public, unauthenticated endpoint (confirmed: it returns
- * the full catalog even with no Authorization header, or a garbage one) —
- * so unlike DESIGN.md section 11's assumption, this check cannot itself
- * detect an invalid key (a 401 here would still be a real failure worth
- * catching, e.g. for a self-hosted NIM that does enforce auth on /models,
- * but a 200 here says nothing about key validity). Real key validation
- * happens in nvidiaKey.validateApiKey() (a probe completion request) and in
- * check 4 below (a real completion through the actual proxy).
+ * Check 3: model catalog reachable & models exist (CCA-14.4: keyed off the
+ * active provider's declared capabilities, not a hardcoded NIM assumption).
+ *
+ * DESIGN.md section 11 named this "NIM upstream" back when NVIDIA NIM was
+ * the only upstream this app ever talked to. The provider abstraction
+ * (CCA-14.1/CCA-14.2, src/engine/providers/registry.js) means the active
+ * provider can now be OpenRouter or (later) something else entirely, so both
+ * the label and the pass/fail logic below are generic rather than NIM-named.
+ *
+ * Not every provider promises a catalog to list —
+ * `capabilities.supportsModelListing` (declareCapabilities(), registry.js)
+ * says so plainly. When it's false this reports a 'skipped' result (CCA-14.4
+ * AC#2: "reports that plainly rather than failing") without ever calling
+ * `listModels` at all — never a failure, and never silently absent from the
+ * results list. `capabilities` defaults to `{supportsModelListing: true}`
+ * when omitted, so pre-CCA-14.4 callers (this file's own older tests
+ * included) keep their original NIM-shaped behavior unchanged.
+ *
+ * Verified live: NVIDIA's hosted GET /models is a public, unauthenticated
+ * endpoint (confirmed: it returns the full catalog even with no
+ * Authorization header, or a garbage one) — so unlike DESIGN.md section 11's
+ * assumption, this check cannot itself detect an invalid key (a 401 here
+ * would still be a real failure worth catching, e.g. for a self-hosted NIM
+ * that does enforce auth on /models, but a 200 here says nothing about key
+ * validity). Real key validation happens in nvidiaKey.validateApiKey() (a
+ * probe completion request) and in check 4 below (a real completion through
+ * the actual proxy).
  *
  * `listModels` (CCA-14.1) matches the Provider contract's listModels(...)
  * shape ({apiKey, baseUrl, timeoutMs}) -> Result — see
@@ -194,18 +225,25 @@ async function checkAuthEnforced({ port, signal }) {
  * modelCatalog.fetchCatalog for any caller that doesn't inject one, so this
  * check stays behavior-identical without a provider in hand.
  */
-async function checkNimReachable({ apiKey, nimBaseUrl, primaryModelId, smallModelId, listModels }) {
+async function checkModelCatalog({ apiKey, nimBaseUrl, primaryModelId, smallModelId, listModels, capabilities, providerLabel }) {
+  if (capabilities?.supportsModelListing === false) {
+    return notApplicable({
+      id: 3,
+      label: 'Model catalog',
+      detail: `Not applicable — ${providerLabel ?? 'the active provider'} does not support listing its model catalog.`,
+    });
+  }
   const doListModels = listModels ?? (({ apiKey, baseUrl }) => require('./modelCatalog').fetchCatalog({ apiKey, nimBaseUrl: baseUrl }));
   const started = Date.now();
   const catalogResult = await doListModels({ apiKey, baseUrl: nimBaseUrl });
   if (!catalogResult.ok) {
-    return result({ id: 3, label: 'NIM upstream', critical: true, pass: false, ms: Date.now() - started, detail: catalogResult.error.message });
+    return result({ id: 3, label: 'Model catalog', critical: true, pass: false, ms: Date.now() - started, detail: catalogResult.error.message });
   }
   const { models } = catalogResult.data;
   const missing = [primaryModelId, smallModelId].filter((id) => !models.includes(id));
   return result({
     id: 3,
-    label: 'NIM upstream',
+    label: 'Model catalog',
     critical: true,
     pass: true,
     ms: Date.now() - started,
@@ -246,28 +284,47 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', d
  * Check 5: tool calling — "the single most valuable check" (DESIGN.md section 11).
  * See checkCompletion above for why `model` (the routing alias) and
  * `displayModel` (the real, user-chosen model id, NCOW-17) are separate.
+ *
+ * CCA-14.4: `critical` is keyed off the active provider's declared
+ * `capabilities.supportsToolCalling` (registry.js's declareCapabilities()),
+ * not hardcoded true. NVIDIA's NIM provider declares 'verified' (this app
+ * has confirmed tool calling works for every recommended NIM model), so a
+ * failure there is a real regression and this stays critical, exactly as
+ * before. OpenRouter's provider declares 'varies-by-model' (tool support
+ * genuinely differs per model, sourced from OpenRouter's own
+ * supported_parameters field — see providers/openrouter.js), so a failure
+ * there is expected for some model choices rather than proof of a broken
+ * proxy: the check still runs (asking the live model is the only way to
+ * actually know) but is reported non-critical, with the failure detail
+ * saying so plainly. A future provider's 'unverified' gets the same
+ * non-critical treatment. Defaults to 'verified'/critical when no
+ * `capabilities` are given, so pre-CCA-14.4 callers keep their original
+ * behavior unchanged.
  */
-async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal }) {
+async function checkToolCalling({ port, masterKey, model = 'claude-sonnet-4-5', displayModel = model, timeoutMs = MODEL_COMPLETION_TIMEOUT_MS, signal, capabilities }) {
   const started = Date.now();
+  const toolCallingSupport = capabilities?.supportsToolCalling ?? 'verified';
+  const critical = toolCallingSupport === 'verified';
   try {
     const response = await postMessages({ port, masterKey, body: buildRequestB({ model }), timeoutMs, signal });
     if (!response.ok) {
-      return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
+      return result({ id: 5, label: 'Tool calling', critical, pass: false, ms: Date.now() - started, detail: `HTTP ${response.status}` });
     }
     const body = await response.json();
     const toolUse = (body.content || []).find((block) => block.type === 'tool_use');
     const pass = Boolean(toolUse) && typeof toolUse.input?.city === 'string';
+    const varyNote = toolCallingSupport === 'verified' ? '' : ' (tool-calling support is not guaranteed by this provider for every model — try a different model if this persists)';
     return result({
       id: 5,
       label: 'Tool calling',
-      critical: true,
+      critical,
       pass,
       ms: Date.now() - started,
-      detail: pass ? undefined : `Model ${displayModel} does not reliably support tool calling — go to Setup and pick a model from the recommended list.`,
+      detail: pass ? undefined : `Model ${displayModel} does not reliably support tool calling — go to Setup and pick a model from the recommended list.${varyNote}`,
     });
   } catch (err) {
     const detail = signal?.aborted ? CANCELLED_DETAIL : err.name === 'AbortError' ? timeoutDetail(displayModel, timeoutMs) : err.message;
-    return result({ id: 5, label: 'Tool calling', critical: true, pass: false, ms: Date.now() - started, detail });
+    return result({ id: 5, label: 'Tool calling', critical, pass: false, ms: Date.now() - started, detail });
   }
 }
 
@@ -499,16 +556,16 @@ async function checkLiveCliSmoke({ port, masterKey, primaryModel, smallModel, si
  * `cancelled: true` tells the caller (and the renderer) the run didn't
  * finish on its own.
  *
- * @param {{port: number, masterKey: string, apiKey: string, nimBaseUrl?: string, primaryModelId: string, smallModelId: string, manifest?: object, settingsPath?: string, signal?: AbortSignal, listModels?: Function}} opts
+ * @param {{port: number, masterKey: string, apiKey: string, nimBaseUrl?: string, primaryModelId: string, smallModelId: string, manifest?: object, settingsPath?: string, signal?: AbortSignal, listModels?: Function, capabilities?: {requiresApiKey: boolean, supportsModelListing: boolean, supportsToolCalling: 'verified'|'unverified'|'varies-by-model'}, providerLabel?: string}} opts
  */
 async function runDiagnostics(opts) {
   const { signal } = opts;
   const steps = [
     () => checkProxyAlive(opts),
     () => checkAuthEnforced(opts),
-    () => checkNimReachable(opts),
+    () => checkModelCatalog(opts),
     () => checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal }),
-    () => checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal }),
+    () => checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, signal, capabilities: opts.capabilities }),
     () => checkStreaming({ port: opts.port, masterKey: opts.masterKey, displayModel: opts.primaryModelId, signal }),
     () => checkSmallModel(opts),
     () => checkClaudeWildcard(opts),
@@ -536,13 +593,13 @@ async function runDiagnostics(opts) {
  * ~2×60s + check 3's 10s, well under the ~7 minutes runDiagnostics can take,
  * so this does not need runDiagnostics' cancellation support (AC#3 above).
  *
- * @param {{apiKey: string, nimBaseUrl?: string, port: number, masterKey: string, primaryModelId: string, smallModelId: string, listModels?: Function}} opts
+ * @param {{apiKey: string, nimBaseUrl?: string, port: number, masterKey: string, primaryModelId: string, smallModelId: string, listModels?: Function, capabilities?: {requiresApiKey: boolean, supportsModelListing: boolean, supportsToolCalling: 'verified'|'unverified'|'varies-by-model'}, providerLabel?: string}} opts
  */
 async function runQuickValidation(opts) {
   const results = [
-    await checkNimReachable(opts),
+    await checkModelCatalog(opts),
     await checkCompletion({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId }),
-    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId }),
+    await checkToolCalling({ port: opts.port, masterKey: opts.masterKey, model: 'claude-sonnet-4-5', displayModel: opts.primaryModelId, capabilities: opts.capabilities }),
   ];
   const allCriticalPassed = results.every((r) => !r.critical || r.status === 'pass');
   return { results, allCriticalPassed };
@@ -556,7 +613,7 @@ module.exports = {
   buildRequestB,
   checkProxyAlive,
   checkAuthEnforced,
-  checkNimReachable,
+  checkModelCatalog,
   checkCompletion,
   checkToolCalling,
   checkStreaming,
