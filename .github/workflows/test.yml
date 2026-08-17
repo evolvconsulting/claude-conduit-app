@@ -1,0 +1,44 @@
+name: Test
+
+# Runs just this repo's test suite (no build, no electron-builder, no
+# GH_TOKEN, no release/publish step) so `npm test` gets real Linux CI
+# coverage on every push/PR — not only at release time. Filed for CCA-67:
+# this campaign's test suite had never run on real Linux CI before a real
+# v0.1.2 release attempt hit two Linux-only test failures (CCA-67, CCA-68)
+# that a macOS-only "npm test passes" claim could never have caught.
+# Deliberately separate from release.yml's own npm-ci/npm-test steps: this
+# workflow can safely be re-run or workflow_dispatched at any time without
+# ever touching the live release-in-progress the way triggering release.yml
+# itself would (that job runs `--publish always` right after its test step,
+# in the same job, with no way to stop short of it).
+#
+# Linux only (ubuntu-latest x64, ubuntu-24.04-arm arm64) to match CCA-67's
+# acceptance criteria; release.yml already covers macOS/Windows at release
+# time and CCA-68 (the known Windows-only failure) is tracked separately.
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
