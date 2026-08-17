@@ -311,8 +311,10 @@ async function checkCompletion({ port, masterKey, model = 'claude-sonnet-4-5', d
  * there is expected for some model choices rather than proof of a broken
  * proxy: the check still runs (asking the live model is the only way to
  * actually know) but is reported non-critical, with the failure detail
- * saying so plainly. A future provider's 'unverified' gets the same
- * non-critical treatment. Defaults to 'verified'/critical when no
+ * saying so plainly. The Custom/Local provider (CCA-14.3,
+ * providers/customLocal.js) declares 'unverified' — no arbitrary
+ * OpenAI-compatible endpoint can be assumed to support tool calling — and
+ * gets that same non-critical treatment. Defaults to 'verified'/critical when no
  * `capabilities` are given, so pre-CCA-14.4 callers keep their original
  * behavior unchanged.
  */

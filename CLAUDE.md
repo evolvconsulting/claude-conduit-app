@@ -17,15 +17,18 @@ GitHub repo rename (`evolvconsulting/nvidia-cowork` → `evolvconsulting/claude-
 now done — it was performed manually out of band, and `REPO_URL` and the git remote both
 point at the new location.
 **CCA-14 is partly landed.** CCA-14.1 (define the provider interface, reimplement NVIDIA NIM
-against it) and CCA-14.2 (OpenRouter end to end) are Done: `src/engine/providers/` now holds
-the `Provider` shape and its `registry.js`, and `engine-context.js` goes through
-`providers.getProvider(...)` instead of importing `nvidiaKey`/`modelCatalog` directly — pinned
-to `'nvidia-nim'` until CCA-15 adds multiple saved connections. CCA-14.3 (Custom/Local),
-CCA-14.4 (per-provider diagnostics) and CCA-14.5 (multi-credential manifest/secret storage)
-are still open, and so is the parent CCA-14, so the NVIDIA-only framing is not fully dropped
-yet — keep implementing against the `Provider` interface rather than adding new
-NVIDIA-specific abstractions (the pm2 app name `litellm-nim` and the icon's NVIDIA/evolv
-amalgam mark are deliberately untouched by CCA-12 for exactly this reason; see README).
+against it), CCA-14.2 (OpenRouter end to end), CCA-14.3 (Custom/Local — any OpenAI-compatible
+base URL) and CCA-14.4 (diagnostics keyed off the active provider's declared capabilities)
+are Done: `src/engine/providers/` now holds the `Provider` shape and its `registry.js`, with
+three providers registered (`nvidia-nim`, `openrouter`, `custom-local`), and
+`engine-context.js` goes through `providers.getProvider(...)` instead of importing
+`nvidiaKey`/`modelCatalog` directly — still pinned to `'nvidia-nim'` until CCA-15 adds
+multiple saved connections, so nothing but NVIDIA is reachable end to end yet. CCA-14.5
+(multi-credential manifest/secret storage) is still open, and so is the parent CCA-14, so the
+NVIDIA-only framing is not fully dropped yet — keep implementing against the `Provider`
+interface rather than adding new NVIDIA-specific abstractions (the pm2 app name
+`litellm-nim` and the icon's NVIDIA/evolv amalgam mark are deliberately untouched by CCA-12
+for exactly this reason; see README).
 
 **Three-repo split (2026-08-07).** This repo was renamed again, `evolvconsulting/
 claude-conduit` → `evolvconsulting/claude-conduit-app` (GitHub redirects the old name;
@@ -73,7 +76,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 ## Commands
 
 ```sh
-npm test          # node --test, 522 tests. Run before AND after any change.
+npm test          # node --test, 562 tests. Run before AND after any change.
 npm run dev       # run from source
 npm run icons     # regenerate build/icon.* + src/assets/icon.png from build/icon.svg
 npm run licenses  # regenerate src/assets/licenses.json — re-run after ANY dependency change

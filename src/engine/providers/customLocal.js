@@ -328,9 +328,11 @@ const MANUAL_MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-:/]*$/;
  * catalog-listing endpoint is available. NOT part of the registry.js
  * Provider contract (that typedef has no method for this at all — see this
  * module's header comment for the full note on that gap): this is a plain
- * extra export off this module, the same way modelCatalog.js's
- * validateExplicitModelChoice()/searchModels() are plain exports nvidia.js
- * uses without being part of the Provider typedef either.
+ * extra export off this module, the same shape as modelCatalog.js's
+ * validateExplicitModelChoice()/searchModels(): plain exports that sit
+ * outside the Provider typedef. (A shape precedent only — nvidia.js itself
+ * calls neither of those two; it uses fetchCatalog, intersectWithLive,
+ * RECOMMENDED_PRIMARY/RECOMMENDED_SMALL and DEFAULT_NIM_BASE_URL.)
  *
  * Deliberately NOT a live-catalog near-match search (modelCatalog.js's
  * validateExplicitModelChoice does that, but needs a live list to search —

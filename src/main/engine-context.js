@@ -25,9 +25,11 @@ const { createDomainMutexes } = require('./mutex');
 
 const DEFAULT_PORT = 4000;
 
-// CCA-14.1: only one provider exists today, so the active provider is a
-// constant. CCA-15 (multiple saved connections) replaces this with a lookup
-// keyed on whichever connection is active.
+// CCA-14.1: three providers are registered (registry.js — nvidia-nim,
+// openrouter, and custom-local as of CCA-14.3), but nothing yet lets a user
+// choose between them, so the active provider is a constant. CCA-15 (multiple
+// saved connections) replaces this with a lookup keyed on whichever
+// connection is active.
 const activeProvider = providers.getProvider('nvidia-nim');
 
 /**
