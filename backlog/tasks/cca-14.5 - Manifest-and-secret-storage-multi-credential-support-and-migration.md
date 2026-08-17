@@ -4,7 +4,7 @@ title: 'Manifest and secret storage: multi-credential support and migration'
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 15:00'
+updated_date: '2026-08-17 15:11'
 labels: []
 dependencies:
   - CCA-14.1
@@ -127,4 +127,57 @@ grepped whole repo, only instance. #2 (apiBaseLine/api_key keyless-provider gap)
 scope -- unreachable today (no registered provider has apiKeyEnvVar:null), fixing it means
 restructuring the live config-generation format, judged materially riskier/bigger than this
 task's data-layer scope. Reviewer should independently assess whether this call was reasonable.
+
+REVIEW PASS 1 (opus): REQUEST_CHANGES. Confirmed AC indices: [1, 2, 3, 4] -- all four
+independently confirmed; the blocking finding is a test-coverage gap on supporting production
+code, not an AC failure.
+
+npm test personally observed: dev baseline 562/562 (matches CLAUDE.md exactly), branch 580/580
+twice. Count reconciles exactly (562 + 18 new = 580) -- no regression, no unexplained drift.
+Worker's reported 550/548/2 confirmed as a genuine transient (both files pass standalone and
+in the full suite now).
+
+BLOCKING F1: the engine-context.js change (regenProvider resolved from
+manifestStore.resolveManifestProviderId() rather than activeProvider) has ZERO regression
+protection. Reviewer reverted just that one line in a scratch copy -- suite still passed
+578/580 (only the pre-existing symlink artifact difference), meaning nothing catches this
+being silently undone by a future refactor. This undermines the worker's own stated
+justification for touching engine-context.js at all ("the recorded field is read back, not
+write-only").
+
+Required fix: add an integration test to test/main/engine-context-config-regen.test.js driving
+createEngineContext() with a manifest recording provider:'openrouter' and a litellm.env holding
+only OPENROUTER_API_KEY, asserting {regenerated:true, restarted:false}, the OpenRouter env var
+in the regenerated env, and openrouter/ in the yaml. Reviewer already proved this discriminates
+correctly (fails on the mutation, passes on real branch source) -- reuse that shape.
+
+Non-blocking (not gating): F2 (credentialPathFor() not injective across different providerId
+strings that sanitize to the same value -- unreachable with today's 3 code-owned ids, but the
+code comment overclaims "regardless of what a future caller passes"), F3 (an unresolvable
+manifest.provider value is preserved verbatim rather than self-healing to a known id -- harmless
+today, latent risk after CCA-15), F4 (the new .credentials/ dir has no lifecycle owner yet --
+clear()/uninstall.js/migrateLegacyKeyFile() don't touch it -- zero impact today), F5 (CLAUDE.md's
+test count is stale at 562 vs branch's 580 -- correctly deferred to wave-19 cleanup since CCA-63
+owns CLAUDE.md this wave), F6 (the worker's own baseline arithmetic in commit d5c9eaf's message
+is off -- cosmetic, superseded by the reviewer's own clean reconciliation).
+
+Migration depth check (all independently run by reviewer, not read): second regen pass at same
+version is a correct no-op (zero pm2 calls); version-bump regen is idempotent and preserves
+provider; unknown-provider fallback engages without crashing (also null manifest -> nvidia-nim,
+no throw); a real-but-mismatched provider fails safe (no-existing-secrets, doesn't corrupt);
+fixture fidelity confirmed byte-exact against the real createSecretStore/fakeSafeStorage
+round-trip; non-vacuity proven by mutation (deleting the provider backfill fails the AC#3 test).
+
+Scope judgment: engine-context.js touch judged justified, not creep (activeProvider is a
+module-level constant that will diverge from per-connection reality once CCA-15 lands -- but
+must be tested, hence F1). Finding-#2 deferral judged reasonable and actually safer than the
+worker claimed -- reviewer verified all 3 registered providers have concrete apiKeyEnvVar
+values, and the regen path is structurally immune (falsy apiKeyEnvVar short-circuits to null
+before generateAll is ever called).
+
+Everything else confirmed clean: AC#1 single-place claim holds (only other manifest.provider
+touch is configGen.js's own idempotent preserve-if-set logic); AC#2 legacy path verified
+byte-for-byte unchanged structurally; the 2 updated pre-existing assertions are not weakened
+(gained a new correct key, didn't loosen the match); scope exactly the 8 files; zero overlap
+with CCA-63/CCA-65.
 <!-- SECTION:NOTES:END -->
