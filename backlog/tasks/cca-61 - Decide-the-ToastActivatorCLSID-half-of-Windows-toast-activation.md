@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 04:23'
+updated_date: '2026-08-17 04:25'
 labels: []
 dependencies:
   - CCA-57
@@ -283,4 +283,30 @@ moved 4 commits since this branch's last rebase (CCA-14.4 merged as PR #70) -- n
 expected, should be clean, but will raise the test count.
 
 Fix pass 2 dispatched into the same worktree with the finding verbatim.
+
+## Wave-18 fix pass 2 (fresh worker, same worktree, commit `d204d5d`; rebased onto dev, branch head
+now `d204d5d`, prior tip `f5149a9`)
+
+Recorded by the orchestrator from the worker's structured return. NOT yet independently reviewed.
+
+Rebased cleanly onto `origin/dev` (picked up CCA-14.4's merge, PR #70) -- no conflicts. Reworded the
+third and final site carrying the refuted rationale: `test/main/app-user-model-id.test.js:96-102`
+previously said "...the installed app-builder-lib (26.15.3) has no way to stamp a matching
+ToastActivatorCLSID... so a fixed runtime value would be exactly as functionally inert as today's
+random-per-run default." Now reads: "...chose to accept the gap on cost/benefit grounds, not because
+no remedy exists: Electron's own `shell.writeShortcutLink(path, 'update', {toastActivatorClsid})` can
+stamp a CLSID onto an already-installed shortcut at runtime, independent of app-builder-lib (26.15.3,
+which stamps none onto either Windows target's shortcut at creation time). See electron-builder.yml's
+`win:` block comment for the full reasoning and citations." -- consistent with `tray.js`'s and
+`electron-builder.yml`'s already-corrected framing, still deferring to the yml for full reasoning as
+the reviewer wanted preserved. `git diff` confirms only these 7 lines changed; nothing else in the
+file (the AC#6/#7 drift-guard logic, assertions, or any other comment) touched.
+
+**npm test**: 562/562 (up from 542, consistent with CCA-14.4's new tests landing via the rebase).
+
+Files touched: `test/main/app-user-model-id.test.js` only.
+
+Review pass 3 dispatched next, into the same worktree, against `d204d5d`. Per this campaign's fix-cycle
+cap (2 retries, 3 total review passes), this is the LAST review pass before an automatic escalation
+would apply if it comes back request_changes again.
 <!-- SECTION:NOTES:END -->
