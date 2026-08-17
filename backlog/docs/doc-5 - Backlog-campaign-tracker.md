@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 04:59'
+updated_date: '2026-08-17 13:18'
 ---
 # Backlog campaign tracker
 
@@ -98,10 +98,11 @@ wave 18 purely on conflict grounds (package.json / secretStore.js) with tasks th
 -- **re-check the conflict graph fresh at next dispatch rather than assuming CCA-63/14.5 still
 conflict with anything**, since the tasks they conflicted with are gone from the ready set.
 
-**One candidate new task surfaced by wave-18's integration review, not yet proposed to the user**:
-`test/main/licenses.test.js`'s drift guard checks entry count/name membership but never compares a
-`version` field, which is exactly why the js-yaml staleness above shipped through a full task review
-and a merge undetected. Needs AskUserQuestion before filing, per this campaign's rule.
+**CCA-65 filed with user approval** (2026-08-17, via AskUserQuestion) from wave-18's integration
+review: `test/main/licenses.test.js`'s drift guard checks entry count/name membership but never
+compares a `version` field, which is exactly why the js-yaml staleness above shipped through a full
+task review and a merge undetected. Not yet queue-order-confirmed -- fold into the next inventory
+pass alongside CCA-63/CCA-14.5's conflict-graph re-check.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
