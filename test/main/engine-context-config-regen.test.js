@@ -210,6 +210,81 @@ test('createEngineContext: an upgraded install (stale generated config, older/no
   });
 });
 
+// CCA-14.5 AC#3: writes the encrypted-key file exactly where engine-context.js
+// derives it (path.join(deps.userDataDir, 'nim-key.enc')), in the same
+// enc:<plaintext> shape fakeSafeStorage()'s encryptString/decryptString round
+// trips through — reproducing what a REAL pre-CCA-14.5 install already has on
+// disk from a prior apiKey.validateAndSave() call (that handler calls
+// secretStore.save(key), which is exactly this file/format, just via the real
+// Electron safeStorage instead of this test double).
+function seedLegacySecretStoreFile(userDataDir, plaintextApiKey) {
+  fs.mkdirSync(userDataDir, { recursive: true });
+  fs.writeFileSync(path.join(userDataDir, 'nim-key.enc'), `enc:${plaintextApiKey}`, 'utf8');
+}
+
+// CCA-14.5 AC#3: a REAL migration test, not a read-the-code assertion. This
+// constructs the full on-disk shape of a genuine pre-CCA-14.5 NVIDIA-only
+// install — manifest.json with no `provider` field at all (that field didn't
+// exist yet), litellm.env with the NVIDIA key under NVIDIA_NIM_API_KEY
+// (seedStaleInstall, unchanged), AND the encrypted nim-key.enc a real
+// apiKey.validateAndSave() call would have produced (seedLegacySecretStoreFile,
+// new above) — then runs the ACTUAL upgrade path (createEngineContext() with a
+// bumped appVersion, the same trigger a real app upgrade hits on next launch)
+// and proves, by reading back through the real handlers, that: (1) the
+// manifest is rewritten to carry the new `provider` field (AC#1, genuinely
+// migrated on disk, not just defaulted at read time), and (2) the previously
+// saved credential is still readable with zero manual steps — nothing here
+// re-prompts for a key or requires the user to do anything.
+test('createEngineContext: CCA-14.5 AC#3 — a real pre-CCA-14.5 NVIDIA-only install (no manifest.provider, legacy secretStore file) migrates and keeps working after an upgrade, with no manual step', async () => {
+  await withFakeHome(async (homeDir) => {
+    const files = seedStaleInstall(homeDir);
+    const userDataDir = path.join(homeDir, 'userData');
+    seedLegacySecretStoreFile(userDataDir, 'nvapi-old-install');
+
+    const manifestBefore = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestBefore.provider, undefined, 'sanity check: the seeded fixture predates the provider field');
+
+    const { pm2Control, calls } = fakePm2Control({ status: 'not-installed' });
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir,
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+      logger: recordingLogger(),
+    });
+
+    const result = await context.configRegeneration;
+    assert.deepEqual(result, { regenerated: true, restarted: false });
+
+    // (1) The on-disk manifest genuinely migrated — `provider` is now
+    // recorded, not just assumed at read time by resolveManifestProviderId.
+    const manifestAfter = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestAfter.provider, 'nvidia-nim');
+    assert.equal(manifestAfter.generated_by_version, '0.2.0');
+
+    // (2) The regenerated litellm.env still carries the SAME key under the
+    // SAME env var name — proving the provider-aware regen path correctly
+    // resolved NVIDIA's apiKeyEnvVar from the (absent) manifest field's
+    // legacy default, not some other/blank value.
+    const env = fs.readFileSync(files.litellmEnv, 'utf8');
+    assert.match(env, /^NVIDIA_NIM_API_KEY=nvapi-old-install$/m);
+
+    // (3) The credential is still readable through the real IPC-shaped
+    // handler with zero manual re-entry — this is the actual "continues
+    // working" proof, exercised through the same code path the renderer uses.
+    const maskedResult = await context.handlers.apiKey.getMasked();
+    assert.equal(maskedResult.ok, true);
+    assert.notEqual(maskedResult.data.maskedKey, null);
+
+    // Never touched pm2 beyond the single status check (proxy wasn't running
+    // at launch) — an upgrade must not spuriously start/restart anything.
+    assert.equal(calls.getStatus, 1);
+    assert.equal(calls.startOrRestart.length, 0);
+  });
+});
+
 test('createEngineContext: AC#2 — regenerating while the proxy is already running restarts it the same way proxy.start()/restart() do', async () => {
   await withFakeHome(async (homeDir) => {
     const files = seedStaleInstall(homeDir);
