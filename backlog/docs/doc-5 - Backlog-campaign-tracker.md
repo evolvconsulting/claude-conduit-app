@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 13:18'
+updated_date: '2026-08-17 13:49'
 ---
 # Backlog campaign tracker
 
@@ -90,19 +90,21 @@ pre-CCA-64 version, and the app version drifted ~2 weeks earlier and unrelated t
 stale test counts, cross-references, and comments), fixed via cleanup PR #72 (`f7fe24a`), 1 review
 pass. Final npm test on merged dev: **562/562**.
 
-**Queue is now 2 confirmed-but-deferred items**: CCA-63 (rename/URL sweep, HIGH -- its own AC#2/#3
-live-release-publish step remains gated on explicit user chat confirmation before any worker
-attempts it) and CCA-14.5 (manifest/secret-storage multi-credential support, HIGH -- now carrying two
-forward-flagged `configGen.js` integration risks from this wave's reviews). Both were deferred from
-wave 18 purely on conflict grounds (package.json / secretStore.js) with tasks that have SINCE merged
--- **re-check the conflict graph fresh at next dispatch rather than assuming CCA-63/14.5 still
-conflict with anything**, since the tasks they conflicted with are gone from the ready set.
-
-**CCA-65 filed with user approval** (2026-08-17, via AskUserQuestion) from wave-18's integration
-review: `test/main/licenses.test.js`'s drift guard checks entry count/name membership but never
-compares a `version` field, which is exactly why the js-yaml staleness above shipped through a full
-task review and a merge undetected. Not yet queue-order-confirmed -- fold into the next inventory
-pass alongside CCA-63/CCA-14.5's conflict-graph re-check.
+**Wave 19 dispatched (2026-08-17)**: CCA-63, CCA-14.5, CCA-65 -- all three re-inventoried fresh at
+this restore. Dependencies re-verified live: CCA-63 none, CCA-14.5 -> CCA-14.1 (Done), CCA-65 none.
+Conflict graph re-verified live by file-citation read against real `git ls-files` paths (the
+package.json/secretStore.js conflicts noted at wave-18 deferral are gone -- CCA-64/CCA-14.3 both
+merged): CCA-63 touches package.json, README.md, CLAUDE.md, src/main/menu.js,
+src/renderer/components/about-dialog.js, src/main/autoUpdate.js, test/engine/updateCheck.test.js,
+docs/auto-update.md, docs/distribution.md, .github/release-notes-template.md (wider than the
+wave-18 deferral note guessed -- DEFAULT_REPO in autoUpdate.js and the docs/ references were not
+previously cited); CCA-14.5 touches src/engine/manifest.js, src/engine/secretStore.js,
+src/engine/configGen.js; CCA-65 touches test/main/licenses.test.js only. All three sets disjoint --
+zero pairwise conflict. None require live app/proxy verification during the wave itself (CCA-63's
+own AC#2/#3 live-publish step is explicitly held for the orchestrator post-wave, never autonomous
+inside worker dispatch -- user re-confirmed this rule stands, 2026-08-17 restore). User confirmed
+CCA-65 appends last (position 3) in queue order, and re-confirmed the CCA-63 publish-gating rule,
+both via AskUserQuestion at this restore. All three dispatched together as Wave 19.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
@@ -774,25 +776,28 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | CCA-63 | rename | none | To Do | | **Confirmed queue order, deferred from wave 18**
-(conflicted with CCA-64 on `package.json`, now merged/Done -- re-check the conflict graph fresh at
-next dispatch rather than assuming it still applies). URL sweep after the GitHub rename to
-`claude-conduit-app`: `package.json`'s `repository`/`homepage`/`publish`, README/CLAUDE/DESIGN, and
-the `REPO_URL` constants in `about-dialog.js`/`menu.js`. **AC#2/#3 require actually publishing a real
-GitHub Release and verifying live auto-update against it -- user-directed: a worker may prepare
+| 1 | CCA-63 | rename | none | Dispatched | 19 | URL sweep after the GitHub rename to
+`claude-conduit-app`: `package.json`'s `repository`/`homepage`, README/CLAUDE.md, the `REPO_URL`
+constants in `about-dialog.js`/`menu.js`, `autoUpdate.js`'s `DEFAULT_REPO`,
+`test/engine/updateCheck.test.js`'s literal, and `docs/auto-update.md`/`docs/distribution.md`/
+`.github/release-notes-template.md`. **AC#2/#3 require actually publishing a real GitHub Release and
+verifying live auto-update against it -- user re-confirmed 2026-08-17: a worker may prepare
 everything (version bump, changelog, build) but the actual publish step is held for the orchestrator,
 run only after explicit chat confirmation, not autonomous.** |
-| 2 | CCA-14.5 | providers | CCA-14.1 (Done) | To Do | | **Confirmed queue order, deferred from wave
-18** (conflicted with CCA-14.3 on `secretStore.js`, now merged/Done -- re-check fresh at next
-dispatch). Manifest format gains a provider-type field; `secretStore.js` supports multiple
-credentials including a no-credential provider; an existing NVIDIA-only install migrates
-automatically. Own implementation notes now include TWO forward-flagged findings from CCA-14.3's and
-wave-18's own reviews: (1) `configGen.js`'s `apiBaseLine` is only emitted on the first of three
-model entries -- harmless for `nvidia_nim` today, but would silently route `claude-haiku-4-5`/
-`claude-*` wildcard entries to `api.openai.com` once a Custom/Local connection is wired up end to
-end (litellm's `openai` provider defaults there with no `api_base`); also, `api_key` is emitted
-unconditionally with no keyless-provider handling. (2) `configGen.js:379`'s comment ("today's only
-provider") is now stale -- three providers each declare their own `apiKeyEnvVar`. |
+| 2 | CCA-14.5 | providers | CCA-14.1 (Done) | Dispatched | 19 | Manifest format gains a
+provider-type field; `secretStore.js` supports multiple credentials including a no-credential
+provider; an existing NVIDIA-only install migrates automatically. Own implementation notes carry TWO
+forward-flagged findings from CCA-14.3's and wave-18's own reviews: (1) `configGen.js`'s
+`apiBaseLine` is only emitted on the first of three model entries -- harmless for `nvidia_nim` today,
+but would silently route `claude-haiku-4-5`/`claude-*` wildcard entries to `api.openai.com` once a
+Custom/Local connection is wired up end to end (litellm's `openai` provider defaults there with no
+`api_base`); also, `api_key` is emitted unconditionally with no keyless-provider handling. (2)
+`configGen.js:379`'s comment ("today's only provider") is now stale -- three providers each declare
+their own `apiKeyEnvVar`. |
+| 3 | CCA-65 | test-infra | none | Dispatched | 19 | `test/main/licenses.test.js`'s drift guard
+checks entry count/name membership but never compares a `version` field -- exactly why the js-yaml
+staleness (CCA-64) shipped through a full task review and merge undetected. Queue-order confirmed
+2026-08-17 via AskUserQuestion: appended last (position 3). |
 
 ## Resolved
 
