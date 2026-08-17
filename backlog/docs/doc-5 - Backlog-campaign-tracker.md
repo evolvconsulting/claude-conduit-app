@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 00:19'
+updated_date: '2026-08-17 01:14'
 ---
 # Backlog campaign tracker
 
@@ -73,6 +73,19 @@ justification.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
+
+**As of wave 17 SETTLEMENT (2026-08-17)**: **29 resolved** (waves 1-17, all Done). CCA-60 recovered
+mid-crash at this restore (see the note below, kept for the record) and carried through to merge:
+review pass 3 approved (PR #66, `60a8fee`), and the mandatory wave-17 integration review over the
+cumulative CCA-58+59+60 diff found real material for the 17th consecutive wave (fixed via cleanup
+PR #67, `26eb47e`, 1 review pass). Final npm test on merged dev: **522/522** (the jump from the
+487-ish wave-17 baseline is `a1e282e`'s unrelated CCA-14.1/14.2 provider-abstraction landing mid-wave,
+outside this campaign — not new wave-17 test count). **Queue is now 1 confirmed item (CCA-61, held
+since wave 16, no longer conflicting with anything in flight) plus 3 never-queue-order-confirmed
+tasks (CCA-62, CCA-63, CCA-64) and a CCA-14 cluster whose "needs decomposition" classification is
+now stale** (CCA-14.1/14.2 Done). Per the restore note below, this needs the user's input before the
+next wave dispatches: confirm/reorder CCA-61/62/63/64, and re-run inventory (I1-style) over
+CCA-7/11/13/14/14.3/14.4/14.5/15 given CCA-14's partial landing.
 
 **As of RESTORE (2026-08-16)**: ground-truth check found real drift needing reconciliation, not just
 routine catch-up. **The repo itself was renamed/moved since the wave-17 handover** (GitHub rename to
@@ -704,8 +717,7 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | CCA-60 | test-safety | none | Dispatched | 17 | Filed at wave-16 settlement from the fix pass's own self-report, adjudicated real and PRE-EXISTING by review pass 2, user-approved. `npm test` on a real Windows host overwrites the user's REAL `%APPDATA%\claude-conduit`: `test/main/engine-context-config-regen.test.js:90` and `:256` call `paths.resolveConfigDir({homedir})` without threading `paths.resolveWindowsAppDataOverrides()`, and `paths.js:59-62`'s win32 branch prefers `APPDATA` over a bare homedir override. It had ALREADY fired silently in an earlier wave (the clobbered files were dated 2026-08-02). The key it wrote was the fixture `nvapi-old-install`, never a live secret. Scope independently confirmed narrow by the wave-16 integration review — no other offenders suite-wide. **Conflicts with nothing currently queued** (test-file-only). **RESTORE 2026-08-16**: found review pass 2's `request_changes` fix pass (fix pass 2 — adopt tolerate-and-recover, revert the pre-existing-test edit, remove the `require.main` fragility) mid-flight and uncommitted in its worktree — 3 modified test files plus an untracked `test/engine/.helpers/win32-override-scanner.js` helper extraction, on top of a local rebase onto `de6c1c3` that already supersedes the 3 commits currently pushed to origin. Resuming in place, not restarting. |
-| 2 | CCA-61 | tray-notify | CCA-57 (Done) | To Do | | Filed at wave-16 settlement from the integration review, user-approved. CCA-57 closed only the AppUserModelID half of Electron's two-part Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the gap and document it accurately. **Expect a file conflict with CCA-58** (its resolution is doc material) **and with CCA-59** (both may touch `src/main/tray.js`); it also shares `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its notes. |
+| 1 | CCA-61 | tray-notify | CCA-57 (Done) | To Do | | Filed at wave-16 settlement from the integration review, user-approved. CCA-57 closed only the AppUserModelID half of Electron's two-part Windows requirement; `app.setToastActivatorCLSID()` exists (`app.md:1148-1159`) and its documented default generates a RANDOM CLSID once per run, so the runtime value can never match anything stamped on a shortcut. electron-builder writes none for either target. Decide: fix a CLSID, or accept the gap and document it accurately. **Expect a file conflict with CCA-58** (its resolution is doc material) **and with CCA-59** (both may touch `src/main/tray.js`); it also shares `test/main/app-user-model-id.test.js` with two latent guard findings recorded in its notes. |
 
 ## Resolved
 
@@ -740,7 +752,8 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 | 26 | CCA-57 | Done, 2026-08-07, wave 16 | Fixed a Windows AUMID **mismatch** — not the absent AUMID or portable-only gap the task was filed as. The app used Electron's generated fallback `electron.app.Claude Conduit` while electron-builder's NSIS installer stamps the shortcut with `appId` `com.evolvconsulting.claudeconduit`; those never matched, on **nsis** as much as portable. `src/main/index.js` now sets the AUMID to the appId on win32 unconditionally via a new pure `src/main/appUserModelId.js`, with a drift guard against `electron-builder.yml`'s `appId` (later extended to `win.appId`, which `AppInfo.id` actually prefers). Live-verified on winvm (all four values agree — installed shortcut, nsis runtime, portable runtime, source run — and Windows recorded acceptance under that AUMID, `LastNotificationAddedTime = 134305545388759018`) and on linuxvm (the app's own `Notify` captured on the session bus and traced to gnome-shell; raw capture preserved at `~/ncow57-evidence/dbus-capture-ncow57-fixpass.log`). 476 -> 485 tests, zero pre-existing test files modified. PR #62 `97f13aafa080aecdf24305a00f9f39b0e65d5d70` (3 review passes, 2 fix cycles) + cleanup PR #63 `903bca54456697d971b1c497b0128fd770a6578e` (2 review passes, 1 fix cycle). AC#1/#3 amended mid-flight by the user; AC#4 clarified. |
 
 | 27 | CCA-58 | Done, 2026-08-07, wave 17 | Documented the tray's native OS notification behavior in README.md/DESIGN.md (the app's first-ever OS notification, previously undocumented anywhere) and corrected README's `npm test` line, which falsely claimed "no network or real config touched" — both halves were false (Windows config safety is CCA-60's fix; network safety was already only conditionally CI-gated). 2 review passes, 1 fix cycle. Pass 2 verified the corrected network claim BY MEASUREMENT — a full suite run under a require-hook spying on `fetch`/`http`/`https` logged exactly two real calls, both from the one CI-gated NVIDIA test (`CI=1` -> 484 pass/1 skipped) — and independently re-confirmed all 6 ACs against primary source, including an ID-citation sweep (CCA-53/55/56/57/61 all correct) and a byte-for-byte scope check. npm test 485/485 (docs-only, unchanged). Merged as PR #64 (`bc839e1`), squashed from `23e2f64`+`0c85782` after rebase onto dev. Follow-up recorded for the still-pending wave-17 integration review (blocked on CCA-60 merging first): once CCA-59/60 land, `README.md:381` and `CLAUDE.md:51` both go stale at 485 -> 489 and must be bumped while preserving README's new parenthetical. |
-| 28 | CCA-59 | Done, 2026-08-07, wave 17 | Contained a throwing `Notification.isSupported()` inside `notifyFailure()`'s existing `try`, so a throw can no longer escape into `runAction()`'s trailing `.catch()` — pre-fix this produced a misattributed second `console.error`, a promise rejection contradicting the module's own "none of the three ever reject" JSDoc, and no notification shown. One line moved, two regression tests added. Approved on the first review pass (opus, no fix cycle): all 5 ACs confirmed, including the reviewer's own from-scratch reproduction (moved the guard back outside `try`, both new tests failed, restored and verified byte-exact via SHA-256) plus a 13-arrangement adversarial probe (throwing getter, thrown bare string/null, throwing constructor/`show()`, a throwing `Proxy`, truthy/falsy non-boolean returns — all correctly contained). Scope verified clean (`git diff --numstat`: 1/1 `tray.js`, 108/0 test file) and the defect class confirmed PRE-EXISTING since CCA-55 via `git blame`/`git log -S` provenance, not by reading. npm test 487/487 (485 base + 2). Merged as PR #65 (`de6c1c3`), squashed from `b00fa02` after rebase onto dev. Four follow-up candidates from the implementer's class sweep, confirmed by the reviewer BY EXPERIMENT and correctly left out of this task's scope, carried to wave-17 settlement for user approval (still pending — wave 17 hasn't settled, since CCA-60 hasn't merged). |
+| 28 | CCA-59 | Done, 2026-08-07, wave 17 | Contained a throwing `Notification.isSupported()` inside `notifyFailure()`'s existing `try`, so a throw can no longer escape into `runAction()`'s trailing `.catch()` — pre-fix this produced a misattributed second `console.error`, a promise rejection contradicting the module's own "none of the three ever reject" JSDoc, and no notification shown. One line moved, two regression tests added. Approved on the first review pass (opus, no fix cycle): all 5 ACs confirmed, including the reviewer's own from-scratch reproduction (moved the guard back outside `try`, both new tests failed, restored and verified byte-exact via SHA-256) plus a 13-arrangement adversarial probe (throwing getter, thrown bare string/null, throwing constructor/`show()`, a throwing `Proxy`, truthy/falsy non-boolean returns — all correctly contained). Scope verified clean (`git diff --numstat`: 1/1 `tray.js`, 108/0 test file) and the defect class confirmed PRE-EXISTING since CCA-55 via `git blame`/`git log -S` provenance, not by reading. npm test 487/487 (485 base + 2). Merged as PR #65 (`de6c1c3`), squashed from `b00fa02` after rebase onto dev. Four follow-up candidates from the implementer's class sweep, confirmed by the reviewer BY EXPERIMENT and correctly left out of this task's scope, carried to wave-17 settlement for user approval (raised to the user at restore alongside CCA-61/62/63/64's own queue-order confirmation, not yet decided). |
+| 29 | CCA-60 | Done, 2026-08-17, wave 17 | Threaded `paths.resolveWindowsAppDataOverrides(homeDir)` into both direct `paths.resolveConfigDir` call sites in `test/main/engine-context-config-regen.test.js`, so `npm test` no longer silently writes into a real Windows user's `%APPDATA%\claude-conduit`. Added a suite-wide static guard (`test/engine/paths-win32-override-guard.test.js` + `test/engine/.helpers/win32-override-scanner.js` + `test/engine/paths-win32-override-guard-scanner.test.js`) against the same failure class recurring, plus an export-drift test forcing classification of any future `paths.js` export. **3 review passes, 2 fix cycles — the session that resolved this task began with recovering it from a crash**: at restore, review pass 2's fix (fix pass 2 — adopt tolerate-and-recover instead of a throw-based diagnostic, since the throw itself was measured unreliable; revert an unrelated pre-existing-test edit; remove a `require.main === module` fragility that could silently disable the whole guard) was found mid-flight, uncommitted, sitting in its worktree — recovered and finished rather than restarted. Pass 3 approved, independently re-deriving every claim (a 12,903-position canary sweep found zero regressions and zero live blind positions; reproduced the `require.main` fragility's closure from scratch), flagging 3 non-blocking items for the wave cleanup rather than a 4th review cycle. npm test: 494/494 standalone, **522/522 on merged dev** (the gap from CCA-58/59's 487 baseline is `a1e282e`'s unrelated provider-abstraction tests, landed mid-wave outside this campaign). Merged as PR #66 (`60a8fee`). **Wave-level integration review found real material for the 17th consecutive wave**: a test-count staleness bigger than CCA-58's own review had predicted (485->522, not 489, exactly because of that same mid-wave `a1e282e` landing), two further latent gaps in the new guard (an unbalanced `/*` inside a multi-line template literal, and a resolver call inside a template interpolation — both zero live occurrences), a diagnostic-message improvement, an NCOW->CCA citation sweep scoped to only the 3 wholly-new files, and two other stale CLAUDE.md passages (one attributable to `a1e282e`, not this wave's own three tasks). All fixed via cleanup PR #67 (`26eb47e`), 1 review pass — that reviewer built an independent AST-based ground-truth implementation of the guard's own detection rule and confirmed zero live false negatives of any kind in the current suite, not just the two named gaps. Final npm test on merged dev: **522/522**. |
 
 ## Not queued — needs a human / blocked
 
@@ -758,6 +771,39 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 - **RE-CHECK FLAGGED at the 2026-08-16 restore**: CCA-14.1 and CCA-14.2 (the NVIDIA + OpenRouter provider abstraction) landed directly on `dev` via commit `a1e282e`, entirely outside this campaign (no PR/worktree/review trail here). CCA-14's own "needs decomposition" framing above may now be stale, and CCA-14.3/14.4/14.5 plus CCA-15 haven't been re-assessed against that landed work. Also newly appeared and never queue-order-confirmed: CCA-62 (evolv hosted gateway provider), CCA-63 (GitHub-rename URL sweep), CCA-64 (Dependabot js-yaml DoS). Next inventory pass should re-run I1/I2 over all of these before assuming the classifications above still hold.
 
 ## Wave log
+
+- 2026-08-17 — **wave 17 settled (tasks: CCA-58, CCA-59, CCA-60, all Done)**: CCA-58/CCA-59 had
+  already merged in the prior session (PRs #64/#65) but the tracker doc itself was never updated to
+  match -- reconciled at this session's restore. CCA-60 was found genuinely mid-flight: review pass
+  2's fix (fix pass 2) was sitting uncommitted in its treehouse worktree, discovered only because the
+  restore's ground-truth check went looking (the repo's own rename/move since the last handover had
+  also broken all 4 pool worktrees' back-links and appears to have dropped treehouse's pool
+  registration entirely -- `git worktree repair` fixed the links; treehouse itself needs a fresh
+  init/lease cycle before its pool commands work again). A worker resumed fix pass 2 in place (adopt
+  tolerate-and-recover for review pass 2's B1 finding, revert an unrelated pre-existing-test edit,
+  remove a `require.main === module` fragility) rather than restarting from scratch, then pushed
+  force-with-lease (the worktree's local history had already been rebased ahead of the stale commits
+  still on origin). Review pass 3 approved, re-deriving every claim independently (a 12,903-position
+  canary sweep found zero regressions vs. the pre-tolerate-and-recover approach and zero live blind
+  positions; reproduced the require.main fragility's closure from scratch under
+  `node --test --experimental-test-isolation=none`), flagging 3 non-blocking items for the wave
+  cleanup rather than a 4th review cycle. Merged via the standard queue: rebase onto current dev
+  (clean), mandatory re-verify (522/522), PR #66 (`60a8fee`), worktree released, branch deleted.
+  **Wave-level integration review found real material for the 17th consecutive wave**: a test-count
+  staleness bigger than CCA-58's own review had predicted (485->522, not 489 -- `a1e282e`'s unrelated
+  CCA-14.1/14.2 provider-abstraction work landed on dev mid-wave, outside this campaign, adding 33
+  tests nobody in wave 17 accounted for), two further latent gaps in CCA-60's new win32-override
+  scanner (an unbalanced `/*` inside a multi-line template literal, and a resolver call inside a
+  template interpolation -- both zero live occurrences, now documented in the guard's own gap list),
+  a diagnostic-message improvement to an error path, an NCOW->CCA citation sweep correctly scoped to
+  only the 3 files that are wholly new since the prefix migration (leaving older files' historical
+  NCOW- citations alone, per CLAUDE.md's own "do not fix in bulk" rule), and two unrelated stale
+  CLAUDE.md passages (one attributable to `a1e282e`, not wave 17's own three tasks, but bundled as a
+  related staleness fix). All fixed via cleanup PR #67 (`26eb47e`), 1 review pass -- that reviewer
+  built an independent AST-based ground-truth implementation of the guard's own detection rule and
+  confirmed zero live false negatives of any kind in the current suite, not just the two named gaps.
+  Final npm test on merged dev: **522/522**. CCA-59's implementer-found follow-up candidates and the
+  CCA-14/CCA-62/63/64 queue-order question are both carried to the user, not decided unilaterally.
 
 - 2026-08-07 — **wave 16 settled (task: CCA-57, Done)**: dispatch (conflict graph computed fresh via
   file-citation and pairwise-complete across the queue-order-first pick, so solo BY COMPUTATION —
