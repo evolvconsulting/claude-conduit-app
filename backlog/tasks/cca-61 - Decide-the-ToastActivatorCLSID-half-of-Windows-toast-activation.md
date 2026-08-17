@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 04:25'
+updated_date: '2026-08-17 04:32'
 labels: []
 dependencies:
   - CCA-57
@@ -309,4 +309,33 @@ Files touched: `test/main/app-user-model-id.test.js` only.
 Review pass 3 dispatched next, into the same worktree, against `d204d5d`. Per this campaign's fix-cycle
 cap (2 retries, 3 total review passes), this is the LAST review pass before an automatic escalation
 would apply if it comes back request_changes again.
+
+## Wave-18 review pass 3 verdict — APPROVE (reviewer, Opus, in the branch's own worktree; final pass
+under this campaign's fix-cycle cap)
+
+Reviewed `d204d5d`. The recurring claim-broader-than-mechanism defect is genuinely closed across all
+three sites, with fresh independent evidence: re-fetched all 4 Electron doc citations from the real
+v43.2.0 docs and verbatim-matched them again; re-grepped app-builder-lib 26.15.3 fresh (zero CLSID
+hits); reproduced all three guard behaviors (AC#6 x2, AC#7) end to end against scratch copies, never
+the real files; confirmed AC#6/#7's actual logic is byte-identical to what pass 2 already approved
+(comment-stripped md5 match) -- only the one comment clause changed this pass. Swept the ENTIRE branch
+(all 4 commits, every tracked file) for any FOURTH site carrying the old "no remedy"/"functionally
+inert" framing -- found none; the only remaining hits are the corrected wording itself. Confirmed no
+new overstatement was introduced in the opposite direction (the corrected text claims only a
+mechanical capability, still explicitly defers COM-registration certainty as unverified). No further
+rebase needed (`origin/dev`'s only new commit since this branch's base touches solely this task's own
+backlog file, which the branch itself never touches).
+
+npm test (reviewer's own run): 562/562.
+
+**Two non-blocking items flagged for the orchestrator, outside this branch's own scope:**
+1. `README.md:296-301` still cites the narrower `templates/nsis/`-only grep the yml has since
+   superseded with a repo-wide one, and says "CCA-61 is open to decide it" -- will go stale the moment
+   this merges. Not part of this task's own AC#3 (which only requires the yml comment), but worth a
+   follow-up sweep.
+2. **This task's own Backlog "Implementation Plan" field (recorded by the orchestrator via `--plan`,
+   not something the worker can edit) still reads, in the orchestrator's own voice: "a runtime-set
+   fixed CLSID would be exactly as functionally inert as today's random default -- rules out the 'fix'
+   path."** That is the exact refuted wording, now contradicted by this task's own later notes and the
+   merged code. To be corrected at settlement (final-summary), not a branch defect.
 <!-- SECTION:NOTES:END -->
