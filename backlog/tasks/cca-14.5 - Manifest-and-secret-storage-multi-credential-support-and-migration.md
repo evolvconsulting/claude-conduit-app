@@ -4,7 +4,7 @@ title: 'Manifest and secret storage: multi-credential support and migration'
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 15:11'
+updated_date: '2026-08-17 15:15'
 labels: []
 dependencies:
   - CCA-14.1
@@ -180,4 +180,21 @@ touch is configGen.js's own idempotent preserve-if-set logic); AC#2 legacy path 
 byte-for-byte unchanged structurally; the 2 updated pre-existing assertions are not weakened
 (gained a new correct key, didn't loosen the match); scope exactly the 8 files; zero overlap
 with CCA-63/CCA-65.
+
+FIX PASS 1 (worker): addressed blocking F1. Added a discriminating regression test to
+test/main/engine-context-config-regen.test.js via a new seedStaleOpenRouterInstall(homeDir)
+fixture (mirrors the file's existing seedStaleInstall convention): manifest.provider =
+'openrouter', litellm.env holding ONLY OPENROUTER_API_KEY (no NVIDIA_NIM_API_KEY anywhere on
+disk). Asserts regen produces OpenRouter-shaped output.
+
+npm test: 580/580 before, 581/581 after. Non-vacuity reproduced exactly per the reviewer's own
+method: manually reverted engine-context.js's regenProvider line to always use activeProvider
+(uncommitted scratch edit) -- new test failed with {regenerated:false, reason:
+'no-existing-secrets'}, all 27 other tests in that file still passed; reverted cleanly, both
+green again.
+
+Files touched: test/main/engine-context-config-regen.test.js only (engine-context.js itself
+untouched, confirmed via git diff). F2-F6 correctly left untouched per instructions.
+
+Commit on feat/CCA-14.5-multi-credential-secrets (pushed): 61702ec.
 <!-- SECTION:NOTES:END -->
