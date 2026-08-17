@@ -3,10 +3,10 @@ id: CCA-60
 title: >-
   npm test overwrites the real Windows config dir from
   engine-context-config-regen.test.js
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-17 00:45'
+updated_date: '2026-08-17 01:13'
 labels: []
 dependencies: []
 priority: high
@@ -36,11 +36,11 @@ This is agent-resolvable without a Windows host: the fix and its guard are both 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 test/main/engine-context-config-regen.test.js threads paths.resolveWindowsAppDataOverrides(homeDir) into BOTH direct paths.resolveConfigDir call sites (currently lines 90 and 256), so the test resolves to its own tmp dir on win32
-- [ ] #2 A guard exists that fails if any test calls paths.resolveConfigDir (or another paths.js win32-branching resolver) with a homedir override but no matching appData/localAppData override — cheap and suite-wide, so this recurring class is caught automatically rather than by inspection
-- [ ] #3 The guard is proven non-vacuous: reverting the line-90 and line-256 fix makes it fail, and it is demonstrated NOT to be a verbatim copy of an existing test that already passed
-- [ ] #4 npm test passes on macOS, and the win32 resolution path is proven correct by a test that simulates a win32 environment (a real Windows host is not required)
-- [ ] #5 All pre-existing tests continue to pass unmodified
+- [x] #1 test/main/engine-context-config-regen.test.js threads paths.resolveWindowsAppDataOverrides(homeDir) into BOTH direct paths.resolveConfigDir call sites (currently lines 90 and 256), so the test resolves to its own tmp dir on win32
+- [x] #2 A guard exists that fails if any test calls paths.resolveConfigDir (or another paths.js win32-branching resolver) with a homedir override but no matching appData/localAppData override — cheap and suite-wide, so this recurring class is caught automatically rather than by inspection
+- [x] #3 The guard is proven non-vacuous: reverting the line-90 and line-256 fix makes it fail, and it is demonstrated NOT to be a verbatim copy of an existing test that already passed
+- [x] #4 npm test passes on macOS, and the win32 resolution path is proven correct by a test that simulates a win32 environment (a real Windows host is not required)
+- [x] #5 All pre-existing tests continue to pass unmodified
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -502,3 +502,15 @@ identically on plain dev, not caused by this branch. Orchestrator will still do 
 mandatory re-verify in the actual worktree per the merge-queue procedure, not rely on the scratch-clone
 result alone.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Threaded paths.resolveWindowsAppDataOverrides(homeDir) into both direct paths.resolveConfigDir call sites in test/main/engine-context-config-regen.test.js (seedStaleInstall and the corrupt-manifest test), so the suite no longer silently writes into a real Windows user's %APPDATA%\claude-conduit. Added a suite-wide static guard (test/engine/paths-win32-override-guard.test.js + test/engine/.helpers/win32-override-scanner.js + test/engine/paths-win32-override-guard-scanner.test.js) that fails if any test calls one of paths.js's four win32-branching resolvers with a homedir override but no appData/localAppData escape, plus an export-drift test forcing a human to classify any future paths.js export.
+
+3 review passes, 2 fix cycles, all independently re-derived rather than trusted. Pass 1 found the guard's comment/string stripper had zero regex-literal awareness (blind in 3/37 files). Fix 1 added a throw-on-unterminated-backtick. Pass 2 measured that throw itself as unreliable (fires only on an odd bare-backtick count; a real suite file already has an even count that would go blind silently) and required tolerate-and-recover instead. Fix 2 reworked accordingly, reverted an earlier fix pass's edit to an unrelated pre-existing test, and removed a require.main === module fragility that could silently disable the whole guard under multi-file test-runner isolation. Pass 3 approved, independently re-deriving every claim: a 12,903-position canary sweep found zero regressions vs. the pass-1 approach and zero live blind positions, and a from-scratch node --test --experimental-test-isolation=none run reproduced the require.main fragility being closed.
+
+The wave-17 integration review (mandatory, over the cumulative CCA-58+59+60 diff) then found and fixed two further latent gaps in the same guard (an unbalanced /* inside a multi-line template literal, and a resolver call inside a template interpolation — both zero live occurrences, now documented in the guard's own gap list) plus a diagnostic-message improvement, via a separate independently-reviewed cleanup PR (#67) — that reviewer additionally built an independent AST-based ground-truth implementation and confirmed zero live false negatives of any kind in the current suite.
+
+npm test: 522/522 on merged dev (485 baseline + 2 from this task + 35 from unrelated concurrent work, verified directly by the orchestrator after each merge). Merged as PR #66 (60a8fee), cleanup as PR #67 (26eb47e).
+<!-- SECTION:FINAL_SUMMARY:END -->
