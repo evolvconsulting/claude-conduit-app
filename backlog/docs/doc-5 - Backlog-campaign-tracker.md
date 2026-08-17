@@ -3,7 +3,7 @@ id: doc-5
 title: Backlog campaign tracker
 type: other
 created_date: '2026-08-04 20:04'
-updated_date: '2026-08-17 16:05'
+updated_date: '2026-08-17 17:11'
 ---
 # Backlog campaign tracker
 
@@ -101,6 +101,26 @@ configGen.js), fixed via cleanup PR #76 (`7f0840c`), 1 review pass. That review 
 genuine test-infra reliability gap -- a full-suite concurrency flake that silently drops ~22 tests
 from the reported count on an affected run -- filed with user approval as **CCA-66**. Final npm
 test on merged dev: **583/583**.
+
+**Post-wave-19, same session (2026-08-17): the user approved cutting the real v0.1.2 release
+(CCA-63's AC#2/#3). It FAILED on real CI, revealing important new information.** Pushed tag
+`v0.1.2`, triggering `.github/workflows/release.yml` across 4 platform runners. `prepare`
+succeeded cleanly (no release-object race). Only macOS passed `npm test` and completed its
+build+publish step (assets landed on the still-DRAFT release, never made visible to any user).
+Windows AND both Linux runners (x64 and arm64) each failed `npm test` -- **two different,
+pre-existing, platform-specific bugs, neither related to any task in this campaign's 19 waves**:
+`test/engine/pm2Control.test.js:914` (a rejection-expectation test that didn't reject on Linux
+CI) and `test/main/ipc-mutex.test.js:956` (a static source-regex test likely broken by CRLF
+line-ending conversion on Windows checkout). Filed as **CCA-67** (Linux) and **CCA-68**
+(Windows) with user approval. Since `finalize` requires ALL 4 build jobs to succeed, nothing
+was ever published or visible via electron-updater's feed -- the incomplete draft was deleted,
+`v0.1.1` is Latest again, unchanged. **Significant finding, not scoped to any one task**: this
+appears to be the first time this campaign's release workflow has actually exercised `npm test`
+on real Windows/Linux CI -- every prior test-count claim across all 19 waves (562/562, 583/583,
+etc.) was verified on macOS only. User decided: fix CCA-67/CCA-68 first, then retry the
+release. CCA-63 stays In Progress; the `v0.1.2` git tag remains pushed (accurate, matches
+package.json) but a future successful release at this version needs the tag moved once fixed,
+or a bump to v0.1.3 -- undecided, revisit once CCA-67/CCA-68 land.
 
 The "ready now" set is ALWAYS recomputed live from the Backlog task list + this table
 at the start of every restore/wave — never trust a persisted "next wave" plan.
@@ -772,14 +792,27 @@ solo wave 4; CCA-41 will join a future wave once CCA-38 lands and its dependency
 
 | # | Task ID | Cluster | Deps (mirrors each task's real `dependencies` field) | Status | Wave | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | CCA-66 | test-infra | none | To Do | | Filed 2026-08-17 (user-approved) from wave-19's
+| 1 | CCA-67 | release-ci | none | To Do | | Filed 2026-08-17 (user-approved) from CCA-63's failed
+live release attempt: `test/engine/pm2Control.test.js:914`'s rejection-expectation test failed on
+BOTH real Linux CI runners (x64 and arm64) in the same run -- `spawnDaemon()` didn't reject as
+expected when its rpc socket bind target was a pre-existing non-socket file. Blocks any Linux
+release build from succeeding. User directed: fix this (and CCA-68) before retrying the release --
+treat as HIGH priority, ahead of CCA-66.
+| 2 | CCA-68 | release-ci | none | To Do | | Filed 2026-08-17 (user-approved), same source as
+CCA-67: `test/main/ipc-mutex.test.js:956`'s static source-regex test failed on the real
+windows-latest CI runner -- likely CRLF line-ending conversion on Windows checkout breaking a
+`\n`-literal regex against `index.js`'s raw text, not yet confirmed by direct inspection. Blocks
+any Windows release build from succeeding. Same priority/ordering rationale as CCA-67.
+| 3 | CCA-66 | test-infra | none | To Do | | Filed 2026-08-17 (user-approved) from wave-19's
 integration review: two independent reviewers hit a full-suite `node --test` concurrency flake
 where `licenses.test.js`/`menu.test.js`/`about-dialog.test.js` intermittently fail to LOAD under
 load (not flaky assertions), silently dropping ~22 tests from the reported count on an affected
-run. Not yet queue-order-confirmed -- fold into the next inventory pass.
+run. Lower urgency than CCA-67/CCA-68 (not release-blocking) but same not-yet-queue-order-confirmed
+status -- fold into the next inventory pass.
 
 (CCA-63 is NOT in this table -- its AC#1 is done/merged (PR #73) but AC#2/#3 remain outstanding,
-gated on a human decision; see "Not queued" below rather than Resolved, since it isn't finished.)
+now blocked on CCA-67/CCA-68 landing rather than purely a human decision; see "Not queued" below
+rather than Resolved, since it isn't finished.)
 
 ## Resolved
 
@@ -846,14 +879,16 @@ gated on a human decision; see "Not queued" below rather than Resolved, since it
   design questions (single vs. multi-proxy, client-config-on-switch behavior) needing a human
   product decision first. Re-confirmed 2026-08-17, unaffected by CCA-14.1/14.2 landing.
 - CCA-62: blocked — depends on CCA-14 (parent) and CCA-15, neither Done. Re-confirmed 2026-08-17.
-- **CCA-63: partially done, blocked on a human decision, not an agent limitation.** AC#1 (URL
-  sweep) is complete, reviewed, and merged as PR #73 (`8e3b29c`). AC#2/#3 (publish a real GitHub
-  Release built at the now-bumped 0.1.2, verify an existing packaged install detects/applies it,
-  verify a fresh build publishes/auto-updates against the renamed repo) remain deliberately
-  unattempted -- this campaign's standing rule holds them for the orchestrator, run only after
-  explicit chat confirmation with the user, never autonomous inside a wave. Backlog status left
-  as In Progress (not Done) since 2 of 3 ACs are outstanding. Next session: ask the user whether
-  to proceed with the actual release cut now, or continue deferring.
+- **CCA-63: partially done, now blocked on CCA-67/CCA-68, not a human decision anymore.** AC#1
+  (URL sweep) is complete, reviewed, and merged as PR #73 (`8e3b29c`). The user approved cutting
+  the actual release this same session -- v0.1.2 was tagged and pushed, triggering the real CI
+  release workflow, which FAILED: Windows and both Linux runners each hit a different
+  pre-existing, unrelated test bug (see CCA-67/CCA-68), so the release never published (draft
+  deleted, no live impact, `v0.1.1` still Latest). User directed: fix CCA-67/CCA-68 first, then
+  retry the release. Backlog status left as In Progress. Next session: once CCA-67/CCA-68 are
+  Done and verified on real CI, decide whether to move the existing `v0.1.2` tag or bump to
+  v0.1.3, then retry the actual publish + live auto-update verification (still orchestrator-only,
+  still needs a fresh explicit go-ahead in chat before pushing any tag again).
 
 ## Wave log
 
