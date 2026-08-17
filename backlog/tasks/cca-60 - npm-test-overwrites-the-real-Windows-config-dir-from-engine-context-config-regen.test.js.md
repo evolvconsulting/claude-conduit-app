@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 11:49'
-updated_date: '2026-08-17 00:29'
+updated_date: '2026-08-17 00:45'
 labels: []
 dependencies: []
 priority: high
@@ -450,4 +450,55 @@ Files touched: `test/engine/.helpers/win32-override-scanner.js` (new),
 `test/main/engine-context-config-regen.test.js`. Nothing outside this task's scope touched.
 
 Review pass 3 dispatched next, into the same worktree, against `cf00842`.
+
+## Wave-17 review pass 3 verdict — APPROVE, all five ACs confirmed (reviewer, Opus, in the branch's own worktree)
+
+Reviewed `cf00842` (rebased-onto-dev tree from fix pass 2). Re-derived every claim independently rather
+than trusting the fix-pass-2 report:
+
+**AC#1-#5 all independently confirmed**, each with the reviewer's own reproduction (grep for all call
+sites; counted the guard's scanned-file set at 37; its own AC#3 non-vacuity experiment in a scratch
+copy of the whole tree, reverting both call sites -- guard fails naming both lines exactly, restores
+clean; its own AC#4 win32-simulation run; a blob-hash comparison confirming
+`findKeyAfterTraySpread` is byte-identical to its pre-task form, closing the AC#5 question left open by
+pass 2's acceptance-in-principle).
+
+**B1 CLOSED** -- reviewer built its OWN fixture (independent of the fix-pass-2 worker's), reproduced the
+pre-fix silent miss and the post-fix detection, then ran a 12,903-position canary sweep across all 37
+scanned files comparing pass-1 vs pass-2 detection: **zero regressions, 2 positions newly caught, zero
+live blind positions** (all 162 pass-2 misses landed inside genuine block comments). **S1 CLOSED** --
+reproduced the exact before/after under `node --test --experimental-test-isolation=none` with multiple
+files loaded together (4/4 with zero guard subtests pre-fix; 6/6 with both guard assertions present
+post-fix). **S3 CLOSED** -- grep confirms zero `CALL_RE` references remain.
+
+npm test (reviewer's own run): **494/494 pass, 0 fail**. Scope confirmed clean (only the 4 files in
+`test/engine/`+`test/main/engine-context-config-regen.test.js`). No fabricated citations found.
+
+### Three findings, all non-blocking, deferred to the wave-17 cleanup pass rather than a 4th review cycle
+
+- **F-A (should-fix)**: the tolerate-and-recover rework's own documented residual-disclosure is
+  materially incomplete -- a genuine multi-line template literal containing an unbalanced `/*` (no
+  closing `*/`) opens a phantom block comment that can hide REAL offending code AFTER it. Measured via
+  a constructed fixture (0 live occurrences today; latent only). Cheap remedy: one added sentence in
+  the guard's own gap-list documentation.
+- **F-B (nit)**: `extractCallArgs` can still throw an "unbalanced parens" error naming no file, now
+  newly reachable from template-fixture text -- low severity, loud rather than silent, but in tension
+  with the rework's "nothing is thrown" framing.
+- **F-C (nit)**: new files/comments cite `NCOW-60`/`NCOW-23` (correct -- NCOW-60 is CCA-60's prior
+  identity, consistent with this branch's own earlier commits) while the two newest commit MESSAGES say
+  "Refs CCA-60" -- a naming-convention inconsistency, not a fabrication.
+
+**Orchestrator's disposition**: all five ACs are independently confirmed by two consecutive review
+passes now; F-A/F-B/F-C are latent-only/nit-severity with a cheap remedy. Merging now rather than
+spinning a 4th review pass solely for documentation polish -- folding all three into the wave-17
+integration review (about to run once this merges), matching this campaign's established
+narrow-cleanup-pass convention (see CCA-56/CCA-57's own cleanup PRs).
+
+**Also noted by the reviewer**: the branch's merge-base (`36f50a2`) is 8 commits behind current dev
+(`19ff00c`, includes the CCA-14.1/14.2 provider abstraction landed outside this campaign). Reviewer
+test-merged in a scratch clone: clean merge, 522 tests/520 pass/2 fail, both failures a pre-existing
+sandbox artifact in `licenses.test.js` (`npm ls` against a symlinked `node_modules`) reproduced
+identically on plain dev, not caused by this branch. Orchestrator will still do the real rebase +
+mandatory re-verify in the actual worktree per the merge-queue procedure, not rely on the scratch-clone
+result alone.
 <!-- SECTION:NOTES:END -->
