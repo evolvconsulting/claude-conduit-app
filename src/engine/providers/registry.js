@@ -5,9 +5,10 @@ const { openrouterProvider } = require('./openrouter');
 const { customLocalProvider } = require('./customLocal');
 
 /**
- * The seam every upstream (NVIDIA NIM, OpenRouter, and later Custom/Local —
- * see CCA-14.3) implements, so engine/main code stops hardcoding a single
- * provider's HTTP behavior and litellm config shape.
+ * The seam every upstream (NVIDIA NIM, OpenRouter, and Custom/Local — all
+ * three registered in PROVIDERS below, the last of them by CCA-14.3)
+ * implements, so engine/main code stops hardcoding a single provider's HTTP
+ * behavior and litellm config shape.
  *
  * `listModels`'s `modelInfo` is ADDITIVE and OPTIONAL — most provider
  * listings disclose only an id (NVIDIA's does), so every field but the

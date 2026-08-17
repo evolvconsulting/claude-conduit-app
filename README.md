@@ -294,11 +294,18 @@ instead of silently inert.
   installer creates, so a `nsis` install's notifications are correctly attributed on the
   AUMID half. There is a second half electron-builder leaves open on **both** Windows
   targets: Electron pairs that AUMID with a ToastActivatorCLSID, and electron-builder
-  writes none for `nsis` or `portable` (`electron-builder.yml`'s CCA-57 comment: a
-  `ToastActivator`/`CLSID` grep over `node_modules/app-builder-lib/templates/nsis/` returns
-  zero hits). This app's toasts are plain informational notifications that never register
-  an activation handler, so the gap isn't exercised today — but it isn't closed either, and
-  CCA-61 is open to decide it. Separately, and specific to **portable**: that build
+  writes none for `nsis` or `portable` (`electron-builder.yml`'s CCA-61 comment: a
+  `ToastActivator`/`CLSID` grep over the whole of `node_modules/app-builder-lib/` — not just
+  its `templates/nsis/` subdirectory — returns zero hits). This app's toasts are plain
+  informational notifications that never register an activation handler, so the gap isn't
+  exercised today. **CCA-61 decided it deliberately: accept the gap, document it
+  accurately.** A remedy *is* reachable — Electron's own `shell.writeShortcutLink(path,
+  'update', { toastActivatorClsid })` can stamp a CLSID onto an already-installed shortcut
+  at runtime, independent of app-builder-lib — but it was judged disproportionate, since it
+  would also need runtime shortcut discovery and almost certainly COM-server registration,
+  against an app that registers no activation handler at all. See `electron-builder.yml`'s
+  `win:` block and `src/main/tray.js` for the full reasoning and citations. Separately, and
+  specific to **portable**: that build
   installs no Start Menu shortcut at all, so even the AUMID half has nothing to be paired
   with.
 - **macOS** — builds are ad-hoc signed, not signed with a full Apple Developer ID; whether
@@ -378,7 +385,7 @@ is not required; installing the new one over it is fine.
 
 ```sh
 npm install
-npm test              # 522 tests (one live NVIDIA API check unless CI is set)
+npm test              # 562 tests (one live NVIDIA API check unless CI is set)
 npm run dev           # run from source
 npm run icons         # regenerate icons from build/icon.svg
 ```
