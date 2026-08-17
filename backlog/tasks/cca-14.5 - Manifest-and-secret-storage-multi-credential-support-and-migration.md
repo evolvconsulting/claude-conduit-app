@@ -4,7 +4,7 @@ title: 'Manifest and secret storage: multi-credential support and migration'
 status: In Progress
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 13:49'
+updated_date: '2026-08-17 15:00'
 labels: []
 dependencies:
   - CCA-14.1
@@ -27,6 +27,40 @@ Extend the manifest format to carry provider type, and extend secretStore.js to 
 - [ ] #3 An existing NVIDIA-only install migrates and continues working after upgrade with no manual intervention
 - [ ] #4 npm test passes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. manifest.js: add a `provider` field to the schema + resolveManifestProviderId(manifest) as
+   the single place every reader defaults an absent field to 'nvidia-nim' (every pre-CCA-14.5
+   install, unambiguously).
+2. secretStore.js: add saveFor/loadFor/clearFor(providerId), additive per-provider credential
+   files under a `<storagePath>.credentials/` sibling dir. Legacy save/load/clear (single file)
+   untouched -- zero migration needed for it. importFromExistingEnvFile() gains an optional
+   providerId arg.
+3. configGen.js: resolveExistingNvidiaApiKey becomes resolveExistingApiKeyForEnvVar(envVar)
+   under the hood; regenerateStaleConfig() takes an optional `provider` opt (id/apiKeyEnvVar/
+   litellmProvider), defaulting to NVIDIA's values for backward compatibility. On success,
+   backfills manifest.provider in the same saveManifest call that stamps generated_by_version.
+   Also fixes configGen.js:379's stale "today's only provider" comment (forward-flagged finding
+   #3 from wave-18's review).
+4. engine-context.js: config.generate() stamps provider: activeProvider.id. The regen path
+   resolves its provider from manifestStore.resolveManifestProviderId(manifest) via
+   providers.getProvider(...), reading the manifest back rather than activeProvider, so the
+   stamped field is load-bearing once CCA-15 lands. Unknown provider id falls back to
+   activeProvider rather than throwing.
+5. Prove AC#3 non-vacuously: construct a real pre-CCA-14.5 fixture (no manifest.provider field,
+   litellm.env with NVIDIA_NIM_API_KEY, a legacy encrypted nim-key.enc in the real
+   apiKey.validateAndSave() shape), run actual createEngineContext() with a bumped appVersion
+   (the real upgrade trigger), assert manifest.json gains provider:'nvidia-nim' on disk, the key
+   survives under the same env var, and getMasked() still works with zero manual steps.
+
+Decision on the two forward-flagged configGen.js findings (documented, not silently decided):
+finding #3 (stale comment) fixed. Finding #2 (apiBaseLine-only-on-first-entry + unconditional
+api_key with no keyless-provider path) left OUT of scope -- unreachable today (no registered
+provider has apiKeyEnvVar:null), and fixing it means restructuring the live config-generation
+YAML/env format, materially riskier/bigger than this task's data-layer scope.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
@@ -58,4 +92,39 @@ declare their own `apiKeyEnvVar` today. Outside wave 18's own cumulative diff (c
 touched by CCA-64/14.3/14.4/61), so left for whoever picks up this task rather than fixed in that
 wave's cleanup. Distinct from the other configGen.js finding already recorded above (the
 `apiBaseLine`/unconditional-`api_key` integration risk) -- this one is just a stale comment.
+
+IMPLEMENTED (worker, wave 19).
+
+npm test: worker reports 550 total/548 pass/2 fail BEFORE any changes (test/main/licenses.test.js,
+test/renderer/about-dialog.test.js -- both "Electron failed to install correctly" errors,
+attributed to this fresh worktree's node_modules/electron still settling right after npm
+install/creation, not caused by this task). Re-ran clean twice AFTER changes: 580/580 pass, 0
+fail, both times. Worker notes the 550->580 jump (vs 550+18-new) is explained by the crash
+having undercounted registered tests in the two crashed files, not just failed 2 -- reviewer
+should independently confirm this arithmetic and confirm the pre-existing-flake explanation
+rather than trust it.
+
+AC#3 non-vacuous proof: new test in test/main/engine-context-config-regen.test.js constructs a
+real pre-CCA-14.5 fixture (manifest with no provider field, litellm.env with
+NVIDIA_NIM_API_KEY, a legacy encrypted nim-key.enc in the real apiKey.validateAndSave() shape),
+runs actual createEngineContext() with a bumped appVersion (the real upgrade trigger), and
+asserts manifest.json on disk gains provider:'nvidia-nim' (genuine migration, not just a
+runtime default), the key survives under the same env var, and getMasked() still works with
+zero manual steps.
+
+Files touched: src/engine/manifest.js, src/engine/secretStore.js, src/engine/configGen.js,
+src/main/engine-context.js, test/engine/manifest.test.js, test/engine/secretStore.test.js,
+test/engine/configGen.test.js, test/main/engine-context-config-regen.test.js. Also updated 2
+pre-existing exact-patch assertions in configGen.test.js that the provider-backfill change
+intentionally altered (flagged, not silent -- reviewer should confirm these 2 updated
+assertions are legitimate and not a weakened guarantee).
+
+Commits on feat/CCA-14.5-multi-credential-secrets (pushed): a81e0fc (manifest), ddfc6c1
+(secretStore), dac33be (configGen), d5c9eaf (engine-context).
+
+Judgment call on the two forward-flagged configGen.js findings: #3 (stale comment) fixed,
+grepped whole repo, only instance. #2 (apiBaseLine/api_key keyless-provider gap) left OUT of
+scope -- unreachable today (no registered provider has apiKeyEnvVar:null), fixing it means
+restructuring the live config-generation format, judged materially riskier/bigger than this
+task's data-layer scope. Reviewer should independently assess whether this call was reasonable.
 <!-- SECTION:NOTES:END -->
