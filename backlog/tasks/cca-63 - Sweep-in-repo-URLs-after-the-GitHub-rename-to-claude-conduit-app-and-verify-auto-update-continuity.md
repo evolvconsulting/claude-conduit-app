@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
-updated_date: '2026-08-17 13:49'
+updated_date: '2026-08-17 14:54'
 labels: []
 dependencies: []
 priority: high
@@ -25,3 +25,55 @@ The GitHub repo was renamed evolvconsulting/claude-conduit -> evolvconsulting/cl
 - [ ] #2 An existing packaged install (built before the rename) still detects and applies an update published after the rename, verified live
 - [ ] #3 A fresh packaged build publishes and auto-updates against the renamed repo, verified live
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Grep the whole repo for evolvconsulting/claude-conduit as a literal, excluding the correct
+   new -app slug, to find every stale URL/slug.
+2. Fix all live, current-state pointers: package.json (homepage, repository.url), README.md's
+   Releases link, src/main/menu.js's REPO_URL, src/renderer/components/about-dialog.js's
+   REPO_URL, src/main/autoUpdate.js's DEFAULT_REPO, docs/auto-update.md, docs/distribution.md,
+   .github/release-notes-template.md, test/engine/updateCheck.test.js's literal.
+3. Bump package.json/package-lock.json version 0.1.1 -> 0.1.2 via npm version patch
+   --no-git-tag-version (no tag created).
+4. Run npm run pack (electron-builder --dir, no --publish) to prove packaging still works at
+   the bumped version.
+5. Do NOT create/push a tag, do NOT run gh release create, do NOT attempt AC#2/#3's live
+   verification -- those are gated to the orchestrator per the user-confirmed rule.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+IMPLEMENTED (worker, wave 19). AC#1 fully done; AC#2/#3 deliberately left unattempted (gated to
+orchestrator, per user-confirmed rule).
+
+npm test: 562/562 both after the URL sweep commit and after the version-bump commit (one
+transient electron-binary-install race on this fresh worktree's very first run, self-resolved
+on immediate retry with no code change -- environment flake, not a regression).
+
+npm run pack: succeeded at version 0.1.2, dist/mac-arm64/Claude Conduit.app built, ad-hoc
+signed (codesign -v exit 0), Info.plist CFBundleShortVersionString=0.1.2 confirmed.
+
+git tag --list: only v0.1.0/v0.1.1 -- confirms no tag was created (release workflow only
+triggers on a v*.*.* tag push, so this was never at risk of an accidental publish).
+
+Judgment calls (documented per instructions):
+- CLAUDE.md left untouched: its one hit (line 16) is inside an already-accurate historical
+  narrative attributing the OLD slug to the CCA-12 rename; rewriting it would misstate which
+  task did what. DESIGN.md confirmed zero hits.
+- No CHANGELOG entry added: no CHANGELOG file/convention exists in this repo -- release notes
+  are written into the GitHub Release body at publish time from .github/release-notes-template.md.
+  Flagged rather than inventing a new convention unilaterally; a CHANGELOG.md would be a
+  separate scope decision.
+- Confirmed electron-builder.yml has no explicit GitHub owner/repo config (infers from
+  package.json's repository field, now fixed).
+
+Files touched: package.json, package-lock.json, README.md, src/main/menu.js,
+src/renderer/components/about-dialog.js, src/main/autoUpdate.js,
+test/engine/updateCheck.test.js, docs/auto-update.md, docs/distribution.md,
+.github/release-notes-template.md.
+
+Commits on feat/CCA-63-repo-rename-sweep (pushed): 9f0196a (URL sweep), ef4616d (version bump).
+<!-- SECTION:NOTES:END -->
