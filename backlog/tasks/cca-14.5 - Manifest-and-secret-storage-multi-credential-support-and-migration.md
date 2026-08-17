@@ -4,7 +4,7 @@ title: 'Manifest and secret storage: multi-credential support and migration'
 status: To Do
 assignee: []
 created_date: '2026-08-16 14:45'
-updated_date: '2026-08-17 04:04'
+updated_date: '2026-08-17 04:57'
 labels: []
 dependencies:
   - CCA-14.1
@@ -49,4 +49,13 @@ litellm's real docs rather than assuming).
 
 Not added to this task's acceptance criteria unilaterally -- recorded here so whoever picks up
 CCA-14.5 (or CCA-15, which is the actual end-to-end wiring point) doesn't rediscover it from scratch.
+
+## Second forward-flagged item from wave-18's integration/cleanup review (2026-08-17)
+
+`src/engine/configGen.js:379`'s comment `apiKeyEnvVar defaults to 'NVIDIA_NIM_API_KEY' (today's only
+provider)` is now stale -- all three registered providers (nvidia-nim, openrouter, custom-local) each
+declare their own `apiKeyEnvVar` today. Outside wave 18's own cumulative diff (configGen.js wasn't
+touched by CCA-64/14.3/14.4/61), so left for whoever picks up this task rather than fixed in that
+wave's cleanup. Distinct from the other configGen.js finding already recorded above (the
+`apiBaseLine`/unconditional-`api_key` integration risk) -- this one is just a stale comment.
 <!-- SECTION:NOTES:END -->
