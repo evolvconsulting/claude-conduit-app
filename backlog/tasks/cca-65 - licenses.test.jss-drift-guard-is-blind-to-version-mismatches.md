@@ -4,7 +4,7 @@ title: licenses.test.js's drift guard is blind to version mismatches
 status: In Progress
 assignee: []
 created_date: '2026-08-17 13:17'
-updated_date: '2026-08-17 14:52'
+updated_date: '2026-08-17 15:01'
 labels:
   - bug
   - test-infra
@@ -62,4 +62,27 @@ Commits on fix/CCA-65-licenses-version-drift-guard (pushed): 7b7d652, 337498e.
 
 Worker also checked the real currently-tracked licenses.json: no live drift found right now
 (app.version and all 91 entries match) -- nothing outside scope to fix.
+
+REVIEW PASS 1 (opus): APPROVE. Confirmed AC indices: [1, 2, 3, 4] -- all independently
+re-verified against real source, not the worker's claims.
+
+npm test personally observed: before 562/562, after 564/564 (delta +2, matches worker).
+
+Non-vacuity independently reproduced (stronger than the worker's own): ran the shipped
+TEST FILE (not just the helper) against a staled real licenses.json copy -- exit 1, 2/15
+failing exactly on the two new drift tests, both naming the mismatch. Also found the
+set-membership design correctly still catches the real js-yaml regression despite being lax
+for names with >1 lockfile version (14/91 entries affected -- documented, not blocking, since
+AC#2 as worded only requires matching *a* version package-lock.json resolves that name to).
+
+Non-blocking findings (none gate merge): (1) commit 7b7d652's message misattributes which
+commit/PR shipped the stale js-yaml (says 7e3b408/PR#72, actually 806f5ce/PR#68 caused it,
+PR#72 fixed it) -- worth a quick amend before merge since branch is unmerged and this
+campaign holds a "no overclaims" standard, but not blocking. (2) lockVersionsByName() DRY
+duplication with licenses.test.js's existing lockEntriesByName(). (3) informational: once
+CCA-63 lands (bumps package.json version), this guard will correctly fail until
+`npm run licenses` regenerates licenses.json -- expected, not a defect, but relevant given
+CCA-63 was found to have exactly this bug live (see CCA-63's own notes).
+
+Reviewer's own scope/overlap checks: clean, no drive-bys, disjoint from CCA-63/CCA-14.5.
 <!-- SECTION:NOTES:END -->

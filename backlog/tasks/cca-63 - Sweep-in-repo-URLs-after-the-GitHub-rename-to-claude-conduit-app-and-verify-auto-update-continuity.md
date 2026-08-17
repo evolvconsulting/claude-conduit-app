@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-07 18:09'
-updated_date: '2026-08-17 14:54'
+updated_date: '2026-08-17 15:01'
 labels: []
 dependencies: []
 priority: high
@@ -76,4 +76,35 @@ test/engine/updateCheck.test.js, docs/auto-update.md, docs/distribution.md,
 .github/release-notes-template.md.
 
 Commits on feat/CCA-63-repo-rename-sweep (pushed): 9f0196a (URL sweep), ef4616d (version bump).
+
+REVIEW PASS 1 (opus): REQUEST_CHANGES. Confirmed AC indices so far: [1] (AC#2/#3 correctly
+unattempted, orchestrator-gated, not faulted).
+
+npm test personally observed: 562/562, clean, no flake on this run.
+
+BLOCKING F1: scripts/generate-licenses.js:144 derives licenses.json's app.version from
+package.json's version. The worker bumped package.json 0.1.1 -> 0.1.2 but never re-ran
+`npm run licenses`, so licenses.json still says 0.1.1. Three independent confirmations by the
+reviewer: (1) user-visible -- Help > Licenses would show "Claude Conduit 0.1.1" while
+About/Info.plist say 0.1.2. (2) proven inside the actual npm-run-pack artifact -- app.asar
+literally contains version 0.1.1. (3) breaks CCA-65's own new drift guard the moment both
+branches merge -- reviewer ran CCA-65's appVersionMismatch() against this branch's files and
+it fails, reproducing the exact recurrence class CCA-65 was filed to catch.
+
+Fix required: run `npm run licenses`, confirm the diff is version-only (js-yaml etc. already
+correct), commit.
+
+Non-blocking (not gating): F2 (CLAUDE.md's line-16 paragraph reads stale in isolation, though
+technically correct history -- lines 33-43 already correct it, optional polish), F3 (DESIGN.md
+line 7 has a bare stale claim but is covered by that doc's own "not current source of truth"
+disclaimer -- optional touch-up). Also a process note: CLAUDE.md/README only document
+`npm run licenses` as needed after dependency changes, never version bumps, despite the
+generator deriving app.version from package.json -- possible follow-up-task material for the
+docs gap itself, not this task's scope.
+
+Everything else verified clean: AC#1 repo-wide grep confirmed zero stale live hits; AC#2/#3
+gate compliance clean (only pre-existing tags, no accidental publish trigger); version bump
+otherwise consistent; menu.js comment verified accurate against git history; test change not
+weakened; npm run pack reproduced independently; scope exactly the 10 files; zero overlap with
+CCA-14.5/CCA-65 at the file level (F1 is a semantic collision with CCA-65, not a file one).
 <!-- SECTION:NOTES:END -->
