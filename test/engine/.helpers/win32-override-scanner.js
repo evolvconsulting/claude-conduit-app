@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// NCOW-60 (fix pass 2, S1): extracted out of
+// CCA-60 (fix pass 2, S1): extracted out of
 // test/engine/paths-win32-override-guard.test.js so that BOTH that file and
 // test/engine/paths-win32-override-guard-scanner.test.js can require the
 // same implementation without either one loading the other as its own
@@ -33,7 +33,7 @@ const SELF = path.join(__dirname, '..', 'paths-win32-override-guard.test.js');
 // test/engine/paths.test.js: the ONLY file where an explicit `platform`
 // mention (with no appData/localAppData escape) exempts a homedir override —
 // see paths-win32-override-guard.test.js's boundary-judgment comment
-// (NCOW-60 F4's "free tightening"). Expressed relative to TEST_ROOT so it
+// (CCA-60 F4's "free tightening"). Expressed relative to TEST_ROOT so it
 // matches regardless of path separator conventions.
 const PATHS_TEST_FILE_RELATIVE = path.join('engine', 'paths.test.js');
 
@@ -45,7 +45,7 @@ const WIN32_BRANCHING_RESOLVERS = [
 ];
 
 // Every OTHER paths.js export, with a one-line reason it does not need the
-// homedir/appData check above (NCOW-60 F3). The drift test in
+// homedir/appData check above (CCA-60 F3). The drift test in
 // paths-win32-override-guard.test.js asserts these two arrays partition
 // paths.js's actual exports exactly, so a brand-new export fails the guard
 // until a human adds it to one list or the other — it does NOT itself verify
@@ -66,7 +66,7 @@ const EXEMPT_RESOLVERS = [
 // helper module itself, which the `.test.js`-suffix filter below already
 // excludes on its own (no need to special-case its path) — but a future
 // shared test-helper module living under test/ would be silently unscanned
-// by this walk the same way (NCOW-60 F9).
+// by this walk the same way (CCA-60 F9).
 function testFiles(dir = TEST_ROOT, acc = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
@@ -85,8 +85,22 @@ function testFiles(dir = TEST_ROOT, acc = []) {
  * repo has no parser in its devDependencies (see package.json), matching the
  * regex/text-scan style already used throughout this suite (e.g. the
  * identifier-binding checks in engine-context-config-regen.test.js).
+ *
+ * This is the one code path in this module that can still throw (wave-17
+ * integration review, F-B): stripCommentsAndStrings above never does, but a
+ * matched call whose parens do not balance in the STRIPPED text — reachable
+ * from a multi-line template literal's contents, which that function
+ * deliberately no longer blanks — reaches the end of the file without ever
+ * closing. That is loud rather than silent by design, so `location` is
+ * required at the call site and carried into the message: a bare byte offset
+ * with no file or line is not an actionable diagnostic for whoever has to
+ * find the text that produced it.
+ *
+ * @param {string} source
+ * @param {number} openParenIndex
+ * @param {string} location `path:line` of the matched call, for the throw
  */
-function extractCallArgs(source, openParenIndex) {
+function extractCallArgs(source, openParenIndex, location) {
   let depth = 0;
   let inString = null;
   for (let i = openParenIndex; i < source.length; i++) {
@@ -109,7 +123,13 @@ function extractCallArgs(source, openParenIndex) {
       if (depth === 0) return source.slice(openParenIndex + 1, i);
     }
   }
-  throw new Error(`unbalanced parens scanning from index ${openParenIndex}`);
+  throw new Error(
+    `win32-override guard: unbalanced parens scanning the resolver call at ${location} ` +
+      `(byte offset ${openParenIndex} of the comments/strings-blanked source). This usually means ` +
+      'call-shaped text inside a multi-line template literal — which this scanner deliberately does ' +
+      'not blank — is being read as real code; see the "Known, still-open gaps" list in ' +
+      'test/engine/paths-win32-override-guard.test.js.'
+  );
 }
 
 function lineNumberAt(source, index) {
@@ -124,7 +144,7 @@ function lineNumberAt(source, index) {
  * kept so line numbers computed against the result still match the original
  * source exactly — before this guard's own detection regexes ever run.
  *
- * Caught during NCOW-60's own AC#3 experiment: without a comments/strings
+ * Caught during CCA-60's own AC#3 experiment: without a comments/strings
  * pass, a plain-English comment quoting a buggy call shape for documentation
  * (see e.g. test/main/engine-context-config-regen.test.js:147, which quotes
  * `resolveConfigDir({ homedir: '/tmp/x' })` inline in a comment) is itself a
@@ -134,13 +154,20 @@ function lineNumberAt(source, index) {
  * any test file describing this failure class in a comment — including,
  * ironically, this guard's own fix commits — would otherwise trip it.
  *
- * Deliberately simple: no nested template-literal `${...}` interpolation
- * handling (this repo has no parser dependency DECLARED in package.json's
+ * Deliberately simple: no template-literal `${...}` interpolation re-entry
+ * (this repo has no parser dependency DECLARED in package.json's
  * dependencies/devDependencies — see package.json — and no call site in
- * this suite currently needs it), but every string/comment shape actually
- * used across test/**\/*.test.js today is flat.
+ * this suite currently needs it). A normally-closed single-line template is
+ * therefore blanked whole, interpolated CODE included — which is a real
+ * detection gap, tracked as F-D in paths-win32-override-guard.test.js's
+ * "Known, still-open gaps" list. The suite does contain one nested shape
+ * today (test/main/licenses.test.js:163-165, a multi-line template whose
+ * interpolation holds another template literal); it is harmless here,
+ * because the multi-line rule below declines to treat the outer one as a
+ * string at all and the inner, single-line one blanks cleanly, and nothing
+ * in either is resolver-call-shaped.
  *
- * NCOW-60 F1: this scanner has NO regex-literal awareness — a `/regex/`
+ * CCA-60 F1: this scanner has NO regex-literal awareness — a `/regex/`
  * containing a quote character is textually indistinguishable from real
  * string content, since both are just a quote character sitting outside any
  * comment. Two deliberate containment choices, rather than a full fix (which
@@ -150,7 +177,7 @@ function lineNumberAt(source, index) {
  *      never legitimately span a raw newline either — so a phantom one must
  *      not be allowed to blank every line after it to EOF. This confines
  *      that shape's blindness to at most the ONE physical line containing
- *      the stray quote. Unchanged by NCOW-60 fix pass 2 — pass 2's exhaustive
+ *      the stray quote. Unchanged by CCA-60 fix pass 2 — pass 2's exhaustive
  *      canary sweep confirmed this mechanism has zero genuine blind
  *      positions on the current suite.
  *  (b) a backtick-opened phantom string is held to the SAME same-line rule
@@ -199,6 +226,16 @@ function lineNumberAt(source, index) {
  *      a test author might add. That is the same shape of risk (a)'s
  *      same-line rule already accepts for quotes, extended to backtick.
  *
+ *      One consequence of that residual is worth naming explicitly (wave-17
+ *      integration review, F-A), because it is NOT capped at one line the
+ *      way (a)'s is: since the span is scanned as ordinary code, a block-
+ *      comment opener sitting inside a multi-line template literal, with no
+ *      closing marker later in the file, opens a phantom block comment right
+ *      here in the loop below and blanks the rest of the file — hiding any
+ *      genuine offending call after it. Zero live occurrences today; see the
+ *      gap list in paths-win32-override-guard.test.js for the measured
+ *      writeup.
+ *
  * @param {string} source
  * @param {string} [fileLabel] unused by the current (tolerate-and-recover)
  *   behavior — retained as a parameter for call-site compatibility, since no
@@ -240,7 +277,7 @@ function stripCommentsAndStrings(source, fileLabel = '<source>') {
       let closed = false;
       while (j < n) {
         // No phantom string, of ANY quote kind, survives an unescaped
-        // newline unclosed (NCOW-60 F1(a) for `'`/`"`, unchanged; extended
+        // newline unclosed (CCA-60 F1(a) for `'`/`"`, unchanged; extended
         // to backtick by fix pass 2's F1(b) rework — see the docblock above
         // for why backtick's recovery differs from (a)'s below).
         if (source[j] === '\n') break;
@@ -267,7 +304,7 @@ function stripCommentsAndStrings(source, fileLabel = '<source>') {
         continue;
       }
       if (quote === '`') {
-        // Tolerate-and-recover (NCOW-60 F1(b), fix pass 2): no closing
+        // Tolerate-and-recover (CCA-60 F1(b), fix pass 2): no closing
         // backtick was found before either an unescaped newline or EOF.
         // Discard the tentative body entirely and rewind to just past the
         // OPENING backtick — which is left in `out` unblanked, exactly as it
@@ -280,7 +317,7 @@ function stripCommentsAndStrings(source, fileLabel = '<source>') {
       }
       // `'`/`"` unterminated at the newline: blank the partial span up to
       // (not including) the newline, then resume normal scanning AT that
-      // same newline character (NCOW-60 F1(a), unchanged by fix pass 2).
+      // same newline character (CCA-60 F1(a), unchanged by fix pass 2).
       out += ' ' + body;
       i = j;
       continue;
@@ -311,7 +348,7 @@ function callRegex() {
  * spread that might supply one) to survive that branch. Returns one finding
  * string per offending call, `path:line: resolverName(args)`. "Every call"
  * is subject to the gaps documented in paths-win32-override-guard.test.js's
- * "Known, still-open gaps" header comment (NCOW-60 N2) — this is a static
+ * "Known, still-open gaps" header comment (CCA-60 N2) — this is a static
  * text scan, not a parser, and cannot see every call shape a real author
  * could write.
  *
@@ -330,7 +367,11 @@ function findOverrideViolations(file) {
   const callRe = callRegex();
   while ((match = callRe.exec(stripped))) {
     const openParenIndex = match.index + match[0].length - 1;
-    const argsStripped = extractCallArgs(stripped, openParenIndex);
+    const argsStripped = extractCallArgs(
+      stripped,
+      openParenIndex,
+      `${relativePath}:${lineNumberAt(stripped, match.index)}`
+    );
     // stripCommentsAndStrings blanks quote characters along with string
     // bodies, so the ORIGINAL (unstripped) slice is needed below wherever a
     // check must see an actual quote to tell a literal apart from a
@@ -342,13 +383,13 @@ function findOverrideViolations(file) {
 
     // `platform: process.platform` (or any other computed value) resolves
     // through the live host exactly like the bug this guard exists to
-    // catch, so it is never exempted, in ANY file (NCOW-60 F4, mutation
+    // catch, so it is never exempted, in ANY file (CCA-60 F4, mutation
     // M10). A bare mention of `platform` that is NOT of that computed shape
     // — a quoted literal (`platform: 'win32'`) or a shorthand property
     // (`{ platform, homedir: ... }`, the form test/engine/paths.test.js's
     // own darwin/linux loop test uses) — only exempts the call in
-    // test/engine/paths.test.js itself (the "free tightening" from NCOW-60's
-    // boundary judgment): its NCOW-23 regression tests at lines 142, 166 and
+    // test/engine/paths.test.js itself (the "free tightening" from CCA-60's
+    // boundary judgment): its CCA-23 regression tests at lines 142, 166 and
     // 186 deliberately pass homedir with no appData under a forced
     // `platform: 'win32'`, to prove the resolver's OWN fallback defeats it —
     // no other file gets that dispensation.
@@ -357,7 +398,7 @@ function findOverrideViolations(file) {
 
     // appData/localAppData only count as an escape when given a value other
     // than undefined/null — `{ appData: undefined }` falls through to
-    // process.env.APPDATA exactly like an absent appData key (NCOW-60 F4,
+    // process.env.APPDATA exactly like an absent appData key (CCA-60 F4,
     // mutation M11).
     const hasAppDataEscape =
       /\bappData\s*:\s*(?!(?:undefined|null)\b)\S/.test(argsStripped) ||

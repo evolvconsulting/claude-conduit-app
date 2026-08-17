@@ -9,23 +9,34 @@ const {
   findOverrideViolations,
 } = require('./.helpers/win32-override-scanner');
 
-// NCOW-60: a suite-wide, cheap static guard for the test-call-site half of
-// the failure class CLAUDE.md's NCOW-23 note warns about — a test that
+// CCA-60: a suite-wide, cheap static guard for the test-call-site half of
+// the failure class CLAUDE.md's CCA-23 note warns about — a test that
 // overrides `homedir` for one of paths.js's win32-branching resolvers but
 // leaves `platform`/`appData`/`localAppData` to the real host. Scoped to
 // test files (production call sites are engine-context.js/main/index.js,
 // both of which already thread resolveWindowsAppDataOverrides()).
 //
+// Prefix note (wave-17 integration review, F-C): these files were authored
+// off a base predating the 2026-08-07 backlog prefix migration and first
+// said NCOW-60/NCOW-23. `NCOW-N` and `CCA-N` are the same task, numbering
+// preserved (CLAUDE.md records the mapping); this file, the helper module
+// and paths-win32-override-guard-scanner.test.js were swept to CCA-N as
+// wholly new post-migration content, per CLAUDE.md's "cite CCA-N in
+// anything new". Older files keep their NCOW-N citations deliberately — so
+// test/engine/paths.test.js's regression TEST TITLES referenced below still
+// read "NCOW-23", and test/main/engine-context-config-regen.test.js still
+// reads "NCOW-60". Same tasks, historical spelling, not stale references.
+//
 // The scanning mechanism itself (WIN32_BRANCHING_RESOLVERS/EXEMPT_RESOLVERS,
 // testFiles(), stripCommentsAndStrings(), callRegex(), findOverrideViolations())
-// lives in ./.helpers/win32-override-scanner.js (NCOW-60 fix pass 2, S1), and
+// lives in ./.helpers/win32-override-scanner.js (CCA-60 fix pass 2, S1), and
 // both this file and test/engine/paths-win32-override-guard-scanner.test.js
 // require it directly rather than one requiring the other. This comment
 // covers the rationale and boundary judgments; that file covers the
 // mechanism.
 //
 // The helper directory is named `.helpers` (dot-prefixed), not `helpers` —
-// verified empirically (NCOW-60 fix pass 2, S1): `node --test`'s REAL
+// verified empirically (CCA-60 fix pass 2, S1): `node --test`'s REAL
 // default discovery is broader than the `test/**/*.test.js` glob CLAUDE.md
 // documents — it also runs any `.js`/`.cjs`/`.mjs` file found ANYWHERE
 // beneath a directory literally named `test` (at any depth, case aside from
@@ -43,9 +54,9 @@ const {
 
 // This is NOT a general guarantee that "any *new* path resolver added to
 // paths.js with a win32 branch" is automatically covered, as CLAUDE.md's
-// NCOW-23 note puts it — WIN32_BRANCHING_RESOLVERS is a hardcoded list, and
+// CCA-23 note puts it — WIN32_BRANCHING_RESOLVERS is a hardcoded list, and
 // this guard cannot know on its own whether a brand-new export win32-branches
-// at all. The export-drift test further down (NCOW-60 F3) forces a human to
+// at all. The export-drift test further down (CCA-60 F3) forces a human to
 // CLASSIFY every new paths.js export into WIN32_BRANCHING_RESOLVERS or
 // EXEMPT_RESOLVERS before the guard will pass again — but that only makes
 // the TEST-file half of CLAUDE.md's sentence true going forward: this guard
@@ -66,7 +77,7 @@ const {
 // process.platform), is silently ignored on an actual Windows host: APPDATA
 // is always set there, so the override never takes effect and the resolved
 // directory is the REAL %APPDATA%\claude-conduit. That is exactly what
-// bit test/main/engine-context-config-regen.test.js:90/256 (see NCOW-60's
+// bit test/main/engine-context-config-regen.test.js:90/256 (see CCA-60's
 // task description) — twice, the second time revealed the first had already
 // fired silently in an earlier wave.
 //
@@ -76,7 +87,7 @@ const {
 // it draws the line the existing suite already draws successfully:
 // test/engine/paths.test.js's own win32 fallback-precedence tests (including
 // its deliberate "a homedir-only override is defeated by a real APPDATA env
-// var" NCOW-23 regression tests at lines 142, 166 and 186, which pass
+// var" CCA-23 regression tests at lines 142, 166 and 186, which pass
 // homedir with NO appData at all, on purpose, all under a forced
 // `platform: 'win32'`) are testing the resolver's OWN fallback logic under a
 // controlled, named platform, not relying on whatever host the suite happens
@@ -84,7 +95,7 @@ const {
 // the runtime-dependent shape this guard exists to catch, and is exempted.
 //
 // That exemption is scoped to test/engine/paths.test.js specifically
-// (NCOW-60 F4's "free tightening"), not to every file: a call anywhere ELSE
+// (CCA-60 F4's "free tightening"), not to every file: a call anywhere ELSE
 // that mentions `platform` but leaves appData/localAppData unset is still
 // flagged even with an explicit platform, because outside of paths.test.js's
 // own resolver-testing calls there is no equivalent reason to trust it. And
@@ -102,7 +113,7 @@ const {
 // See the header comment on resolveConfigDirNamed in src/engine/paths.js for
 // the full precedence rationale this mirrors.
 //
-// Known, still-open gaps in this text-only approach (NCOW-60 F2 — listed
+// Known, still-open gaps in this text-only approach (CCA-60 F2 — listed
 // here, in the file, rather than pointed at an ephemeral non-repo artifact a
 // future maintainer cannot open):
 //  - Aliased/renamed imports (`const { resolveConfigDir: rcd } = require(...)`,
@@ -134,14 +145,14 @@ const {
 //    resolver misclassified as exempt would still be silently uncovered.
 //  - The comments/strings-blanking pass in the helper module's
 //    stripCommentsAndStrings() has no real regex-literal awareness
-//    (NCOW-60 F1): a quote character (`'`/`"`) or backtick sitting inside a
+//    (CCA-60 F1): a quote character (`'`/`"`) or backtick sitting inside a
 //    regex literal is textually indistinguishable from a genuine
 //    string/template-literal delimiter. Both are held to the same rule: a
 //    phantom string that fails to find its close before the end of its own
 //    physical line (or EOF) is abandoned rather than allowed to keep
 //    searching. For `'`/`"` the partial span up to the newline is still
 //    blanked (harmless unless a real offending call happens to share that
-//    exact line). For backtick (NCOW-60 fix pass 2, B1), the OPENING
+//    exact line). For backtick (CCA-60 fix pass 2, B1), the OPENING
 //    backtick itself is rewound to and treated as ordinary code instead —
 //    nothing blanked at all — because unlike a stray quote, this scanner
 //    cannot even tell whether the backtick was a real string opener in the
@@ -157,8 +168,30 @@ const {
 //    future multi-line template literal a test author might add. See the
 //    helper module's stripCommentsAndStrings docblock for the full mechanism
 //    and the two failure shapes this rework closes.
+//  - Following directly from the bullet above (wave-17 integration review,
+//    F-A): because a genuine multi-line template literal's content IS
+//    scanned as ordinary code, an unbalanced `/*` inside one — a block-
+//    comment opener with no closing marker anywhere later in the file —
+//    opens a phantom block comment that blanks everything after it to EOF,
+//    hiding any real offending call that follows. That is strictly worse
+//    than the same-line blindness above, which is capped at one physical
+//    line. Measured with a constructed fixture; zero live occurrences today
+//    (none of the four multi-line template literals in the suite contains a
+//    block-comment opener), so this is latent, not live. A `//` inside one
+//    costs only the remainder of its own line and is harmless by comparison.
+//  - A resolver call written inside a template literal's interpolation
+//    (`${ ... }`) is invisible (wave-17 integration review, F-D).
+//    Interpolations are real code, but stripCommentsAndStrings has no
+//    interpolation re-entry: for a normally-closed single-line template it
+//    blanks the WHOLE literal, interpolated code included, so the call never
+//    reaches callRegex(). Also measured with a constructed fixture, and also
+//    zero live occurrences today (a grep for any of the four resolver names
+//    inside an interpolation across test/ returns nothing). Note this gap
+//    runs OPPOSITE to the one above: it costs a missed call in a properly
+//    CLOSED single-line template, where the multi-line case is the one whose
+//    content stays visible.
 
-test('test suite: no test overrides only `homedir` (with no explicit `platform` and no appData/localAppData escape) when calling a paths.js win32-branching resolver — NCOW-23/NCOW-60', () => {
+test('test suite: no test overrides only `homedir` (with no explicit `platform` and no appData/localAppData escape) when calling a paths.js win32-branching resolver — CCA-23/CCA-60', () => {
   const offenders = [];
   for (const file of testFiles()) offenders.push(...findOverrideViolations(file));
 
@@ -172,7 +205,7 @@ test('test suite: no test overrides only `homedir` (with no explicit `platform` 
   );
 });
 
-test('paths.js export drift: every export is classified as either win32-branching (covered by the homedir/appData guard above) or explicitly exempt, so a new export fails this guard until a human classifies it — NCOW-60 F3', () => {
+test('paths.js export drift: every export is classified as either win32-branching (covered by the homedir/appData guard above) or explicitly exempt, so a new export fails this guard until a human classifies it — CCA-60 F3', () => {
   const pathsExports = Object.keys(require('../../src/engine/paths'));
   const classified = new Set([...WIN32_BRANCHING_RESOLVERS, ...EXEMPT_RESOLVERS]);
   const unclassified = pathsExports.filter((name) => !classified.has(name));
