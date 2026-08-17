@@ -285,6 +285,111 @@ test('createEngineContext: CCA-14.5 AC#3 — a real pre-CCA-14.5 NVIDIA-only ins
   });
 });
 
+// CCA-14.5 fix-pass (reviewer request_changes): a REAL regression test for
+// the one line engine-context.js's regen path actually changed for this
+// task — resolving its provider via
+// `providers.getProvider(manifestStore.resolveManifestProviderId(manifestForRegenCheck))`
+// instead of the hardcoded module-level `activeProvider` constant (still
+// pinned to 'nvidia-nim' until CCA-15). The reviewer proved nothing in this
+// suite discriminated the two: reverting just that line to `activeProvider`
+// in a scratch copy left the full suite green. This constructs a real
+// openrouter-configured install — manifest.provider === 'openrouter', and a
+// litellm.env holding ONLY OPENROUTER_API_KEY (no NVIDIA_NIM_API_KEY
+// anywhere on disk) — so a regen path that ignored the manifest and always
+// looked for NVIDIA's env var would find nothing to reuse and report
+// 'no-existing-secrets' instead of actually regenerating.
+function seedStaleOpenRouterInstall(homeDir) {
+  // NCOW-60: same win32 override reasoning as seedStaleInstall above.
+  const configDir = paths.resolveConfigDir({ homedir: homeDir, ...paths.resolveWindowsAppDataOverrides(homeDir) });
+  const files = paths.getFilePaths(configDir);
+
+  generateAll({
+    files,
+    primaryModelId: 'anthropic/claude-3.5-sonnet',
+    smallModelId: 'anthropic/claude-3.5-haiku',
+    nimBaseUrl: undefined,
+    port: 4000,
+    litellmAbsPath: '/usr/local/bin/litellm',
+    // generateAll's param is named nvidiaApiKey for historical (NVIDIA-only)
+    // reasons, but it's just the value written under whichever apiKeyEnvVar
+    // is passed below — here that's OPENROUTER_API_KEY, not NVIDIA's.
+    nvidiaApiKey: 'or-test-key',
+    litellmProvider: 'openrouter',
+    apiKeyEnvVar: 'OPENROUTER_API_KEY',
+  });
+
+  const manifest = {
+    version: 1,
+    port: 4000,
+    primary_model: 'anthropic/claude-3.5-sonnet',
+    small_model: 'anthropic/claude-3.5-haiku',
+    nim_base_url: null,
+    litellm_path: '/usr/local/bin/litellm',
+    pm2_app: 'litellm-nim',
+    cli_configured: false,
+    secret_store_backend: 'electron-safeStorage',
+    // The field this task added — no generated_by_version, so this still
+    // reads as stale against any currentVersion, exactly like seedStaleInstall.
+    provider: 'openrouter',
+  };
+  fs.writeFileSync(files.manifestJson, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+
+  return files;
+}
+
+test('createEngineContext: CCA-14.5 fix-pass — the regen path resolves its provider from manifest.provider (openrouter), not the hardcoded NVIDIA activeProvider constant', async () => {
+  await withFakeHome(async (homeDir) => {
+    const files = seedStaleOpenRouterInstall(homeDir);
+
+    // Sanity check on the fixture itself: no NVIDIA env var anywhere on
+    // disk. If the regen path fell back to activeProvider (hard-pinned to
+    // 'nvidia-nim'), it would look for NVIDIA_NIM_API_KEY and find nothing.
+    const envBefore = fs.readFileSync(files.litellmEnv, 'utf8');
+    assert.doesNotMatch(envBefore, /NVIDIA_NIM_API_KEY/);
+    assert.match(envBefore, /^OPENROUTER_API_KEY=or-test-key$/m);
+
+    const { pm2Control, calls } = fakePm2Control({ status: 'not-installed' });
+    const context = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir: path.join(homeDir, 'userData'),
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control,
+      logger: recordingLogger(),
+    });
+
+    const result = await context.configRegeneration;
+    // If the regen path ignored the manifest's provider, resolveExistingApiKeyForEnvVar
+    // would look for NVIDIA_NIM_API_KEY, find nothing, and this would instead
+    // be { regenerated: false, reason: 'no-existing-secrets' }.
+    assert.deepEqual(result, { regenerated: true, restarted: false });
+
+    const envAfter = fs.readFileSync(files.litellmEnv, 'utf8');
+    assert.match(
+      envAfter,
+      /^OPENROUTER_API_KEY=or-test-key$/m,
+      'the regenerated litellm.env must still carry the OpenRouter key under its own env var'
+    );
+
+    const configYaml = fs.readFileSync(files.configYaml, 'utf8');
+    assert.match(configYaml, /openrouter\//, 'the regenerated config.yaml must use the openrouter/ litellm model prefix');
+    assert.doesNotMatch(
+      configYaml,
+      /nvidia_nim/,
+      'must not fall back to the NVIDIA litellm prefix for an openrouter-configured install'
+    );
+
+    const manifestAfter = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestAfter.provider, 'openrouter', 'must not clobber the already-recorded provider field');
+    assert.equal(manifestAfter.generated_by_version, '0.2.0');
+
+    // Not running at launch — no restart, matching AC's fresh-launch case.
+    assert.equal(calls.getStatus, 1);
+    assert.equal(calls.startOrRestart.length, 0);
+  });
+});
+
 test('createEngineContext: AC#2 — regenerating while the proxy is already running restarts it the same way proxy.start()/restart() do', async () => {
   await withFakeHome(async (homeDir) => {
     const files = seedStaleInstall(homeDir);
