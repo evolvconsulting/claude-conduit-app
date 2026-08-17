@@ -922,10 +922,27 @@ test('spawnDaemon: a rejecting attempt does not leak the daemon it spawned (revi
   const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'pm2control-leak-'));
   let leaked = [];
   try {
-    // Reproduces the reviewer's exact repro: a non-socket file already
-    // sitting at the resolved rpc socket path makes the daemon's own socket
-    // bind fail every time, so every spawnDaemon() call below rejects.
-    fs.writeFileSync(path.join(pm2Home, 'rpc.sock'), 'not a socket');
+    // CCA-67: this used to write a plain non-socket FILE at the rpc socket
+    // path (the reviewer's original repro). That forces the daemon's own
+    // bind() to fail with EADDRINUSE on every platform, but what happens
+    // next is platform-dependent: pm2's bundled axon transport
+    // (node_modules/pm2/modules/pm2-axon/lib/sockets/sock.js `bind()`)
+    // treats EADDRINUSE as possibly a *stale* socket left by a crashed
+    // daemon, and probes it with a plain connect() to decide whether to
+    // delete-and-rebind. Connecting to a non-socket regular file returns
+    // ENOTSOCK on macOS (not in axon's stale-socket allowlist, so it
+    // correctly gives up and the daemon never binds) but ECONNREFUSED on
+    // Linux (confirmed live in ubuntu-latest's CI failure and reproduced
+    // here in a node:20-slim container) — which IS in axon's allowlist, so
+    // it deletes our bogus file and rebinds successfully, and the daemon
+    // boots for real instead of failing. A directory at this path fails
+    // bind() with the same EADDRINUSE on both platforms, but axon's
+    // recovery attempt (`fs.unlinkSync(rpcSocketPath)`) can never succeed
+    // against a directory (unlink(2) only removes non-directory entries),
+    // so the delete-and-rebind step always fails too — the daemon reliably
+    // never binds on either platform, regardless of what connect() to it
+    // returns.
+    fs.mkdirSync(path.join(pm2Home, 'rpc.sock'));
 
     for (let i = 0; i < 3; i++) {
       await assert.rejects(spawnDaemon({ pm2Home, timeoutMs: 2000 }));
