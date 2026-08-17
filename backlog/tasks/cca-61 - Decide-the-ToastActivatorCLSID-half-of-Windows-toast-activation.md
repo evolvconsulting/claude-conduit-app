@@ -4,7 +4,7 @@ title: Decide the ToastActivatorCLSID half of Windows toast activation
 status: In Progress
 assignee: []
 created_date: '2026-08-07 13:00'
-updated_date: '2026-08-17 04:07'
+updated_date: '2026-08-17 04:16'
 labels: []
 dependencies:
   - CCA-57
@@ -203,4 +203,46 @@ Fix pass 1 dispatched into the same worktree with the finding verbatim: reword t
 (and the parallel `electron-builder.yml` framing) to state a remedy IS reachable via
 `shell.writeShortcutLink`'s `toastActivatorClsid`, with the gap accepted on cost/benefit grounds
 rather than for lack of a path, plus the should-fix citation-scope correction.
+
+## Wave-18 fix pass 1 (fresh worker, same worktree, commit `f5149a9`; rebased onto dev, branch head
+now `f5149a9` on top of rebased `93adfe6`/`b80a5f9`, originally `38fdf77`/`c391627`)
+
+Recorded by the orchestrator from the worker's structured return. NOT yet independently reviewed.
+
+**Re-verified the core claim from primary sources, not the review prompt's say-so.** Read
+`node_modules/electron/electron.d.ts` directly: confirmed `shell.writeShortcutLink(path, 'update',
+{toastActivatorClsid})` and `ShortcutDetails.toastActivatorClsid` both exist. Fetched the real
+Electron docs at the pinned tag (v43.2.0) directly from GitHub: `docs/api/shell.md`'s `update`
+operation ("Updates specified properties only on an existing shortcut"), `shortcut-details.md`'s
+`toastActivatorClsid` field description, and -- for the should-fix finding --
+`docs/tutorial/notifications.md`'s general (not activation-scoped) framing of the AUMID+CLSID
+requirement, confirming that finding was real. Kept `app.md`'s own activation-specific framing for
+`setToastActivatorCLSID` itself (that citation IS scoped to activation in the source doc), while
+broadening the OVERALL citation to the more general notifications.md statement. Re-confirmed
+app-builder-lib is still 26.15.3 with zero CLSID/ToastActivator hits after a fresh `npm ci`.
+
+**`tray.js`** gap-enumeration item 4 reworded: from "found no remedy currently reachable... app-
+builder-lib has no support" to naming `shell.writeShortcutLink`'s `toastActivatorClsid` as a reachable,
+Electron-native RUNTIME remedy independent of app-builder-lib, broadened citation, and explicit that
+pixel-level display was never confirmed either way (open question, not resolved).
+
+**`electron-builder.yml`**'s `win:` block "Consequence" bullet rewritten: states the runtime remedy IS
+reachable, then gives the real cost/benefit reasoning for accepting the gap anyway -- (a) locate the
+real shortcut path at runtime, (b) call `writeShortcutLink`, (c) almost certainly register a COM
+server for the CLSID (explicitly flagged as UNVERIFIED either way -- also noted Electron's own docs
+say even ITS OWN interactive notifications need a separate module "to help with registering the
+required COM components," suggestive but not proof), (d) cites this campaign's own established cost
+of Windows-VM testing (pixel-level toast verification unobtainable on the available VM, per CCA-57's
+history). Concludes the gap is accepted on disproportionate-cost grounds given today's app has no
+activation handler at all -- not because no path exists.
+
+**npm test**: 522/522 pre-rebase (matching pre-rebase baseline); rebased onto origin/dev (13 commits
+ahead, clean, zero conflicts); `npm ci` to resync node_modules with dev's own js-yaml lockfile bump;
+542/542 post-rebase, run twice for stability (the +20 is other merged branches' tests, not this
+comment-only change).
+
+Files touched: `src/main/tray.js`, `electron-builder.yml` only. No `setToastActivatorCLSID`/
+`writeShortcutLink` call added; `appUserModelId.js`/`index.js`/the AC#6-7 drift-guard tests untouched.
+
+Review pass 2 dispatched next, into the same worktree, against `f5149a9`.
 <!-- SECTION:NOTES:END -->
