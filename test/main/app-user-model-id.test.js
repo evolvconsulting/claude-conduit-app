@@ -93,11 +93,16 @@ test('main/index.js: calls app.setAppUserModelId(APP_USER_MODEL_ID) guarded by s
 // timing guidance at all, and docs/tutorial/notifications.md at the same tag
 // has none either. The "should be called early" sentence does exist in
 // app.md, but at line 1159, in the *adjacent* `app.setToastActivatorCLSID(id)`
-// entry — a different API this app doesn't call (see NCOW-61, which tracks
-// deciding whether to adopt it). The ordering assertion below is real and
-// worth keeping regardless: it is this codebase's own chosen invariant
-// (matching index.js's own comment at the call site), not something borrowed
-// from upstream documentation.
+// entry — a different API this app deliberately does not call. CCA-61
+// investigated adopting it and chose to accept the gap and document it
+// accurately instead: the installed app-builder-lib (26.15.3) has no way to
+// stamp a matching ToastActivatorCLSID onto either Windows target's
+// shortcut, so a fixed runtime value would be exactly as functionally inert
+// as today's random-per-run default (see electron-builder.yml's `win:`
+// block comment for the full reasoning and citations). The ordering
+// assertion below is real and worth keeping regardless: it is this
+// codebase's own chosen invariant (matching index.js's own comment at the
+// call site), not something borrowed from upstream documentation.
 test('main/index.js: the setAppUserModelId call happens before app.whenReady() is invoked (NCOW-57 — this codebase\'s own chosen invariant, not an Electron doc requirement)', () => {
   const setCallIndex = INDEX_SOURCE.indexOf('app.setAppUserModelId(APP_USER_MODEL_ID)');
   const whenReadyIndex = INDEX_SOURCE.indexOf('app.whenReady()');
@@ -177,6 +182,42 @@ test('electron-builder.yml has a parseable top-level appId line (sanity check fo
 // top-level `APP_ID_MATCH` check above) is added below so a future
 // regression that empties WIN_BLOCK again fails loudly instead of quietly
 // skipping the check that depends on it.
+//
+// CCA-61 correction: the sentence just above overstated what that companion
+// assertion actually did. As originally written it was `assert.ok(WIN_BLOCK
+// !== null, ...)` — which only catches extractYamlBlock() regressing to
+// return `null`. An empty string (`''`) is `!== null` too, so a regression
+// that emptied WIN_BLOCK (rather than nulling it) passed this assertion
+// silently, then `WIN_BLOCK && WIN_BLOCK.match(...)` short-circuited to `''`
+// (falsy), and the `if (WIN_APP_ID_LINE_MATCH)` block below quietly never
+// ran — the exact "fails loudly instead of quietly skipping" failure mode
+// the sentence above claims was fixed, reintroduced one level down. Verified
+// by simulation (scratch copy, not this repo's real electron-builder.yml):
+// forcing WIN_BLOCK to `''` while a real win:-scoped `appId: &wid com.DRIFT`
+// drift was present in the mutated source — the old `!== null` assert
+// passed and the whole suite stayed green despite the drift; the hardened
+// assert below (`WIN_BLOCK && WIN_BLOCK.trim() !== ''`) throws on that same
+// empty string instead, making the comment's claim true for real.
+//
+// CCA-61 also closed two further latent bypasses in the win:-scoped
+// `appId:` regex itself, found by a prior review and confirmed live via
+// `yaml.load()` to both parse to `win.appId === "com.DRIFT"` (i.e.
+// electron-builder would honor either one over the top-level `appId`):
+// (1) a quoted KEY — `  "appId": com.DRIFT` — which the old regex
+// (anchored on a literal, unquoted `appId:`) never matched at all, so
+// WIN_APP_ID_LINE_MATCH came back null and the whole check silently
+// no-opped; (2) an anchored scalar — `appId: &wid com.DRIFT` — where the
+// `&wid ` YAML anchor tag between the colon and the value broke the old
+// regex's `(['"]?)(\S+?)\1` value-capture (it has no way to skip an anchor
+// token), so this also came back null and silently no-opped. Both
+// confirmed, by experiment against scratch mutated copies of this repo's
+// electron-builder.yml (never the real file): the old regex left the
+// drift-guard test suite green (9/9) for both mutations; the hardened
+// regex below — which tolerates an optionally-quoted key and an optional
+// `&name ` anchor before the value — makes the same two mutations fail the
+// assertion at WIN_APP_ID_LINE_MATCH[3] below, and does not false-positive
+// against the real, unmutated electron-builder.yml (no win:-scoped appId
+// override exists there today).
 function extractYamlBlock(source, topLevelKey) {
   const lines = source.split('\n');
   const startIndex = lines.findIndex((line) => new RegExp(`^${topLevelKey}:\\s*(#.*)?$`).test(line));
@@ -197,7 +238,13 @@ function extractYamlBlock(source, topLevelKey) {
 }
 
 const WIN_BLOCK = extractYamlBlock(BUILDER_YML_SOURCE, 'win');
-const WIN_APP_ID_LINE_MATCH = WIN_BLOCK && WIN_BLOCK.match(/^\s*appId:\s*(['"]?)(\S+?)\1\s*(?:#.*)?$/m);
+// CCA-61: group 1 is an optional quote around the KEY itself (`"appId":` or
+// `'appId':`), backreferenced to require the same quote (or none) close it;
+// the `(?:&\S+\s+)?` skips an optional YAML anchor tag (`&name `) between
+// the colon and the scalar; group 2/3 are the value's own optional quote and
+// captured text, exactly as before. See the comment above for the two
+// bypasses this closes and how each was proven by experiment.
+const WIN_APP_ID_LINE_MATCH = WIN_BLOCK && WIN_BLOCK.match(/^\s*(['"]?)appId\1:\s*(?:&\S+\s+)?(['"]?)(\S+?)\2\s*(?:#.*)?$/m);
 
 test('appUserModelId.js: APP_USER_MODEL_ID equals electron-builder.yml\'s appId — the two must never silently diverge (NCOW-57; extended by wave-16 cleanup F6 to also cover a win:-scoped override, which takes precedence over the top-level value per app-builder-lib\'s own AppInfo.id getter)', () => {
   assert.equal(
@@ -216,7 +263,12 @@ test('appUserModelId.js: APP_USER_MODEL_ID equals electron-builder.yml\'s appId 
   // legitimate "no win:-scoped appId override present" case below, and the
   // assertion that depends on it silently never runs.
   assert.ok(
-    WIN_BLOCK !== null,
+    // CCA-61: was `WIN_BLOCK !== null`, which an empty string also
+    // satisfies (`'' !== null` is true) — see the comment above this
+    // constant's declaration for why that let a regression fail silently
+    // instead of loudly. `.trim() !== ''` catches null, undefined, and an
+    // all-whitespace/empty string alike.
+    Boolean(WIN_BLOCK && WIN_BLOCK.trim() !== ''),
     'expected to find a top-level "win:" block in electron-builder.yml — if this fails, ' +
       'extractYamlBlock() regressed and the win:-scoped drift check below would silently no-op'
   );
@@ -224,7 +276,7 @@ test('appUserModelId.js: APP_USER_MODEL_ID equals electron-builder.yml\'s appId 
   if (WIN_APP_ID_LINE_MATCH) {
     assert.equal(
       APP_USER_MODEL_ID,
-      WIN_APP_ID_LINE_MATCH[2],
+      WIN_APP_ID_LINE_MATCH[3],
       'a win:-scoped appId in electron-builder.yml takes precedence over the top-level appId ' +
         '(app-builder-lib/out/appInfo.js\'s `id` getter checks platformSpecificOptions before info.config), ' +
         'and is exactly what WinShell::SetLnkAUMI stamps onto the Start Menu shortcut — it must equal ' +
