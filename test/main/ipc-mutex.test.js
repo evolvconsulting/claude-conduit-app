@@ -960,7 +960,13 @@ test('index.js: passes engine-context\'s own mutexes into registerIpcHandlers', 
   // the link whose absence would silently make all of this inert.
   const fs = require('node:fs');
   const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
+  // Normalized to LF: on Windows CI, git's checkout-time CRLF conversion
+  // (no .gitattributes forces LF) puts a literal \r directly before the
+  // \n this regex expects right after `mutexes,`, with no \s* padding to
+  // absorb it — CCA-68.
+  const source = fs
+    .readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8')
+    .replace(/\r\n/g, '\n');
   assert.match(source, /mutexes\s*\}\s*=\s*createEngineContext/, 'must destructure mutexes off the engine context');
   assert.match(source, /registerIpcHandlers\([\s\S]*?\n\s*mutexes,\n\s*\}\);/, 'must pass those same mutexes to registerIpcHandlers');
 });

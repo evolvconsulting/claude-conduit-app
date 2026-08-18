@@ -12,9 +12,12 @@ name: Test
 # itself would (that job runs `--publish always` right after its test step,
 # in the same job, with no way to stop short of it).
 #
-# Linux only (ubuntu-latest x64, ubuntu-24.04-arm arm64) to match CCA-67's
-# acceptance criteria; release.yml already covers macOS/Windows at release
-# time and CCA-68 (the known Windows-only failure) is tracked separately.
+# Linux (ubuntu-latest x64, ubuntu-24.04-arm arm64) per CCA-67's acceptance
+# criteria, plus windows-latest (added for CCA-68) so the CRLF-checkout
+# regression this job exists to catch has real CI coverage going forward,
+# not just a one-off release-attempt failure. release.yml already covers
+# macOS/Windows at release time, but only npm-test's exit code, with no
+# easy way to inspect a failure without a real tag push.
 
 on:
   push:
@@ -27,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
