@@ -3,9 +3,11 @@ id: CCA-68
 title: >-
   Windows CI: static-source regex test in ipc-mutex.test.js likely broken by
   CRLF checkout (index.js mutex-wiring guard)
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-17 17:10'
+updated_date: '2026-08-18 01:56'
 labels:
   - test-infra
   - bug
@@ -27,3 +29,13 @@ Discovered 2026-08-17 during CCA-63's real release attempt (tag v0.1.2): the rel
 - [ ] #2 A fix is implemented so this test (and any sibling static-source-text test using the same pattern, if others exist) passes reliably regardless of the checked-out file's line-ending convention
 - [ ] #3 npm test passes on real Windows CI, verified by actually re-running the GitHub Actions release workflow (or an equivalent Windows CI job) rather than only local macOS/Linux runs
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Confirm root cause: no .gitattributes forces LF, so windows-latest checkout autocrlf-converts to CRLF; reproduce locally with a CRLF-converted copy of index.js against the exact regex.
+2. Grep test/ for sibling static-source regexes containing literal \n; verify each against a CRLF copy before assuming brittleness (auto-update-wiring.test.js:60 looked similar but its \n is \s*-padded on both sides, confirmed CRLF-tolerant by direct test — no fix needed there).
+3. Fix ipc-mutex.test.js:965 by normalizing CRLF->LF on the read source before matching (lower blast radius than a repo-wide .gitattributes change).
+4. Add a windows-latest leg to .github/workflows/test.yml (never touch release.yml, which auto-publishes) to get real Windows CI signal via a PR.
+5. Verify locally (npm test) and on the real GitHub Actions run before checking ACs.
+<!-- SECTION:PLAN:END -->
