@@ -17,19 +17,25 @@ const path = require('node:path');
  * nothing GUI-proprietary mixed in. See userDataMigration.js for what
  * happens to this file across the NCOW-12 rename.
  *
- * CCA-14.5: `saveFor`/`loadFor`/`clearFor` add per-provider credential slots
+ * CCA-14.5: `saveFor`/`loadFor`/`clearFor` add keyed credential slots
  * alongside the single legacy slot above (`save`/`load`/`clear`, unchanged in
  * both behavior and file location) — see `providerCredentialsDir`'s own
  * comment below for why this is additive rather than a rework of the
- * existing file. This is deliberately a data-layer capability only: nothing
- * in this app yet calls `saveFor`/`loadFor` (engine-context.js still has exactly one
- * active connection, per CCA-14's own hard-pinned `activeProvider`), but
- * CCA-15 (multiple saved connections) needs a place to hold more than one
- * provider's credential side by side without them overwriting each other,
- * and a provider that structurally needs none (registry.js's typedef already
- * allows `apiKeyEnvVar: null`) must be able to have `loadFor`/`clearFor`
- * called on it and get back exactly the same graceful "nothing here" answer
- * `load()` already gives for the legacy slot — never a thrown error.
+ * existing file. This was originally keyed by provider id (CCA-14.5, when
+ * engine-context.js still had exactly one active connection per CCA-14's
+ * hard-pinned `activeProvider`); CCA-15.1 re-keys it by a CONNECTION's own
+ * id instead, since CCA-15 (multiple saved connections) needs two
+ * connections of the SAME provider (e.g. two NVIDIA NIM accounts) to hold
+ * independent credentials — keying by provider id alone would alias both
+ * onto the same slot. The functions themselves needed no logic change to
+ * make this switch: they always just sanitized and persisted whatever
+ * string `id` they were given (see `credentialPathFor` below), and nothing
+ * in this app calls them yet, so this is a pure semantics/JSDoc update, not
+ * a breaking one. A provider (or connection) that structurally needs no
+ * credential (registry.js's typedef already allows `apiKeyEnvVar: null`)
+ * must still be able to have `loadFor`/`clearFor` called on it and get back
+ * exactly the same graceful "nothing here" answer `load()` already gives for
+ * the legacy slot — never a thrown error.
  *
  * @param {{isEncryptionAvailable: () => boolean, encryptString: (s: string) => Buffer, decryptString: (b: Buffer) => string}} safeStorage
  * @param {string} storagePath
@@ -42,13 +48,14 @@ function createSecretStore(safeStorage, storagePath) {
   // upgrading needs no migration step for it at all (AC#3).
   const providerCredentialsDir = `${storagePath}.credentials`;
 
-  function credentialPathFor(providerId) {
-    // providerId always comes from providers/registry.js's fixed, code-owned
-    // PROVIDERS keys ('nvidia-nim', 'openrouter', 'custom-local', etc.), never
-    // from user input — but sanitizing anyway keeps the resulting filename
+  function credentialPathFor(id) {
+    // CCA-15.1: `id` is a connection's own id (e.g. a UUID minted by
+    // connectionsMigration.js/the future CRUD UI), not a provider id — see
+    // this file's header comment for why. Never comes from raw user input
+    // either way, but sanitizing anyway keeps the resulting filename
     // predictable and traversal-free regardless of what a future caller
     // passes.
-    const safeId = String(providerId).replace(/[^A-Za-z0-9_-]/g, '_');
+    const safeId = String(id).replace(/[^A-Za-z0-9_-]/g, '_');
     return path.join(providerCredentialsDir, `${safeId}.enc`);
   }
 
@@ -107,27 +114,28 @@ function createSecretStore(safeStorage, storagePath) {
     },
 
     /**
-     * @param {string} providerId - a registry.js Provider id
+     * @param {string} id - a connection's own id (CCA-15.1); see this
+     *   file's header comment for why this is no longer just a provider id
      * @param {string} plaintextApiKey
      */
-    saveFor(providerId, plaintextApiKey) {
-      return saveToPath(credentialPathFor(providerId), plaintextApiKey);
+    saveFor(id, plaintextApiKey) {
+      return saveToPath(credentialPathFor(id), plaintextApiKey);
     },
 
     /**
-     * @param {string} providerId
-     * @returns {string|null} null if nothing was ever saved for this
-     *   provider — including a provider that structurally never has a
+     * @param {string} id - a connection's own id
+     * @returns {string|null} null if nothing was ever saved for this id —
+     *   including a connection whose provider structurally never has a
      *   credential (registry.js's `apiKeyEnvVar: null`) and so is simply
      *   never called with `saveFor`.
      */
-    loadFor(providerId) {
-      return loadFromPath(credentialPathFor(providerId));
+    loadFor(id) {
+      return loadFromPath(credentialPathFor(id));
     },
 
-    /** @param {string} providerId */
-    clearFor(providerId) {
-      fs.rmSync(credentialPathFor(providerId), { force: true });
+    /** @param {string} id - a connection's own id */
+    clearFor(id) {
+      fs.rmSync(credentialPathFor(id), { force: true });
     },
 
     /**
@@ -137,19 +145,21 @@ function createSecretStore(safeStorage, storagePath) {
      *
      * `apiKeyEnvVar` defaults to 'NVIDIA_NIM_API_KEY' since every install
      * predating CCA-14 (provider abstraction) was NVIDIA-only by
-     * construction. `providerId` is new in CCA-14.5: when supplied, the
-     * imported key is written to that provider's own slot (`saveFor`)
-     * instead of the legacy single slot — CCA-15 can use this to seed a
-     * newly added non-default connection from an existing litellm.env.
-     * Omitting it preserves the exact pre-CCA-14.5 behavior (imports into
-     * the legacy slot), which is what every real upgrade path still needs.
+     * construction. `id` is new in CCA-14.5, re-keyed from a provider id to
+     * a connection id by CCA-15.1 (see this file's header comment): when
+     * supplied, the imported key is written to that connection's own slot
+     * (`saveFor`) instead of the legacy single slot — CCA-15's CRUD UI can
+     * use this to seed a newly added non-default connection from an
+     * existing litellm.env. Omitting it preserves the exact pre-CCA-14.5
+     * behavior (imports into the legacy slot), which is what every real
+     * upgrade path still needs.
      *
      * @param {string} litellmEnvPath
      * @param {string} [apiKeyEnvVar]
-     * @param {string} [providerId]
+     * @param {string} [id] - a connection's own id
      * @returns {string|null} the imported key, or null if none was found
      */
-    importFromExistingEnvFile(litellmEnvPath, apiKeyEnvVar = 'NVIDIA_NIM_API_KEY', providerId) {
+    importFromExistingEnvFile(litellmEnvPath, apiKeyEnvVar = 'NVIDIA_NIM_API_KEY', id) {
       let raw;
       try {
         raw = fs.readFileSync(litellmEnvPath, 'utf8');
@@ -160,7 +170,7 @@ function createSecretStore(safeStorage, storagePath) {
       if (!match) return null;
       const key = match[1].trim();
       if (!key) return null;
-      if (providerId) store.saveFor(providerId, key);
+      if (id) store.saveFor(id, key);
       else store.save(key);
       return key;
     },

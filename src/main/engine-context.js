@@ -15,6 +15,7 @@ const claudeDesktopConfig = require('../engine/claudeDesktopConfig');
 const diagnostics = require('../engine/diagnostics');
 const { uninstall: runUninstall } = require('../engine/uninstall');
 const manifestStore = require('../engine/manifest');
+const { migrateManifestToConnections } = require('../engine/connectionsMigration');
 const appSettingsStore = require('../engine/appSettings');
 const { pruneLogsToLimit } = require('../engine/logRetention');
 const { migrateLegacyConfigDir } = require('../engine/configDirMigration');
@@ -210,6 +211,34 @@ function createEngineContext(deps) {
     manifestForRegenCheck = getManifest();
   } catch (err) {
     manifestForRegenCheck = null;
+  }
+
+  // CCA-15.1: promote a pre-CCA-15 install's implicit single connection into
+  // the connections list + activeConnectionId shape CCA-15 introduces,
+  // moving its credential out of secretStore's legacy single slot into a
+  // connection-keyed slot in the same pass. Cheap and safe on every launch —
+  // migrateManifestToConnections()'s own Array.isArray(manifest.connections)
+  // check makes this a single extra check once already migrated, the same
+  // "no-op once done" shape as migrateLegacyConfigDir/migrateLegacyKeyFile
+  // above. Purely additive: every top-level field this install's other code
+  // paths already read (provider, primary_model, small_model, nim_base_url)
+  // stays exactly where it was — see connectionsMigration.js's own header
+  // comment for why that's deliberate and not this subtask's job to change.
+  //
+  // Deliberately reuses manifestForRegenCheck (already read above, inside
+  // the same corrupt-manifest guard) rather than calling getManifest() a
+  // second time — a truncated/corrupt manifest.json must be treated as
+  // absent here too, for the exact reason the guard immediately above this
+  // block exists: readManifest() does a bare JSON.parse, and an unguarded
+  // second read would reintroduce that same crash for this path alone.
+  const connectionsMigration = migrateManifestToConnections(manifestForRegenCheck);
+  if (connectionsMigration.migrated) {
+    const legacyKey = secretStore.load();
+    if (legacyKey) secretStore.saveFor(connectionsMigration.connectionId, legacyKey);
+    saveManifest({
+      connections: connectionsMigration.manifest.connections,
+      activeConnectionId: connectionsMigration.manifest.activeConnectionId,
+    });
   }
 
   // NCOW-31 AC#1: the single set of per-domain locks for this whole app
