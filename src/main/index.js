@@ -66,6 +66,22 @@ function resolveUserDataPaths() {
 let stopProxyForShutdown = null;
 let stopStatusPoller = null;
 let shuttingDown = false;
+// CCA-13: 'before-quit' below is registered OUTSIDE the app.whenReady().then()
+// callback that destructures `getAppSettings` off createEngineContext() — two
+// separate closures, same as stopProxyForShutdown/stopStatusPoller above —
+// so before-quit needs its own hoisted reference, assigned once the engine
+// exists. Found live: a same-named `const getAppSettings` destructured
+// inside that callback (kept exactly as engine-context-config-regen.test.js/
+// ipc-mutex.test.js assert it, verbatim) merely shadows this outer `let`
+// within that inner scope; it does not assign it. Without this, quitting the
+// real app throws "ReferenceError: getAppSettings is not defined" from
+// inside the 'before-quit' handler on EVERY quit (any quitBehavior — the
+// crash happens on the read, before the value is even branched on), which
+// Electron surfaces as a blocking native alert that wedges the whole
+// process — confirmed via a live quit under `--inspect`
+// (Debugger.setPauseOnExceptions), not caught by npm test because index.js
+// is never require()'d by the test suite (see NCOW-10.1's comment on why).
+let getAppSettingsForQuit = null;
 
 // Two instances writing ~/.config/claude-conduit/ or ~/.claude/settings.json
 // concurrently is unsafe — refuse a second launch and focus the existing window.
@@ -88,7 +104,7 @@ if (!gotSingleInstanceLock) {
     // safeStorage must only be called after app.whenReady() — Linux backend
     // detection happens then.
     const { userDataDir, appDataDir } = resolveUserDataPaths();
-    const { handlers, pm2Control, configRegeneration, mutexes } = createEngineContext({
+    const { handlers, pm2Control, configRegeneration, mutexes, getAppSettings } = createEngineContext({
       safeStorage,
       userDataDir,
       appDataDir,
@@ -98,6 +114,11 @@ if (!gotSingleInstanceLock) {
       // this launch and regenerate it — see engine-context.js.
       appVersion: app.getVersion(),
     });
+    // See getAppSettingsForQuit's own declaration comment above: this `const`
+    // only shadows that outer `let` within this callback — it does not
+    // assign it — so 'before-quit' (a sibling closure below) needs this
+    // explicit hand-off to see the real function instead of throwing.
+    getAppSettingsForQuit = getAppSettings;
 
     // Fire-and-forget, same as the auto-update check below: engine-context.js
     // already resolves this to {regenerated:false, reason:'error', error}
@@ -265,6 +286,17 @@ if (!gotSingleInstanceLock) {
   app.on('before-quit', (event) => {
     prepareToQuit();
     if (shuttingDown || !stopProxyForShutdown) return;
+
+    // CCA-13: "leave the proxy running" means quitting has nothing async to
+    // wait for — skip the preventDefault/re-issue dance below entirely and
+    // let the default quit proceed immediately. Read fresh on every quit
+    // (never cached) so a change made in Settings applies to the very next
+    // quit without restarting the app itself.
+    if (getAppSettingsForQuit().quitBehavior === 'leave-running') {
+      shuttingDown = true;
+      stopStatusPoller?.();
+      return;
+    }
 
     shuttingDown = true;
     event.preventDefault();
