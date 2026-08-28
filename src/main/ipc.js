@@ -374,6 +374,11 @@ const DOMAIN_MUTEX_ALIASES = {
   uninstall: ['claudeCode', 'config', 'proxy'],
   update: 'proxy',
   apiKey: 'config',
+  // CCA-13: settings.updatePort regenerates the config (configGen.generateAll),
+  // restarts the proxy, and conditionally re-applies both Claude Desktop's and
+  // Claude Code's client config in one call — the exact same four-domain shape
+  // as `uninstall`, so it takes all four rather than a narrower subset.
+  settings: ['claudeCode', 'claudeDesktop', 'config', 'proxy'],
 };
 // NCOW-49 AC#5: deep-frozen below (after LOCK_ACQUISITION_ORDER is declared)
 // so neither table's membership, nested alias arrays, nor bare-string alias

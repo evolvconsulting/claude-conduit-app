@@ -15,6 +15,8 @@ const claudeDesktopConfig = require('../engine/claudeDesktopConfig');
 const diagnostics = require('../engine/diagnostics');
 const { uninstall: runUninstall } = require('../engine/uninstall');
 const manifestStore = require('../engine/manifest');
+const appSettingsStore = require('../engine/appSettings');
+const { pruneLogsToLimit } = require('../engine/logRetention');
 const { migrateLegacyConfigDir } = require('../engine/configDirMigration');
 const { migrateLegacyKeyFile, LEGACY_PRODUCT_NAME } = require('../engine/userDataMigration');
 // NCOW-31: deliberately NOT require('./ipc') — that pulls ipcMain/app/shell off
@@ -151,6 +153,33 @@ function createEngineContext(deps) {
   function port() {
     return getManifest()?.port ?? DEFAULT_PORT;
   }
+  function getAppSettings() {
+    return appSettingsStore.readAppSettings(files.appSettingsJson);
+  }
+  function saveAppSettings(patch) {
+    // Unlike manifest.json (only ever written from inside config.generate,
+    // which configGen.generateAll already creates configDir for),
+    // app-settings.json is reachable from Settings before Setup has ever
+    // run — quit behavior and log limit are deliberately not gated behind
+    // a connection existing (see app.js's nav-guard exemption). Mirrors
+    // app.openLogsFolder's own mkdirSync immediately below.
+    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    return appSettingsStore.writeAppSettings(files.appSettingsJson, patch);
+  }
+
+  // CCA-13: applied on every launch, using whatever limit is currently
+  // configured (defaults apply the same 10MB cap even before Settings has
+  // ever been opened) — mirrors NCOW-30's "regenerate stale config on every
+  // launch" precedent for the same reason: a limit lowered while the app was
+  // closed should still take effect next time it opens, not only right after
+  // it's changed. Fire-and-forget/best-effort: two plain file reads, and a
+  // failure here (e.g. the logs directory not existing yet on a fresh
+  // install) must never block startup.
+  try {
+    pruneLogsToLimit(files, getAppSettings().logSizeLimitBytes);
+  } catch {
+    // Best-effort — see comment above.
+  }
 
   // NCOW-30: regenerate ecosystem.config.cjs/run.js/manifest.json whenever
   // they were last produced by a different app version than the one
@@ -272,6 +301,85 @@ function createEngineContext(deps) {
     })
     .catch((err) => ({ regenerated: false, reason: 'error', error: err }));
 
+  /**
+   * CCA-13 AC#6/#7: changing the proxy port from System Settings, for an
+   * already-configured connection. Reuses config.generate's exact
+   * regeneration path (configGen.generateAll) with the existing manifest's
+   * provider/model/base-URL fields and only `port` changed — NOT a
+   * bespoke port-only writer — so this can never drift from what Setup's
+   * own config.generate produces. resolveMasterKey (via getMasterKey/
+   * generateAll) reads the master key already on disk rather than minting a
+   * new one, so an already-applied Claude Desktop/Code client config stays
+   * valid on auth alone; only the port they point at goes stale, which is
+   * why both are re-applied below when previously configured.
+   */
+  async function updatePort(requestedPort) {
+    const newPort = Number(requestedPort);
+    if (!Number.isInteger(newPort) || newPort < 1 || newPort > 65535) {
+      return { ok: false, error: { code: 'INVALID_PORT', message: 'Port must be an integer between 1 and 65535.' } };
+    }
+
+    const manifest = getManifest();
+    if (!manifest) return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Run setup first.' } };
+    if (newPort === manifest.port) return { ok: true, data: { manifest, changed: false } };
+
+    const apiKey = secretStore.load();
+    if (!apiKey) return { ok: false, error: { code: 'NO_KEY', message: 'No API key on file.' } };
+    const litellmCheck = prereqs.checkLitellmOnPath();
+    if (!litellmCheck.ok) return { ok: false, error: { code: 'LITELLM_MISSING', message: 'litellm is not installed.' } };
+
+    configGen.generateAll({
+      files,
+      primaryModelId: manifest.primary_model,
+      smallModelId: manifest.small_model,
+      nimBaseUrl: manifest.nim_base_url ?? undefined,
+      port: newPort,
+      litellmAbsPath: litellmCheck.path,
+      nvidiaApiKey: apiKey,
+      litellmProvider: activeProvider.litellmProvider,
+      apiKeyEnvVar: activeProvider.apiKeyEnvVar,
+    });
+    const updated = saveManifest({ port: newPort, litellm_path: litellmCheck.path });
+
+    const restart = await pm2Control.startOrRestart({
+      ecosystemConfigPath: files.ecosystemConfig,
+      port: updated.port,
+      outLog: files.outLog,
+      errLog: files.errLog,
+    });
+    deps.broadcast('proxy:status-changed', await pm2Control.getStatus());
+    if (!restart.ok) {
+      return { ok: false, error: restart.error, data: { manifest: updated, outTail: restart.outTail, errTail: restart.errTail } };
+    }
+
+    const masterKey = getMasterKey();
+    let desktopReapplied = false;
+    const desktopStatus = await claudeDesktopConfig.detectStatus({
+      configLibraryDir: claudeDesktopConfigLibraryDir,
+      port: updated.port,
+      masterKey,
+      entryId: updated.desktop_config_entry_id,
+    });
+    if (desktopStatus.details?.isApplied) {
+      claudeDesktopConfig.applyGatewayConfig({
+        configLibraryDir: claudeDesktopConfigLibraryDir,
+        port: updated.port,
+        masterKey,
+        manifest: updated,
+        consent: true,
+      });
+      desktopReapplied = true;
+    }
+
+    let codeReapplied = false;
+    if (updated.cli_configured) {
+      claudeCodeConfig.mergeClaudeCodeSettings(claudeCodeSettingsPath, { port: updated.port, masterKey });
+      codeReapplied = true;
+    }
+
+    return { ok: true, data: { manifest: updated, changed: true, desktopReapplied, codeReapplied } };
+  }
+
   const handlers = {
     app: {
       openLogsFolder: async () => {
@@ -280,6 +388,24 @@ function createEngineContext(deps) {
         await shell.openPath(files.logsDir);
         return { ok: true };
       },
+      // CCA-13: system-level app preferences, deliberately separate from
+      // manifest.json (the per-connection record) — see appSettings.js's
+      // header for the boundary rationale (AC#5).
+      getSettings: async () => ({ ok: true, data: getAppSettings() }),
+      updateSettings: async (patch = {}) => {
+        const updated = saveAppSettings(patch);
+        // AC#6: a lowered log limit takes effect immediately, not just on
+        // the next launch — same pruneLogsToLimit call the launch-time pass
+        // above uses.
+        if (Object.prototype.hasOwnProperty.call(patch, 'logSizeLimitBytes')) {
+          pruneLogsToLimit(files, updated.logSizeLimitBytes);
+        }
+        return { ok: true, data: updated };
+      },
+    },
+
+    settings: {
+      updatePort,
     },
 
     prereqs: {
@@ -674,7 +800,7 @@ function createEngineContext(deps) {
     },
   };
 
-  return { handlers, pm2Control, files, configDir, homedir, configRegeneration, mutexes };
+  return { handlers, pm2Control, files, configDir, homedir, configRegeneration, mutexes, getAppSettings };
 }
 
 module.exports = { createEngineContext, DEFAULT_PORT };

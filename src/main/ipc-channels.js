@@ -21,11 +21,24 @@ const CHANNELS = {
       openLogsFolder: 'app:open-logs-folder',
       getLicenses: 'app:get-licenses',
       quit: 'app:quit',
+      // CCA-13: system-level app preferences (quit behavior, log size
+      // limit) — see engine/appSettings.js for why these are deliberately
+      // separate from the `config`/`settings.updatePort` connection state.
+      getSettings: 'app:get-settings',
+      updateSettings: 'app:update-settings',
     },
     events: {
       navigate: 'app:navigate',
       showAbout: 'app:show-about',
       showLicenses: 'app:show-licenses',
+    },
+  },
+  // CCA-13: settings that DO mutate connection state (currently just the
+  // proxy port) and so need the same domain locks config/proxy/claudeDesktop/
+  // claudeCode already use — see ipc.js's DOMAIN_MUTEX_ALIASES.settings.
+  settings: {
+    invoke: {
+      updatePort: 'settings:update-port',
     },
   },
   prereqs: {

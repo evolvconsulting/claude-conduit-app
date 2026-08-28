@@ -10,6 +10,7 @@ import * as dashboardView from './views/dashboard-view.js';
 import * as claudeDesktopView from './views/claude-desktop-view.js';
 import * as claudeCodeView from './views/claude-code-view.js';
 import * as diagnosticsView from './views/diagnostics-view.js';
+import * as settingsView from './views/settings-view.js';
 import * as uninstallView from './views/uninstall-view.js';
 
 async function main() {
@@ -25,13 +26,17 @@ async function main() {
   registerRoute('claude-desktop', claudeDesktopView);
   registerRoute('claude-code', claudeCodeView);
   registerRoute('diagnostics', diagnosticsView);
+  registerRoute('settings', settingsView);
   registerRoute('uninstall', uninstallView);
 
   // First launch (no manifest yet) forces Setup — mirrors the CLI wizard
-  // being the linear entry point in DESIGN.md.
+  // being the linear entry point in DESIGN.md. Settings is exempted the same
+  // way Setup itself is (CCA-13): its Prerequisites/quit/log/update sections
+  // are all system-level, not connection-dependent, so there's no reason a
+  // pre-setup user can't reach the gear icon.
   setNavGuard((path) => {
     const { manifest } = getState();
-    if (!manifest && path !== 'setup') return false;
+    if (!manifest && path !== 'setup' && path !== 'settings') return false;
     return true;
   });
 
@@ -68,7 +73,7 @@ async function main() {
   for (const link of document.querySelectorAll('#sidebar a[data-route]')) {
     link.addEventListener('click', (event) => {
       const { manifest } = getState();
-      if (!manifest && link.dataset.route !== 'setup') {
+      if (!manifest && link.dataset.route !== 'setup' && link.dataset.route !== 'settings') {
         event.preventDefault();
       }
     });

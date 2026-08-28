@@ -80,6 +80,7 @@ function getFilePaths(configDir) {
     legacyRunSh: path.join(configDir, 'run.sh'),
     ecosystemConfig: path.join(configDir, 'ecosystem.config.cjs'),
     manifestJson: path.join(configDir, 'manifest.json'),
+    appSettingsJson: path.join(configDir, 'app-settings.json'),
     desktopSetupMd: path.join(configDir, 'DESKTOP-SETUP.md'),
     logsDir,
     outLog: path.join(logsDir, 'out.log'),

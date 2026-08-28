@@ -80,6 +80,30 @@ body {
   gap: 0.5rem;
 }
 
+.sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* CCA-13: the System Settings gear — same muted/hover treatment as #quit-app
+   so the footer reads as one family of secondary actions. */
+.icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 1rem;
+}
+.icon-link:hover {
+  color: var(--fg);
+  background: var(--border);
+}
+
 /* Closing the window only hides it, so the sidebar carries the one exit that
    needs no menu-bar hunting. */
 #quit-app {
