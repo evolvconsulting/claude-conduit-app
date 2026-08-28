@@ -25,6 +25,13 @@ const state = {
   step: 'prereqs', // 'prereqs' | 'library' | 'form'
   connections: [],
   providerList: [], // [{id, label, defaultBaseUrl, requiresApiKey, supportsModelListing, supportsToolCalling}]
+  activeConnectionId: null,
+  // CCA-15.3: the id of the connection currently being activated, or null.
+  // Disables every card's Activate button while set, so a second click can't
+  // fire a concurrent switch from the UI side (the engine's own config+proxy
+  // locks already prevent it from doing anything harmful, but a disabled
+  // button is the "visible progress" AC#2 asks for).
+  activating: null,
   form: null,
 };
 
@@ -37,6 +44,8 @@ export function mount(container, ctx) {
   state.step = 'prereqs';
   state.connections = [];
   state.providerList = [];
+  state.activeConnectionId = null;
+  state.activating = null;
   state.form = null;
   renderAll();
 }
@@ -94,6 +103,7 @@ async function loadLibrary() {
   if (!connectionsResult.ok) toast(`Could not load connections: ${connectionsResult.error?.message}`, { kind: 'error' });
   if (!providersResult.ok) toast(`Could not load providers: ${providersResult.error?.message}`, { kind: 'error' });
   state.connections = connectionsResult.ok ? connectionsResult.data.connections : [];
+  state.activeConnectionId = connectionsResult.ok ? connectionsResult.data.activeConnectionId : null;
   state.providerList = providersResult.ok ? providersResult.data : [];
   state.form = null;
   renderLibrary();
@@ -116,26 +126,43 @@ function renderLibrary() {
     return;
   }
 
+  // CCA-15.3 AC#1: a button disabled while ANY activation is in flight
+  // (not just the one it belongs to) — prevents a click on a second card
+  // from firing a concurrent switch while the first one is still restarting
+  // the proxy. The specific card being activated gets its own "Activating…"
+  // label so progress is visible on the right card, not just disabled state
+  // everywhere.
+  const activationInFlight = Boolean(state.activating);
   const cards = state.connections
-    .map(
-      (c) => `
+    .map((c) => {
+      const isActive = c.id === state.activeConnectionId;
+      const isActivatingThis = state.activating === c.id;
+      return `
     <div class="card connection-card" data-id="${escapeHtml(c.id)}">
       <div style="display:flex; justify-content:space-between; align-items:baseline; gap:1rem;">
         <strong>${escapeHtml(c.name)}</strong>
-        <span style="color:var(--muted);">${escapeHtml(providerLabel(c.provider))}</span>
+        <span>
+          ${isActive ? '<span class="active-badge" style="color:var(--accent, #2a7);">● Active</span> ' : ''}
+          <span style="color:var(--muted);">${escapeHtml(providerLabel(c.provider))}</span>
+        </span>
       </div>
       <p style="color:var(--muted); margin:0.35rem 0;">
         ${c.primary_model ? `Primary <code>${escapeHtml(c.primary_model)}</code>` : '<em>No primary model set</em>'}
         ${c.small_model ? ` &middot; Small <code>${escapeHtml(c.small_model)}</code>` : ''}
       </p>
       <div style="display:flex; gap:0.5rem;">
+        ${
+          isActive
+            ? ''
+            : `<button class="primary" data-action="activate" data-id="${escapeHtml(c.id)}" ${activationInFlight ? 'disabled' : ''}>${isActivatingThis ? 'Activating…' : 'Activate'}</button>`
+        }
         <button data-action="edit" data-id="${escapeHtml(c.id)}">Edit</button>
         <button data-action="duplicate" data-id="${escapeHtml(c.id)}">Duplicate</button>
         <button class="danger" data-action="delete" data-id="${escapeHtml(c.id)}">Delete</button>
       </div>
     </div>
-  `
-    )
+  `;
+    })
     .join('');
 
   el.innerHTML = `
@@ -148,9 +175,37 @@ function renderLibrary() {
   `;
 
   el.querySelector('#add-connection-btn').addEventListener('click', () => openForm({ mode: 'create' }));
+  el.querySelectorAll('[data-action="activate"]').forEach((btn) => btn.addEventListener('click', () => handleActivate(btn.dataset.id)));
   el.querySelectorAll('[data-action="edit"]').forEach((btn) => btn.addEventListener('click', () => openForm({ mode: 'edit', id: btn.dataset.id })));
   el.querySelectorAll('[data-action="duplicate"]').forEach((btn) => btn.addEventListener('click', () => handleDuplicate(btn.dataset.id)));
   el.querySelectorAll('[data-action="delete"]').forEach((btn) => btn.addEventListener('click', () => handleDelete(btn.dataset.id)));
+}
+
+// CCA-15.3: makes a saved connection actually "live" — regenerates the
+// LiteLLM config from it and restarts the proxy (engine-context.js's
+// connections.activate). No confirmDialog here (unlike handleDelete): this
+// isn't destructive — nothing is lost, and a failed switch leaves the
+// previous connection's config/credential completely untouched (AC#3/#6) —
+// so a plain click with visible in-progress state + a toasted result (AC#2)
+// is the right weight, matching Edit/Duplicate's un-confirmed pattern rather
+// than Delete's.
+async function handleActivate(id) {
+  state.activating = id;
+  renderLibrary();
+
+  const result = await nimProxy.connections.activate({ id });
+  state.activating = null;
+
+  if (!result.ok) {
+    toast(`Could not activate this connection: ${result.error?.message}`, { kind: 'error' });
+    renderLibrary();
+    return;
+  }
+
+  toast('Connection activated — proxy restarted', { kind: 'success' });
+  syncManifestState(result.data.manifest);
+  state.activeConnectionId = result.data.manifest.activeConnectionId;
+  renderLibrary();
 }
 
 async function handleDuplicate(id) {

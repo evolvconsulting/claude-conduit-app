@@ -825,6 +825,133 @@ function createEngineContext(deps) {
         secretStore.clearFor(id);
         return { ok: true, data: { manifest } };
       },
+      // CCA-15.3: makes a saved connection actually "live" — the piece every
+      // other `connections` method above deliberately stayed out of (see
+      // this domain's own header comment). Regenerates litellm.env/
+      // config.yaml from the NEWLY-active connection's own provider/model/
+      // credential and restarts the proxy, the same "regenerate + restart"
+      // shape updatePort above already established — reusing
+      // configGen.generateAll()/pm2Control.startOrRestart() rather than a
+      // bespoke path, so this can never drift from what Setup/updatePort
+      // already produce.
+      //
+      // Deliberately does NOT reapply Claude Desktop's/Claude Code's client
+      // config (unlike updatePort, which must — it changes the port those
+      // files embed). AC#3's approved decision is that port and the litellm
+      // master key stay FIXED across every switch — only the upstream
+      // credential/model routing changes — so there is nothing in either
+      // file for a switch to invalidate, and this handler never calls
+      // claudeDesktopConfig.*/claudeCodeConfig.* at all. That is also why it
+      // only needs the `config`+`proxy` locks (see ipc.js's
+      // METHOD_MUTEX_ALIASES) rather than updatePort's full four-lock shape.
+      activate: async ({ id } = {}) => {
+        const manifest = getManifest();
+        if (!manifest) return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Run setup first.' } };
+
+        const connection = connectionsEngine.findConnection(manifest, id);
+        if (!connection) return { ok: false, error: { code: 'NOT_FOUND', message: `No connection with id "${id}".` } };
+
+        // Already active — nothing to regenerate or restart. Mirrors
+        // updatePort's identical-port no-op just above.
+        if (manifest.activeConnectionId === id) return { ok: true, data: { manifest, changed: false } };
+
+        const providerResult = resolveProviderOrError(connection.provider);
+        if (!providerResult.ok) return providerResult;
+
+        const apiKey = secretStore.loadFor(id) ?? undefined;
+        const capabilities = providerResult.provider.declareCapabilities();
+        if (capabilities.requiresApiKey && !apiKey) {
+          return { ok: false, error: { code: 'NO_KEY', message: 'No saved credential for this connection — edit it and enter one first.' } };
+        }
+
+        // Known-bug-class guard: this is the point where WHICH credential
+        // drives the live proxy actually changes, so it must not blindly
+        // trust whatever validation this connection last passed (possibly
+        // long ago, and possibly since revoked/expired) — force a fresh
+        // check before touching any file. Nothing is written yet if this
+        // fails.
+        const validation = await providerResult.provider.validateCredential({
+          apiKey,
+          baseUrl: connection.nim_base_url ?? undefined,
+        });
+        if (!validation.ok) return validation;
+
+        if (!connection.primary_model || !connection.small_model) {
+          return { ok: false, error: { code: 'MODELS_NOT_SET', message: 'This connection has no primary/small model chosen — edit it first.' } };
+        }
+
+        const litellmCheck = prereqs.checkLitellmOnPath();
+        if (!litellmCheck.ok) return { ok: false, error: { code: 'LITELLM_MISSING', message: 'litellm is not installed.' } };
+
+        // Port (and the litellm master key, via configGen.generateAll's own
+        // resolveMasterKey reuse) are system-level and NOT part of a
+        // connection (CCA-15.1) — AC#3's fixed-across-switches decision.
+        // Falls back to DEFAULT_PORT for the case where this connection was
+        // created (CCA-15.2's connections.create, which can make a
+        // freshly-created connection "active" in manifest data) without
+        // config.generate/Setup's proxy step ever having run first.
+        const port = manifest.port ?? DEFAULT_PORT;
+
+        configGen.generateAll({
+          files,
+          primaryModelId: connection.primary_model,
+          smallModelId: connection.small_model,
+          nimBaseUrl: connection.nim_base_url ?? undefined,
+          port,
+          litellmAbsPath: litellmCheck.path,
+          // `?? ''` (review self-check, not present on config.generate/
+          // updatePort above — both of THEM always require apiKey via an
+          // unconditional NO_KEY guard, so this case never reaches them):
+          // configGen.writeSecretsEnvFile() interpolates this value directly
+          // into litellm.env with no guard of its own
+          // (`${apiKeyEnvVar}=${secrets.nvidiaApiKey}`) — passing `apiKey`
+          // through un-coerced when it's `undefined` (custom-local's
+          // requiresApiKey:false, no credential on file) would write the
+          // literal 6-character string "undefined" as the credential value
+          // instead of an empty one.
+          nvidiaApiKey: apiKey ?? '',
+          litellmProvider: providerResult.provider.litellmProvider,
+          apiKeyEnvVar: providerResult.provider.apiKeyEnvVar,
+        });
+
+        // Persisted BEFORE the restart is attempted — same "write, then
+        // attempt the restart, report failure but keep the write" ordering
+        // updatePort already established just above (its own caller,
+        // settings-view.js's updatePort handler, already tolerates exactly
+        // this shape: on a restart failure it toasts and stops, without
+        // rolling back local state). The alternative — only persist on a
+        // confirmed-successful restart — would leave a successfully
+        // regenerated litellm.env/config.yaml on disk with the manifest
+        // still pointing at the OLD connection, which is a worse mismatch:
+        // a subsequent manual Start/Restart would then bring up the NEW
+        // connection's config while the UI still labelled the old one active.
+        const updated = saveManifest({
+          activeConnectionId: id,
+          port,
+          primary_model: connection.primary_model,
+          small_model: connection.small_model,
+          nim_base_url: connection.nim_base_url ?? null,
+          litellm_path: litellmCheck.path,
+          pm2_app: pm2Control.APP_NAME,
+          cli_configured: manifest.cli_configured ?? false,
+          secret_store_backend: 'electron-safeStorage',
+          provider: connection.provider,
+          generated_by_version: deps.appVersion,
+        });
+
+        const restart = await pm2Control.startOrRestart({
+          ecosystemConfigPath: files.ecosystemConfig,
+          port: updated.port,
+          outLog: files.outLog,
+          errLog: files.errLog,
+        });
+        deps.broadcast('proxy:status-changed', await pm2Control.getStatus());
+        if (!restart.ok) {
+          return { ok: false, error: restart.error, data: { manifest: updated, outTail: restart.outTail, errTail: restart.errTail } };
+        }
+
+        return { ok: true, data: { manifest: updated, changed: true } };
+      },
     },
 
     config: {
