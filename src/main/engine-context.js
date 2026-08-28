@@ -16,6 +16,7 @@ const diagnostics = require('../engine/diagnostics');
 const { uninstall: runUninstall } = require('../engine/uninstall');
 const manifestStore = require('../engine/manifest');
 const { migrateManifestToConnections } = require('../engine/connectionsMigration');
+const connectionsEngine = require('../engine/connections');
 const appSettingsStore = require('../engine/appSettings');
 const { pruneLogsToLimit } = require('../engine/logRetention');
 const { migrateLegacyConfigDir } = require('../engine/configDirMigration');
@@ -142,10 +143,29 @@ function createEngineContext(deps) {
   // certain a run is still active when the user clicks Cancel.
   let diagnosticsAbortController = null;
 
+  // Shared by saveManifest/saveAppSettings below — both can now be reached
+  // before configDir necessarily exists (see each function's own comment),
+  // and app.openLogsFolder has its own identical-shaped guard for logsDir
+  // just below. Factored out (review finding) rather than left as two
+  // byte-for-byte copies of the same fs.mkdirSync call.
+  function ensureConfigDir() {
+    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  }
+
   function getManifest() {
     return manifestStore.readManifest(files.manifestJson);
   }
   function saveManifest(patch) {
+    // CCA-15.2: manifest.json used to be reachable ONLY from inside
+    // config.generate, which configGen.generateAll already creates configDir
+    // for — so this guard was unnecessary before now. The `connections`
+    // handlers below call saveManifest() directly (creating/editing a saved
+    // connection is deliberately NOT routed through config.generate/
+    // configGen.generateAll — see their own header comment), which makes
+    // manifest.json reachable before configDir exists at all, the exact same
+    // gap saveAppSettings() already had to guard against for
+    // app-settings.json (see its own comment just below). Mirrors that fix.
+    ensureConfigDir();
     return manifestStore.writeManifest(files.manifestJson, patch);
   }
   function getMasterKey() {
@@ -158,13 +178,14 @@ function createEngineContext(deps) {
     return appSettingsStore.readAppSettings(files.appSettingsJson);
   }
   function saveAppSettings(patch) {
-    // Unlike manifest.json (only ever written from inside config.generate,
-    // which configGen.generateAll already creates configDir for),
     // app-settings.json is reachable from Settings before Setup has ever
     // run — quit behavior and log limit are deliberately not gated behind
     // a connection existing (see app.js's nav-guard exemption). Mirrors
-    // app.openLogsFolder's own mkdirSync immediately below.
-    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    // app.openLogsFolder's own mkdirSync immediately below, and — as of
+    // CCA-15.2 — saveManifest()'s own identical guard just above (manifest.json
+    // stopped being reachable ONLY from inside config.generate the moment the
+    // `connections` handlers started writing it directly).
+    ensureConfigDir();
     return appSettingsStore.writeAppSettings(files.appSettingsJson, patch);
   }
 
@@ -443,6 +464,35 @@ function createEngineContext(deps) {
     return { ok: true, data: { manifest: updated, changed: true, desktopReapplied, codeReapplied } };
   }
 
+  // CCA-15.2: shared by every `connections` handler below (review finding:
+  // this exact try/catch was previously repeated byte-for-byte in
+  // listModels/validateCredential/create/update).
+  function resolveProviderOrError(providerId) {
+    try {
+      return { ok: true, provider: providers.getProvider(providerId) };
+    } catch (err) {
+      return { ok: false, error: { code: 'UNKNOWN_PROVIDER', message: err.message } };
+    }
+  }
+
+  // Resolves {providerId, apiKey, baseUrl} for connections.listModels/
+  // validateCredential when called with `{connectionId}` instead of a fresh
+  // credential — falls back to the existing connection's own provider,
+  // secretStore-held credential, and base URL for whichever of the three the
+  // caller didn't explicitly override. Lets the CRUD UI re-check an existing
+  // connection (a new base URL, or just refreshing the model list) without
+  // making the user re-type a credential that's already on file.
+  function resolveConnectionDefaults(connectionId, overrides = {}) {
+    const connection = connectionsEngine.findConnection(getManifest(), connectionId);
+    if (!connection) return { ok: false, error: { code: 'NOT_FOUND', message: `No connection with id "${connectionId}".` } };
+    return {
+      ok: true,
+      providerId: overrides.providerId ?? connection.provider,
+      apiKey: overrides.apiKey ?? secretStore.loadFor(connectionId) ?? undefined,
+      baseUrl: overrides.baseUrl ?? connection.nim_base_url ?? undefined,
+    };
+  }
+
   const handlers = {
     app: {
       openLogsFolder: async () => {
@@ -590,6 +640,190 @@ function createEngineContext(deps) {
             recommendedSmall: recommended.small,
           },
         };
+      },
+    },
+
+    // CCA-15.2: CRUD over manifest.json's `connections[]` list. Every method
+    // here resolves its provider by id via providers.getProvider(providerId)
+    // — the caller's own choice, not the `activeProvider` constant above —
+    // and every credential read/write goes through secretStore's
+    // connection-id-keyed saveFor/loadFor/clearFor (CCA-15.1), never the
+    // legacy single slot apiKey.* uses. Deliberately does NOT touch
+    // `activeConnectionId` resolution or call config.generate/proxy.start —
+    // making a connection actually "live" is CCA-15.3's job.
+    connections: {
+      list: async () => {
+        const manifest = getManifest();
+        return { ok: true, data: { connections: manifest?.connections ?? [], activeConnectionId: manifest?.activeConnectionId ?? null } };
+      },
+      listProviders: async () => ({
+        ok: true,
+        data: providers.listProviderIds().map((id) => {
+          const provider = providers.getProvider(id);
+          return { id: provider.id, label: provider.label, defaultBaseUrl: provider.defaultBaseUrl, ...provider.declareCapabilities() };
+        }),
+      }),
+      // Also reachable with `{connectionId}` instead of `{providerId, apiKey}`
+      // so the CRUD UI can refresh a connection's model list on edit without
+      // making the user re-type a credential that's already on file.
+      listModels: async ({ connectionId, providerId, apiKey, baseUrl } = {}) => {
+        let resolved = { providerId, apiKey, baseUrl };
+        if (connectionId) {
+          const lookup = resolveConnectionDefaults(connectionId, { providerId, apiKey, baseUrl });
+          if (!lookup.ok) return lookup;
+          resolved = lookup;
+        }
+        const providerResult = resolveProviderOrError(resolved.providerId);
+        if (!providerResult.ok) return providerResult;
+        return providerResult.provider.listModels({ apiKey: resolved.apiKey, baseUrl: resolved.baseUrl });
+      },
+      // Also reachable with `{connectionId}` — same fallback as listModels
+      // above, so re-validating after only a base-URL change (credential
+      // unchanged) doesn't require re-typing a key that's already on file.
+      validateCredential: async ({ connectionId, providerId, apiKey, baseUrl } = {}) => {
+        let resolved = { providerId, apiKey, baseUrl };
+        if (connectionId) {
+          const lookup = resolveConnectionDefaults(connectionId, { providerId, apiKey, baseUrl });
+          if (!lookup.ok) return lookup;
+          resolved = lookup;
+        }
+        const providerResult = resolveProviderOrError(resolved.providerId);
+        if (!providerResult.ok) return providerResult;
+        return providerResult.provider.validateCredential({ apiKey: resolved.apiKey, baseUrl: resolved.baseUrl });
+      },
+      create: async ({ name, providerId, apiKey, baseUrl, primaryModel, smallModel } = {}) => {
+        const providerResult = resolveProviderOrError(providerId);
+        if (!providerResult.ok) return providerResult;
+        const validation = await providerResult.provider.validateCredential({ apiKey, baseUrl });
+        if (!validation.ok) return validation;
+
+        const result = connectionsEngine.createConnection(getManifest(), {
+          name,
+          provider: providerId,
+          // `|| null` (not `??`): an explicit empty string means "use the
+          // provider's own default", same as a caller who omitted baseUrl
+          // entirely — both must normalize to the schema's usual `null` for
+          // "no override" (see connectionsMigration.js's identical
+          // convention), not persist a literal empty string.
+          nim_base_url: baseUrl || null,
+          primary_model: primaryModel ?? null,
+          small_model: smallModel ?? null,
+        });
+        if (!result.ok) return result;
+
+        // NCOW-29-shaped guard (see apiKey.validateAndSave above): a failed
+        // credential save must not be masked as a successful create. Nothing
+        // is persisted to manifest.json until the credential is confirmed on
+        // disk, so a failure here leaves no half-created connection behind.
+        if (apiKey) {
+          const saveResult = secretStore.saveFor(result.connection.id, apiKey);
+          if (!saveResult.ok) {
+            return {
+              ok: false,
+              error: { code: saveResult.error.code, message: `Connection validated, but the credential could not be saved: ${saveResult.error.message}` },
+            };
+          }
+        }
+        const manifest = saveManifest({ connections: result.manifest.connections, activeConnectionId: result.manifest.activeConnectionId });
+        return { ok: true, data: { connection: result.connection, manifest } };
+      },
+      update: async ({ id, name, providerId, apiKey, baseUrl, primaryModel, smallModel } = {}) => {
+        const existing = connectionsEngine.findConnection(getManifest(), id);
+        if (!existing) return { ok: false, error: { code: 'NOT_FOUND', message: `No connection with id "${id}".` } };
+
+        const providerChanged = providerId !== undefined && providerId !== existing.provider;
+        const effectiveProviderId = providerId ?? existing.provider;
+        // Changing the provider without a new credential would otherwise
+        // silently leave the OLD provider's already-validated key stored
+        // under the connection's id while `provider` now names a DIFFERENT
+        // provider — an invalid, never-validated pairing (e.g. an NVIDIA key
+        // relabeled as an OpenRouter connection). A provider switch always
+        // needs its own credential, so require one explicitly rather than
+        // let it through silently.
+        if (providerChanged && !apiKey) {
+          return { ok: false, error: { code: 'CREDENTIAL_REQUIRED', message: 'Changing the provider requires entering a new credential for it.' } };
+        }
+        // A blank/omitted apiKey (provider unchanged) means "keep the
+        // credential already on file" — the CRUD UI never round-trips a
+        // stored credential back into the renderer, so re-validating with no
+        // key would falsely reject an unchanged, already-valid connection.
+        // Only actually re-validate when the caller supplied a new one to
+        // save (always true when providerChanged, per the guard above).
+        if (apiKey) {
+          const providerResult = resolveProviderOrError(effectiveProviderId);
+          if (!providerResult.ok) return providerResult;
+          const validation = await providerResult.provider.validateCredential({ apiKey, baseUrl: baseUrl ?? existing.nim_base_url ?? undefined });
+          if (!validation.ok) return validation;
+        }
+
+        // Only actually-supplied fields are included — updateConnection()
+        // only changes keys present in this object (see its own JSDoc), so
+        // building it with `providerId: undefined` etc. for an omitted field
+        // would otherwise clobber the existing value with `undefined`
+        // instead of leaving it alone. `baseUrl` specifically distinguishes
+        // three states: omitted (`undefined`, leave untouched), an explicit
+        // empty string (the user cleared the field to reset to the
+        // provider's default — normalized to `null`, same as create() just
+        // above), or a real override string.
+        const fields = {};
+        if (name !== undefined) fields.name = name;
+        if (providerId !== undefined) fields.provider = providerId;
+        if (baseUrl !== undefined) fields.nim_base_url = baseUrl || null;
+        if (primaryModel !== undefined) fields.primary_model = primaryModel;
+        if (smallModel !== undefined) fields.small_model = smallModel;
+
+        const result = connectionsEngine.updateConnection(getManifest(), id, fields);
+        if (!result.ok) return result;
+
+        if (apiKey) {
+          const saveResult = secretStore.saveFor(id, apiKey);
+          if (!saveResult.ok) {
+            return {
+              ok: false,
+              error: { code: saveResult.error.code, message: `Connection validated, but the credential could not be saved: ${saveResult.error.message}` },
+            };
+          }
+        }
+        const manifest = saveManifest({ connections: result.manifest.connections, activeConnectionId: result.manifest.activeConnectionId });
+        return { ok: true, data: { connection: result.connection, manifest } };
+      },
+      // Deliberately does NOT re-validate against the provider — the
+      // credential (if any) is copied byte-for-byte from an already-valid
+      // connection via secretStore.loadFor/saveFor, and nothing about the
+      // provider or base URL changed, so a fresh network round trip would
+      // only add latency and a new failure mode for zero additional signal.
+      duplicate: async ({ id, name } = {}) => {
+        const result = connectionsEngine.duplicateConnection(getManifest(), id, { name });
+        if (!result.ok) return result;
+
+        const sourceKey = secretStore.loadFor(id);
+        if (sourceKey) {
+          const saveResult = secretStore.saveFor(result.connection.id, sourceKey);
+          if (!saveResult.ok) {
+            return {
+              ok: false,
+              error: { code: saveResult.error.code, message: `Could not copy the credential to the duplicated connection: ${saveResult.error.message}` },
+            };
+          }
+        }
+        const manifest = saveManifest({ connections: result.manifest.connections, activeConnectionId: result.manifest.activeConnectionId });
+        return { ok: true, data: { connection: result.connection, manifest } };
+      },
+      // No "is this the active/last connection" guard here — that's CCA-15.4
+      // ("connection delete safety"), which needs CCA-15.3's switch mechanism
+      // to exist first before "in use" is even a meaningful question.
+      delete: async ({ id } = {}) => {
+        const result = connectionsEngine.removeConnection(getManifest(), id);
+        if (!result.ok) return result;
+        // Manifest write BEFORE the destructive credential clear (review
+        // finding: this used to run in the opposite order). writeFileSync
+        // can throw (disk full, EACCES, EBUSY) — if it does, this now
+        // returns an error with the connection and its credential both
+        // still fully intact, instead of an orphaned, credential-less
+        // connection still listed in manifest.json.
+        const manifest = saveManifest({ connections: result.manifest.connections, activeConnectionId: result.manifest.activeConnectionId });
+        secretStore.clearFor(id);
+        return { ok: true, data: { manifest } };
       },
     },
 

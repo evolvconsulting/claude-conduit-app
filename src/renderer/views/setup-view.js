@@ -1,30 +1,43 @@
 import { escapeHtml, toast } from '../components/dom.js';
 import { createPrereqsPanel } from '../components/prereqs-panel.js';
-import { setState, getState } from '../store.js';
-import { navigate } from '../router.js';
+import { confirmDialog } from '../components/confirm-dialog.js';
+import { setState } from '../store.js';
+
+// CCA-15.2: this view used to be a single linear, NVIDIA-only wizard
+// (validate one key -> pick one model pair -> generate config -> start the
+// proxy). It's now a connection-library view over CCA-15.1's
+// manifest.connections[] list: create/edit/duplicate/delete any number of
+// saved connections, each going through its own provider's
+// validateCredential/listModels (registry.js) rather than the single
+// hard-pinned NVIDIA path the old wizard used.
+//
+// Deliberately does NOT call config.generate/proxy.start, and does not touch
+// activeConnectionId at all — making a saved connection actually "live" (the
+// litellm config it drives, the running proxy) is CCA-15.3's job. See that
+// task's own scope notes on CCA-15's Implementation Plan for the full
+// boundary.
 
 let root = null;
 let nimProxy = null;
 let prereqsPanel = null;
 
-const wiz = {
-  step: 'prereqs',
-  apiKeyInput: '',
-  apiKeyValidated: null, // { maskedKey, models } | null
-  apiKeyError: null,
-  catalog: null,
-  primaryModel: null,
-  smallModel: null,
-  modelSearch: '',
-  port: 4000,
-  quickValidation: null,
-  generating: false,
-  generateError: null,
+const state = {
+  step: 'prereqs', // 'prereqs' | 'library' | 'form'
+  connections: [],
+  providerList: [], // [{id, label, defaultBaseUrl, requiresApiKey, supportsModelListing, supportsToolCalling}]
+  form: null,
 };
 
 export function mount(container, ctx) {
   root = container;
   nimProxy = ctx.nimProxy;
+  // Every visit starts at Prerequisites (CCA-13 AC#4's documented decision,
+  // carried over unchanged) with a freshly-loaded connection list, rather
+  // than resuming whatever step a previous visit left behind.
+  state.step = 'prereqs';
+  state.connections = [];
+  state.providerList = [];
+  state.form = null;
   renderAll();
 }
 
@@ -34,255 +47,392 @@ export function unmount() {
   root = null;
 }
 
+// Review finding (bug): every connections.create/update/duplicate/delete
+// call below already returns the freshly-saved manifest, but nothing was
+// ever pushing it into the shared store. app.js's nav guard and sidebar
+// gate every route but 'setup'/'settings' on `getState().manifest` — set
+// only once at boot, from `null` on a truly fresh install — so without this,
+// adding the very first connection left the app permanently stuck on Setup
+// (manifest.json existed on disk, but the renderer's own in-memory state
+// never learned that) until a full restart. Mirrors the old wizard's
+// `setState({ manifest: genResult.data.manifest })` after config.generate.
+function syncManifestState(manifest) {
+  setState({ manifest });
+}
+
 function renderAll() {
   if (!root) return;
   root.innerHTML = `
     <h1>Setup</h1>
-    <div id="wiz-prereqs"></div>
-    <div id="wiz-apikey"></div>
-    <div id="wiz-models"></div>
-    <div id="wiz-generate"></div>
-    <div id="wiz-clientconfig"></div>
+    <div id="setup-prereqs"></div>
+    <div id="setup-library"></div>
   `;
   renderPrereqs();
 }
 
-// ---- Step 1: Prerequisites ----
-//
-// CCA-13 AC#4 (documented decision): Setup keeps this as a genuine first-run
-// gate — a brand-new install with no litellm on PATH can't usefully continue
-// past it — rather than removing it in favor of System Settings' copy.
-// System Settings (settings-view.js) mounts the exact same prereqs-panel.js
-// component for later on-demand re-runs; this step is not duplicated logic,
-// it's the one shared implementation mounted twice for two different
-// audiences (blocking first-run vs. anytime re-check).
+// ---- Step 1: Prerequisites (unchanged from the old wizard) ----
 
 function renderPrereqs() {
-  const el = root?.querySelector('#wiz-prereqs');
+  const el = root?.querySelector('#setup-prereqs');
   if (!el) return;
 
   el.innerHTML = `<div class="card"><h2>1. Prerequisites</h2><div id="prereqs-panel-mount"></div></div>`;
   prereqsPanel = createPrereqsPanel({
     nimProxy,
-    onContinue: () => {
-      wiz.step = 'apiKey';
-      renderApiKeyStep();
+    onContinue: async () => {
+      state.step = 'library';
+      await loadLibrary();
     },
   });
   prereqsPanel.mount(el.querySelector('#prereqs-panel-mount'));
 }
 
-// ---- Step 2: API key ----
+// ---- Step 2: connection library ----
 
-function renderApiKeyStep() {
-  const el = root?.querySelector('#wiz-apikey');
-  if (!el || wiz.step === 'prereqs') { el && (el.innerHTML = ''); return; }
-
-  el.innerHTML = `
-    <div class="card">
-      <h2>2. NVIDIA API key</h2>
-      <p>Get one at <a href="#" id="build-nvidia-link">build.nvidia.com</a> → any model → Get API Key.</p>
-      <input type="password" id="api-key-input" placeholder="nvapi-…" value="${escapeHtml(wiz.apiKeyInput)}" />
-      <div style="margin-top:0.5rem;">
-        <button class="primary" id="validate-key-btn">Validate &amp; Save</button>
-      </div>
-      <p id="api-key-status">${
-        wiz.apiKeyValidated
-          ? `<span class="pass">✓ ${escapeHtml(wiz.apiKeyValidated.maskedKey)} — ${wiz.apiKeyValidated.models.length} models available</span>`
-          : wiz.apiKeyError
-            ? `<span class="fail">${escapeHtml(wiz.apiKeyError)}</span>`
-            : ''
-      }</p>
-      <button class="primary" id="apikey-continue-btn" ${wiz.apiKeyValidated ? '' : 'disabled'}>Continue</button>
-    </div>
-  `;
-
-  el.querySelector('#build-nvidia-link').addEventListener('click', (e) => {
-    e.preventDefault();
-    nimProxy.app.openExternal({ url: 'https://build.nvidia.com' });
-  });
-  el.querySelector('#api-key-input').addEventListener('input', (e) => (wiz.apiKeyInput = e.target.value));
-  el.querySelector('#validate-key-btn').addEventListener('click', validateApiKey);
-  el.querySelector('#apikey-continue-btn')?.addEventListener('click', async () => {
-    wiz.step = 'models';
-    await loadCatalog();
-  });
+async function loadLibrary() {
+  const [connectionsResult, providersResult] = await Promise.all([nimProxy.connections.list(), nimProxy.connections.listProviders()]);
+  if (!connectionsResult.ok) toast(`Could not load connections: ${connectionsResult.error?.message}`, { kind: 'error' });
+  if (!providersResult.ok) toast(`Could not load providers: ${providersResult.error?.message}`, { kind: 'error' });
+  state.connections = connectionsResult.ok ? connectionsResult.data.connections : [];
+  state.providerList = providersResult.ok ? providersResult.data : [];
+  state.form = null;
+  renderLibrary();
 }
 
-async function validateApiKey() {
-  wiz.apiKeyError = null;
-  wiz.apiKeyValidated = null;
-  const btn = root.querySelector('#validate-key-btn');
-  btn.disabled = true;
-  btn.textContent = 'Validating…';
-
-  const result = await nimProxy.apiKey.validateAndSave(wiz.apiKeyInput);
-  if (result.ok) {
-    wiz.apiKeyValidated = result.data;
-  } else {
-    wiz.apiKeyError = result.error?.message ?? 'Validation failed';
-  }
-  renderApiKeyStep();
+function providerLabel(providerId) {
+  return state.providerList.find((p) => p.id === providerId)?.label ?? providerId;
 }
 
-// ---- Step 3: Model selection ----
-
-async function loadCatalog() {
-  renderModelsStep();
-  const result = await nimProxy.catalog.fetch();
-  if (!result.ok) {
-    toast(`Could not load model catalog: ${result.error?.message}`, { kind: 'error' });
+function renderLibrary() {
+  const el = root?.querySelector('#setup-library');
+  if (!el || state.step === 'prereqs') {
+    if (el) el.innerHTML = '';
     return;
   }
-  wiz.catalog = result.data;
-  wiz.primaryModel = wiz.primaryModel ?? wiz.catalog.recommendedPrimary[0] ?? wiz.catalog.models[0];
-  wiz.smallModel = wiz.smallModel ?? wiz.catalog.recommendedSmall[0] ?? wiz.catalog.models[0];
-  renderModelsStep();
-}
 
-function modelPicker(kind, label) {
-  if (!wiz.catalog) return '<p>Loading catalog…</p>';
-  const recommended = kind === 'primary' ? wiz.catalog.recommendedPrimary : wiz.catalog.recommendedSmall;
-  const selected = kind === 'primary' ? wiz.primaryModel : wiz.smallModel;
-  const query = wiz.modelSearch.toLowerCase();
-  const searchResults = query ? wiz.catalog.models.filter((m) => m.toLowerCase().includes(query)).slice(0, 20) : [];
+  if (state.step === 'form') {
+    el.innerHTML = `<div class="card">${renderForm()}</div>`;
+    wireForm(el);
+    return;
+  }
 
-  const cards = [...new Set([...recommended, ...searchResults])]
+  const cards = state.connections
     .map(
-      (id) => `<div class="model-card ${id === selected ? 'selected' : ''}" data-kind="${kind}" data-model="${escapeHtml(id)}">
-        ${escapeHtml(id)} ${recommended.includes(id) ? '<em>(recommended)</em>' : ''}
-      </div>`
+      (c) => `
+    <div class="card connection-card" data-id="${escapeHtml(c.id)}">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:1rem;">
+        <strong>${escapeHtml(c.name)}</strong>
+        <span style="color:var(--muted);">${escapeHtml(providerLabel(c.provider))}</span>
+      </div>
+      <p style="color:var(--muted); margin:0.35rem 0;">
+        ${c.primary_model ? `Primary <code>${escapeHtml(c.primary_model)}</code>` : '<em>No primary model set</em>'}
+        ${c.small_model ? ` &middot; Small <code>${escapeHtml(c.small_model)}</code>` : ''}
+      </p>
+      <div style="display:flex; gap:0.5rem;">
+        <button data-action="edit" data-id="${escapeHtml(c.id)}">Edit</button>
+        <button data-action="duplicate" data-id="${escapeHtml(c.id)}">Duplicate</button>
+        <button class="danger" data-action="delete" data-id="${escapeHtml(c.id)}">Delete</button>
+      </div>
+    </div>
+  `
     )
     .join('');
 
-  const warn = selected && !recommended.includes(selected)
-    ? '<p class="fail">⚠ Tool-calling support unverified for this model — the final test will check it.</p>'
-    : '';
-
-  return `<h3>${label}</h3>${cards}${warn}`;
-}
-
-function renderModelsStep() {
-  const el = root?.querySelector('#wiz-models');
-  if (!el || !['models', 'generate', 'clientConfig'].includes(wiz.step)) { if (el) el.innerHTML = ''; return; }
-
   el.innerHTML = `
     <div class="card">
-      <h2>3. Models</h2>
-      <input type="text" id="model-search" placeholder="Search all models…" value="${escapeHtml(wiz.modelSearch)}" />
-      <div style="display:flex; gap:2rem; margin-top:0.75rem;">
-        <div style="flex:1" id="primary-model-picker">${modelPicker('primary', 'Primary model')}</div>
-        <div style="flex:1" id="small-model-picker">${modelPicker('small', 'Small/fast model')}</div>
-      </div>
-      <div style="margin-top:0.75rem;">
-        <button class="primary" id="models-continue-btn" ${wiz.primaryModel && wiz.smallModel ? '' : 'disabled'}>Continue</button>
-      </div>
+      <h2>2. Connections</h2>
+      ${state.connections.length === 0 ? '<p>No connections yet — add one to get started.</p>' : ''}
+      <button class="primary" id="add-connection-btn">+ Add connection</button>
     </div>
+    ${cards}
   `;
 
-  el.querySelector('#model-search').addEventListener('input', (e) => {
-    wiz.modelSearch = e.target.value;
-    renderModelsStep();
-  });
-  el.querySelectorAll('.model-card').forEach((card) =>
-    card.addEventListener('click', () => {
-      if (card.dataset.kind === 'primary') wiz.primaryModel = card.dataset.model;
-      else wiz.smallModel = card.dataset.model;
-      renderModelsStep();
-    })
-  );
-  el.querySelector('#models-continue-btn')?.addEventListener('click', async () => {
-    wiz.step = 'generate';
-    await generateAndStart();
-  });
+  el.querySelector('#add-connection-btn').addEventListener('click', () => openForm({ mode: 'create' }));
+  el.querySelectorAll('[data-action="edit"]').forEach((btn) => btn.addEventListener('click', () => openForm({ mode: 'edit', id: btn.dataset.id })));
+  el.querySelectorAll('[data-action="duplicate"]').forEach((btn) => btn.addEventListener('click', () => handleDuplicate(btn.dataset.id)));
+  el.querySelectorAll('[data-action="delete"]').forEach((btn) => btn.addEventListener('click', () => handleDelete(btn.dataset.id)));
 }
 
-// ---- Step 4: Generate + start + quick validation ----
-
-async function generateAndStart() {
-  wiz.generating = true;
-  wiz.generateError = null;
-  renderGenerateStep();
-
-  const genResult = await nimProxy.config.generate({
-    primaryModel: wiz.primaryModel,
-    smallModel: wiz.smallModel,
-    port: wiz.port,
-  });
-  if (!genResult.ok) {
-    wiz.generating = false;
-    wiz.generateError = genResult.error?.message ?? 'Config generation failed';
-    renderGenerateStep();
+async function handleDuplicate(id) {
+  const result = await nimProxy.connections.duplicate({ id });
+  if (!result.ok) {
+    toast(`Could not duplicate the connection: ${result.error?.message}`, { kind: 'error' });
     return;
   }
-  setState({ manifest: genResult.data.manifest });
+  toast('Connection duplicated', { kind: 'success' });
+  syncManifestState(result.data.manifest);
+  await loadLibrary();
+  // Opens straight into editing the copy — its name defaults to "<name>
+  // (copy)", which the user almost always wants to change immediately.
+  // AC#4 forbids the blocking native "enter a new name" dialog, so this
+  // reuses the full async edit form instead — it also lets them change
+  // anything else about the copy in the same step.
+  openForm({ mode: 'edit', id: result.data.connection.id });
+}
 
-  const startResult = await nimProxy.proxy.start();
-  if (!startResult.ok) {
-    wiz.generating = false;
-    wiz.generateError = startResult.error?.message ?? 'Failed to start the proxy';
-    renderGenerateStep();
+async function handleDelete(id) {
+  const connection = state.connections.find((c) => c.id === id);
+  const confirmed = await confirmDialog({
+    title: 'Delete this connection?',
+    message: `"${connection?.name ?? 'This connection'}" and its saved credential will be permanently removed. This cannot be undone.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  if (!confirmed) return;
+
+  const result = await nimProxy.connections.delete({ id });
+  if (!result.ok) {
+    toast(`Could not delete the connection: ${result.error?.message}`, { kind: 'error' });
+    return;
+  }
+  toast('Connection deleted', { kind: 'success' });
+  syncManifestState(result.data.manifest);
+  await loadLibrary();
+}
+
+// ---- Add/edit form ----
+
+function openForm({ mode, id }) {
+  if (mode === 'edit') {
+    const connection = state.connections.find((c) => c.id === id);
+    if (!connection) return;
+    state.form = {
+      mode,
+      id,
+      name: connection.name,
+      providerId: connection.provider,
+      // Captured so canSave() can tell "provider changed" apart from
+      // "provider untouched" — switching providers always needs a fresh
+      // credential (see wireForm's provider-select handler and the
+      // CREDENTIAL_REQUIRED guard in engine-context.js's connections.update).
+      originalProviderId: connection.provider,
+      baseUrl: connection.nim_base_url ?? '',
+      apiKeyInput: '',
+      models: [],
+      primaryModel: connection.primary_model ?? null,
+      smallModel: connection.small_model ?? null,
+      // The existing connection's credential is already on file and valid —
+      // only a NEW credential (apiKeyInput becoming non-blank) needs a fresh
+      // validateCredential round trip; see wireForm's api-key input handler
+      // and canSave() below.
+      validated: true,
+      validating: false,
+      saving: false,
+      error: null,
+    };
+    state.step = 'form';
+    renderLibrary();
+    refreshModelsForEdit();
     return;
   }
 
-  const quick = await nimProxy.proxy.testConnection();
-  wiz.quickValidation = quick.ok ? quick.data : null;
-  wiz.generating = false;
-  wiz.step = 'clientConfig';
-  renderGenerateStep();
-  renderClientConfigStep();
+  const defaultProvider = state.providerList[0];
+  state.form = {
+    mode,
+    id: undefined,
+    name: '',
+    providerId: defaultProvider?.id ?? '',
+    baseUrl: defaultProvider?.defaultBaseUrl ?? '',
+    apiKeyInput: '',
+    models: [],
+    primaryModel: null,
+    smallModel: null,
+    validated: false,
+    validating: false,
+    saving: false,
+    error: null,
+  };
+  state.step = 'form';
+  renderLibrary();
 }
 
-// CCA-14.4 (review pass 1, finding A): a quickValidation result can be
-// 'pass', 'fail', or 'skipped' (a capability the active provider plainly
-// does not support — never attempted, so never a failure; see
-// diagnostics.js's notApplicable()). Before this fix, 'skipped' fell through
-// the ternary's else branch and rendered identically to 'fail' — a red ✗
-// list item, which reads as a broken check, exactly what AC#2 forbids.
-function quickResultClass(status) {
-  if (status === 'pass') return 'pass';
-  if (status === 'skipped') return 'skip';
-  return 'fail';
+// Refreshes the model picker for an existing connection using its already-
+// saved credential (secretStore.loadFor, server-side) — so choosing a
+// different model doesn't force the user to re-type a key that's already on
+// file. See engine-context.js's connections.listModels for the connectionId
+// path this calls.
+async function refreshModelsForEdit() {
+  const f = state.form;
+  if (!f || f.mode !== 'edit') return;
+  const result = await nimProxy.connections.listModels({ connectionId: f.id });
+  if (state.form !== f) return; // form was closed/replaced while this was in flight
+  if (result.ok) f.models = result.data.models ?? [];
+  renderLibrary();
 }
 
-function quickResultSymbol(status) {
-  if (status === 'pass') return '✓';
-  if (status === 'skipped') return '–';
-  return '✗';
+function canSave(f) {
+  if (f.saving) return false;
+  // A provider switch always needs a fresh credential — the old provider's
+  // key can't validly carry over to a different provider — so it's gated
+  // the same way a newly-typed credential is, even if apiKeyInput itself is
+  // still blank. Mirrors the CREDENTIAL_REQUIRED guard in
+  // engine-context.js's connections.update.
+  const providerChanged = f.mode === 'edit' && f.providerId !== f.originalProviderId;
+  const credentialChanged = f.mode === 'create' || providerChanged || f.apiKeyInput.trim().length > 0;
+  if (credentialChanged) return f.validated && Boolean(f.primaryModel) && Boolean(f.smallModel);
+  return true;
 }
 
-function renderGenerateStep() {
-  const el = root?.querySelector('#wiz-generate');
-  if (!el || !['generate', 'clientConfig'].includes(wiz.step)) { if (el) el.innerHTML = ''; return; }
-
-  const quickRows = (wiz.quickValidation?.results ?? [])
-    .map((r) => `<li class="${quickResultClass(r.status)}">${quickResultSymbol(r.status)} ${escapeHtml(r.label)} ${r.detail ? '— ' + escapeHtml(r.detail) : ''}</li>`)
+function renderForm() {
+  const f = state.form;
+  const providerOptions = state.providerList
+    .map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === f.providerId ? 'selected' : ''}>${escapeHtml(p.label)}</option>`)
     .join('');
+  const modelOptions = (selected) =>
+    f.models.map((m) => `<option value="${escapeHtml(m)}" ${m === selected ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('');
 
-  el.innerHTML = `
-    <div class="card">
-      <h2>4. Generate &amp; start</h2>
-      ${wiz.generating ? '<p>Generating config and starting the proxy… this can take up to a minute.</p>' : ''}
-      ${wiz.generateError ? `<p class="fail">${escapeHtml(wiz.generateError)}</p>` : ''}
-      ${wiz.quickValidation ? `<ul>${quickRows}</ul>` : ''}
+  return `
+    <h2>${f.mode === 'create' ? 'Add connection' : 'Edit connection'}</h2>
+    <label>Name<br/><input type="text" id="conn-name" value="${escapeHtml(f.name)}" /></label>
+    <div style="margin-top:0.5rem;">
+      <label>Provider<br/><select id="conn-provider">${providerOptions}</select></label>
+    </div>
+    <div style="margin-top:0.5rem;">
+      <label>Base URL <span style="color:var(--muted);">(leave blank for the provider default)</span><br/>
+        <input type="text" id="conn-base-url" placeholder="${escapeHtml(state.providerList.find((p) => p.id === f.providerId)?.defaultBaseUrl ?? '')}" value="${escapeHtml(f.baseUrl)}" /></label>
+    </div>
+    <div style="margin-top:0.5rem;">
+      <label>API key ${f.mode === 'edit' ? '<span style="color:var(--muted);">(leave blank to keep the current key)</span>' : ''}<br/>
+        <input type="password" id="conn-api-key" placeholder="${f.mode === 'edit' ? '••••••••' : 'nvapi-…'}" value="${escapeHtml(f.apiKeyInput)}" /></label>
+      <div style="margin-top:0.35rem;">
+        <button id="conn-validate-btn" ${f.validating ? 'disabled' : ''}>${f.validating ? 'Validating…' : 'Validate & load models'}</button>
+      </div>
+    </div>
+    ${f.error ? `<p class="fail" style="margin-top:0.5rem;">${escapeHtml(f.error)}</p>` : ''}
+    ${
+      f.models.length > 0
+        ? `
+      <div style="display:flex; gap:2rem; margin-top:0.75rem;">
+        <label style="flex:1;">Primary model<br/><select id="conn-primary-model">${modelOptions(f.primaryModel)}</select></label>
+        <label style="flex:1;">Small model<br/><select id="conn-small-model">${modelOptions(f.smallModel)}</select></label>
+      </div>
+    `
+        : ''
+    }
+    <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
+      <button class="primary" id="conn-save-btn" ${canSave(f) ? '' : 'disabled'}>${f.saving ? 'Saving…' : 'Save'}</button>
+      <button id="conn-cancel-btn">Cancel</button>
     </div>
   `;
 }
 
-// ---- Step 5: client config summary ----
+function wireForm(el) {
+  const f = state.form;
 
-function renderClientConfigStep() {
-  const el = root?.querySelector('#wiz-clientconfig');
-  if (!el || wiz.step !== 'clientConfig') { if (el) el.innerHTML = ''; return; }
+  // Text inputs update state without a full re-render (matching the old
+  // wizard's api-key-input pattern) so typing never steals its own focus;
+  // saveForm()/validateAndLoadModels() also read the live DOM value
+  // defensively before submitting, in case a structural re-render (e.g. a
+  // provider change) happened in between.
+  el.querySelector('#conn-name').addEventListener('input', (e) => (f.name = e.target.value));
+  el.querySelector('#conn-base-url').addEventListener('input', (e) => {
+    f.baseUrl = e.target.value;
+    f.validated = false;
+  });
+  el.querySelector('#conn-api-key').addEventListener('input', (e) => {
+    f.apiKeyInput = e.target.value;
+    f.validated = false;
+  });
+  el.querySelector('#conn-provider').addEventListener('change', (e) => {
+    const provider = state.providerList.find((p) => p.id === e.target.value);
+    f.providerId = e.target.value;
+    f.baseUrl = provider?.defaultBaseUrl ?? '';
+    f.apiKeyInput = '';
+    f.models = [];
+    f.primaryModel = null;
+    f.smallModel = null;
+    f.validated = false;
+    f.error = null;
+    renderLibrary();
+  });
+  el.querySelector('#conn-validate-btn').addEventListener('click', validateAndLoadModels);
+  el.querySelector('#conn-primary-model')?.addEventListener('change', (e) => (f.primaryModel = e.target.value));
+  el.querySelector('#conn-small-model')?.addEventListener('change', (e) => (f.smallModel = e.target.value));
+  el.querySelector('#conn-save-btn').addEventListener('click', saveForm);
+  el.querySelector('#conn-cancel-btn').addEventListener('click', () => {
+    state.step = 'library';
+    state.form = null;
+    renderLibrary();
+  });
+}
 
-  el.innerHTML = `
-    <div class="card">
-      <h2>5. Connect your clients</h2>
-      <p>The proxy is running. Head to the <strong>Claude Desktop</strong> and <strong>Claude Code CLI</strong>
-         pages in the sidebar to connect them, or go straight to the Dashboard.</p>
-      <button class="primary" id="finish-setup-btn">Go to Dashboard</button>
-    </div>
-  `;
+async function validateAndLoadModels() {
+  const f = state.form;
+  f.error = null;
+  f.validating = true;
+  renderLibrary();
 
-  el.querySelector('#finish-setup-btn').addEventListener('click', () => navigate('dashboard'));
+  const result = await nimProxy.connections.validateCredential({
+    providerId: f.providerId,
+    apiKey: f.apiKeyInput || undefined,
+    baseUrl: f.baseUrl || undefined,
+  });
+  if (state.form !== f) return; // form was closed/replaced while this was in flight
+
+  f.validating = false;
+  if (!result.ok) {
+    f.validated = false;
+    f.error = result.error?.message ?? 'Validation failed';
+    renderLibrary();
+    return;
+  }
+
+  f.validated = true;
+  f.models = result.data.models ?? [];
+  f.primaryModel = f.models.includes(f.primaryModel) ? f.primaryModel : (f.models[0] ?? null);
+  f.smallModel = f.models.includes(f.smallModel) ? f.smallModel : (f.models[0] ?? null);
+  renderLibrary();
+}
+
+async function saveForm() {
+  const f = state.form;
+  // Defensive re-read: these three fields are only synced on their own
+  // 'input' events (see wireForm), never on the structural re-renders this
+  // function itself may have already triggered above (e.g. a validate
+  // failure), so pull whatever is actually in the DOM right now.
+  f.name = root.querySelector('#conn-name').value;
+  f.baseUrl = root.querySelector('#conn-base-url').value;
+  f.apiKeyInput = root.querySelector('#conn-api-key').value;
+
+  if (!f.name.trim()) {
+    f.error = 'Enter a name for this connection.';
+    renderLibrary();
+    return;
+  }
+
+  f.saving = true;
+  f.error = null;
+  renderLibrary();
+
+  const payload = {
+    name: f.name.trim(),
+    providerId: f.providerId,
+    // Always the raw (possibly empty) value, NOT `f.baseUrl || undefined`.
+    // update()'s field-omission convention treats `undefined` as "leave
+    // unchanged"; an empty string here means the user deliberately cleared
+    // the field to reset to the provider default, which must actually reach
+    // the handler to take effect rather than collapsing into "no change"
+    // (review finding — engine-context.js normalizes '' -> null on both the
+    // create and update paths).
+    baseUrl: f.baseUrl,
+    primaryModel: f.primaryModel ?? undefined,
+    smallModel: f.smallModel ?? undefined,
+  };
+  if (f.apiKeyInput) payload.apiKey = f.apiKeyInput;
+
+  const result = f.mode === 'create' ? await nimProxy.connections.create(payload) : await nimProxy.connections.update({ id: f.id, ...payload });
+
+  if (state.form !== f) return; // form was closed/replaced while this was in flight
+  f.saving = false;
+  if (!result.ok) {
+    f.error = result.error?.message ?? 'Could not save the connection';
+    renderLibrary();
+    return;
+  }
+
+  toast(f.mode === 'create' ? 'Connection added' : 'Connection updated', { kind: 'success' });
+  syncManifestState(result.data.manifest);
+  state.step = 'library';
+  state.form = null;
+  await loadLibrary();
 }
