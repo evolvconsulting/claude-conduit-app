@@ -409,10 +409,92 @@ const DOMAIN_MUTEX_ALIASES = {
   // one side's write.
   connections: 'config',
 };
+/**
+ * CCA-15.3: overrides DOMAIN_MUTEX_ALIASES' domain-wide resolution for ONE
+ * specific method whose lock shape genuinely differs from its domain
+ * siblings. `connections.activate` is the first (and, as of this change,
+ * only) entry: every other `connections` method (list/listProviders/
+ * validateCredential/listModels/create/update/duplicate/delete) resolves
+ * through DOMAIN_MUTEX_ALIASES' `connections: 'config'` entry, because none
+ * of them touch pm2-supervised proxy state or Claude Desktop's/Code's own
+ * config files — only manifest.json and secretStore. `activate` is
+ * different: it regenerates litellm.env/config.yaml AND restarts the
+ * pm2-supervised proxy (see engine-context.js's `connections.activate`), so
+ * it needs BOTH `config` and `proxy` — but, unlike `settings.updatePort`
+ * (which aliases onto all four of claudeCode/claudeDesktop/config/proxy
+ * because IT changes the port those two files embed and must reapply them),
+ * `activate` never touches Claude Desktop's config entry or Claude Code's
+ * settings.json at all: CCA-15.3's own AC#3 is that port/master key — the
+ * only two things those files encode — stay fixed across every switch, so
+ * there is nothing in them to reapply. It needs exactly `['config',
+ * 'proxy']`, not `settings`' four-lock shape.
+ *
+ * Widening the WHOLE `connections` domain's alias to match instead (rather
+ * than adding this per-method override) was considered and rejected: it
+ * would force every CRUD method — none of which touches pm2/claudeDesktop/
+ * claudeCode state — to queue behind an unrelated proxy restart, and vice
+ * versa. That is needless contention, not a correctness requirement, and
+ * this codebase has a standing precedent against exactly that shape of
+ * over-broad locking (NCOW-50: apiKey.validateAndSave was deliberately
+ * narrowed to avoid it). A per-method override keeps each method's lock set
+ * matching its own actual mutating concern instead.
+ *
+ * Structurally this mirrors DOMAIN_MUTEX_ALIASES in every way that matters
+ * (same array-of-domain-names shape, same LOCK_ACQUISITION_ORDER-based
+ * resolution via the shared resolveLocksForDomainNames() helper below, same
+ * module-load validation + deep-freeze discipline) — it is just keyed one
+ * level deeper, by `${domain}.${method}` instead of `${domain}`, because
+ * DOMAIN_MUTEX_ALIASES has no way to express "this one method of an
+ * otherwise-single-lock domain needs a different set."
+ */
+const METHOD_MUTEX_ALIASES = {
+  connections: { activate: ['config', 'proxy'] },
+};
+
+/**
+ * CCA-15.3: throws if any METHOD_MUTEX_ALIASES entry names a domain.method
+ * CHANNELS doesn't define (a typo would otherwise silently vanish — the
+ * intended method just falls back to its domain's own resolution with
+ * nothing here noticing), an empty override array (never meaningful — a
+ * missing entry already means "use the domain's own resolution"
+ * unambiguously), or a target domain missing from `order` — the same three
+ * failure shapes assertLockOrderIsConsistent/assertAliasKeysAreKnownChannelDomains
+ * already guard for DOMAIN_MUTEX_ALIASES, applied to this table instead.
+ */
+function assertMethodMutexAliasesAreValid(methodAliases, order, channelDomains) {
+  const orderSet = new Set(order);
+  for (const [domain, methods] of Object.entries(methodAliases)) {
+    const invokeMethods = new Set(Object.keys(channelDomains[domain]?.invoke ?? {}));
+    for (const [method, target] of Object.entries(methods)) {
+      if (!invokeMethods.has(method)) {
+        throw new Error(
+          `METHOD_MUTEX_ALIASES has an entry for "${domain}.${method}" but CHANNELS defines no such method on "${domain}"`
+        );
+      }
+      const names = Array.isArray(target) ? target : [target];
+      if (names.length === 0) {
+        throw new Error(
+          `METHOD_MUTEX_ALIASES has an empty override for "${domain}.${method}" — name at least one domain to ` +
+            `lock, or remove the entry entirely (a missing entry already means "use the domain's own resolution" unambiguously)`
+        );
+      }
+      const unknown = names.filter((d) => !orderSet.has(d));
+      if (unknown.length > 0) {
+        throw new Error(
+          `METHOD_MUTEX_ALIASES references domain(s) ${JSON.stringify(unknown)} missing from LOCK_ACQUISITION_ORDER ` +
+            `for "${domain}.${method}"`
+        );
+      }
+    }
+  }
+}
+
 // NCOW-49 AC#5: deep-frozen below (after LOCK_ACQUISITION_ORDER is declared)
 // so neither table's membership, nested alias arrays, nor bare-string alias
 // values can be mutated by a consumer after module load in a way that
 // changes real lock resolution — see deepFreeze()'s own doc comment above.
+// CCA-15.3: METHOD_MUTEX_ALIASES joins the same freeze pass, for the same
+// reason.
 
 /**
  * NCOW-45: the one and only order in which ANY handler in this file may
@@ -465,6 +547,7 @@ const LOCK_ACQUISITION_ORDER = ['claudeCode', 'claudeDesktop', 'config', 'proxy'
 deepFreeze(DOMAIN_MUTEX_ALIASES);
 deepFreeze(LOCK_ACQUISITION_ORDER);
 deepFreeze(SELF_ACQUIRING_HANDLERS);
+deepFreeze(METHOD_MUTEX_ALIASES);
 
 /**
  * NCOW-46/49: throws if `order` is not exactly a permutation of `domains`, if
@@ -597,6 +680,9 @@ function assertAliasKeysAreKnownChannelDomains(aliases, channelDomains) {
 }
 
 assertAliasKeysAreKnownChannelDomains(DOMAIN_MUTEX_ALIASES, Object.keys(CHANNELS));
+// CCA-15.3: same discipline as the two calls above, applied to the new
+// per-method override table.
+assertMethodMutexAliasesAreValid(METHOD_MUTEX_ALIASES, LOCK_ACQUISITION_ORDER, CHANNELS);
 
 /**
  * NCOW-49 AC#1: true for anything that at least LOOKS like a lock produced by
@@ -706,28 +792,29 @@ function assertGenuineMutex(lock, domain) {
  *  NCOW-45, and worse after NCOW-47/50 since it could degrade `apiKey` all
  *  the way to zero locks, indistinguishable from a domain deliberately left
  *  unlocked. That is now a loud throw instead of a silent degrade. */
-function resolveDomainLocks(mutexes, domain) {
-  if (mutexes[domain]) return [assertGenuineMutex(mutexes[domain], domain)];
-  const alias = DOMAIN_MUTEX_ALIASES[domain];
-  if (!alias) return [];
-  const aliasDomains = Array.isArray(alias) ? alias : [alias];
-  const sorted = [...aliasDomains].sort(
+/**
+ * Shared by resolveDomainLocks() and resolveMethodLocks() (CCA-15.3): resolves
+ * an array of domain names (a DOMAIN_MUTEX_ALIASES or METHOD_MUTEX_ALIASES
+ * target) into the actual locks to acquire, sorted into LOCK_ACQUISITION_ORDER
+ * regardless of the order the caller's array happens to list them in, and
+ * deduplicated by resolved lock's `.run` identity (not the lock object's own
+ * identity — see resolveDomainLocks' original doc comment, preserved below,
+ * for why). `label` is only used to make a thrown error identify which
+ * caller/table entry triggered it.
+ */
+function resolveLocksForDomainNames(mutexes, names, label) {
+  const sorted = [...names].sort(
     (a, b) => LOCK_ACQUISITION_ORDER.indexOf(a) - LOCK_ACQUISITION_ORDER.indexOf(b)
   );
-  // Keyed on `lock.run` identity, not `lock` identity — see this function's
-  // own doc comment (NCOW-49 fix pass 2) for why a wrapper object can be
-  // `!==` its underlying mutex while still forwarding/copying the exact same
-  // `.run` reference, and so must dedupe as "the same lock" anyway.
   const seenRuns = new Set();
   const locks = [];
   for (const d of sorted) {
     const lock = mutexes[d];
     if (!lock) {
       throw new Error(
-        `resolveDomainLocks: "${domain}" aliases onto "${d}" (see DOMAIN_MUTEX_ALIASES) but mutexes.${d} is ` +
-          `missing from the injected mutex set — this would silently drop serialization for every mutating ` +
-          `method of "${domain}" instead of failing. Pass the complete set createDomainMutexes() produces, not ` +
-          `a hand-built subset.`
+        `resolveDomainLocks: "${label}" resolves onto "${d}" but mutexes.${d} is missing from the injected mutex ` +
+          `set — this would silently drop serialization for every mutating method of "${label}" instead of ` +
+          `failing. Pass the complete set createDomainMutexes() produces, not a hand-built subset.`
       );
     }
     assertGenuineMutex(lock, d);
@@ -736,6 +823,30 @@ function resolveDomainLocks(mutexes, domain) {
     locks.push(lock);
   }
   return locks;
+}
+
+function resolveDomainLocks(mutexes, domain) {
+  if (mutexes[domain]) return [assertGenuineMutex(mutexes[domain], domain)];
+  const alias = DOMAIN_MUTEX_ALIASES[domain];
+  if (!alias) return [];
+  const aliasDomains = Array.isArray(alias) ? alias : [alias];
+  return resolveLocksForDomainNames(mutexes, aliasDomains, domain);
+}
+
+/**
+ * CCA-15.3: like resolveDomainLocks(), but consulted per METHOD rather than
+ * once per domain — METHOD_MUTEX_ALIASES lets one method of an otherwise
+ * single-lock domain (today, only `connections.activate`) resolve onto a
+ * different lock set than its domain siblings. Falls back to
+ * resolveDomainLocks() (unchanged) for every method with no override, so
+ * every pre-existing domain/method keeps resolving exactly as it did before
+ * this function existed.
+ */
+function resolveMethodLocks(mutexes, domain, method) {
+  const override = METHOD_MUTEX_ALIASES[domain]?.[method];
+  if (!override) return resolveDomainLocks(mutexes, domain);
+  const names = Array.isArray(override) ? override : [override];
+  return resolveLocksForDomainNames(mutexes, names, `${domain}.${method}`);
 }
 
 /**
@@ -871,10 +982,16 @@ function registerIpcHandlers(handlers = {}, opts = {}) {
 
   for (const [domain, spec] of Object.entries(CHANNELS)) {
     const domainHandlers = mergedHandlers[domain] || {};
-    const locks = resolveDomainLocks(mutexes, domain);
     const unserialized = UNSERIALIZED_METHODS[domain] ?? [];
     for (const [method, channel] of Object.entries(spec.invoke || {})) {
       const impl = domainHandlers[method] || notImplemented(domain, method);
+      // CCA-15.3: resolved per-method (was: once per domain, via
+      // resolveDomainLocks alone) so METHOD_MUTEX_ALIASES can give one
+      // method (e.g. connections.activate) a different lock set than its
+      // domain siblings — see resolveMethodLocks()'s own doc comment.
+      // Every method with no override still resolves through
+      // resolveDomainLocks() exactly as before.
+      const locks = resolveMethodLocks(mutexes, domain, method);
       const shouldLock = locks.length > 0 && !unserialized.includes(method);
       const wrapped = shouldLock ? withLocks(locks, impl) : impl;
       ipcMain.handle(channel, async (_event, ...args) => {
@@ -906,4 +1023,11 @@ module.exports = {
   // same pattern assertLockOrderIsConsistent above already established.
   assertUnserializedMethodsCoverSelfAcquirers,
   SELF_ACQUIRING_HANDLERS,
+  // CCA-15.3: exported for the same reasons as their DOMAIN_MUTEX_ALIASES
+  // counterparts above — so ipc-mutex.test.js can exercise the new
+  // per-method override mechanism directly, both against the real table and
+  // against deliberately-broken inputs.
+  resolveMethodLocks,
+  METHOD_MUTEX_ALIASES,
+  assertMethodMutexAliasesAreValid,
 };

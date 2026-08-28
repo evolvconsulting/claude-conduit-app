@@ -42,6 +42,10 @@ const {
   assertAliasKeysAreKnownChannelDomains,
   assertUnserializedMethodsCoverSelfAcquirers,
   SELF_ACQUIRING_HANDLERS,
+  // CCA-15.3
+  resolveMethodLocks,
+  METHOD_MUTEX_ALIASES,
+  assertMethodMutexAliasesAreValid,
 } = require('../../src/main/ipc');
 const { createDomainMutex, createDomainMutexes, MUTEX_DOMAINS } = require('../../src/main/mutex');
 const { CHANNELS } = require('../../src/main/ipc-channels');
@@ -1351,6 +1355,230 @@ test('ipc: CCA-15.2 — connections:list/listProviders/validateCredential/listMo
 
   gate.resolve();
   await background;
+});
+
+// --- CCA-15.3: `connections.activate` regenerates litellm.env/config.yaml
+// AND restarts the pm2-supervised proxy — a genuinely different mutating
+// concern than its `connections` domain siblings above, which only ever
+// touch manifest.json + secretStore. It needs BOTH `config` and `proxy`, but
+// (unlike `settings.updatePort`) never touches Claude Desktop's/Code's own
+// config files, so it does NOT need the full four-lock shape either. Proven
+// via the new METHOD_MUTEX_ALIASES override mechanism (ipc.js) rather than
+// widening the whole `connections` domain's alias — the tests below also
+// prove that widening did NOT happen: connections:create still resolves to
+// [config] alone.
+
+test('ipc: CCA-15.3 — resolveMethodLocks() resolves connections.activate onto [config, proxy], not the single config-only alias its CRUD siblings use', () => {
+  const mutexes = createDomainMutexes();
+  const locks = resolveMethodLocks(mutexes, 'connections', 'activate');
+  assert.deepEqual(locks, [mutexes.config, mutexes.proxy], 'must resolve to exactly [config, proxy], in LOCK_ACQUISITION_ORDER');
+});
+
+test('ipc: CCA-15.3 — resolveMethodLocks() falls back to the domain-level resolution for every OTHER connections method (no override defined for them)', () => {
+  const mutexes = createDomainMutexes();
+  for (const method of ['list', 'listProviders', 'validateCredential', 'listModels', 'create', 'update', 'duplicate', 'delete']) {
+    assert.deepEqual(
+      resolveMethodLocks(mutexes, 'connections', method),
+      resolveDomainLocks(mutexes, 'connections'),
+      `connections.${method} must still resolve exactly like resolveDomainLocks() would — the override must not leak onto siblings`
+    );
+  }
+});
+
+test('ipc: CCA-15.3 — METHOD_MUTEX_ALIASES.connections.activate is exactly [config, proxy] (not the four-lock settings.updatePort shape)', () => {
+  assert.deepEqual(METHOD_MUTEX_ALIASES.connections.activate, ['config', 'proxy']);
+});
+
+test('ipc: CCA-15.3 — a background config:generate holding the config lock blocks connections:activate', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      connections: {
+        activate: async () => {
+          order.push('activate:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+    order.push('bg-generate:exit');
+  });
+
+  const activateRun = invoke('connections:activate', { id: 'x' });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['bg-generate:enter'], 'connections:activate must queue behind an in-flight config lock holder, not interleave');
+
+  gate.resolve();
+  await background;
+  await activateRun;
+  assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'activate:enter']);
+});
+
+test('ipc: CCA-15.3 — a background proxy operation holding the proxy lock ALSO blocks connections:activate (the second half of its two-lock shape)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      connections: {
+        activate: async () => {
+          order.push('activate:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // Exactly what engine-context.js's launch-time regenerateStaleConfig()
+  // wiring does — the same fixture the pre-existing "proxy:stop" tests above
+  // use for a background proxy-domain operation.
+  const background = mutexes.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  const activateRun = invoke('connections:activate', { id: 'x' });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['bg-restart:enter'], 'connections:activate must queue behind an in-flight proxy lock holder too, not just config');
+
+  gate.resolve();
+  await background;
+  await activateRun;
+  assert.deepEqual(order, ['bg-restart:enter', 'bg-restart:exit', 'activate:enter']);
+});
+
+test('ipc: CCA-15.3 — an in-flight connections:activate blocks a subsequent config:generate AND a subsequent proxy:stop (holds both locks for its whole duration)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      connections: {
+        activate: async () => {
+          order.push('activate:enter');
+          await gate.promise;
+          order.push('activate:exit');
+          return { ok: true };
+        },
+      },
+      config: {
+        generate: async () => {
+          order.push('generate:enter');
+          return { ok: true };
+        },
+      },
+      proxy: {
+        stop: async () => {
+          order.push('stop:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const activateRun = invoke('connections:activate', { id: 'x' });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.deepEqual(order, ['activate:enter'], 'activate must have entered before probing contention against it');
+
+  const generateRun = invoke('config:generate', {});
+  const stopRun = invoke('proxy:stop');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['activate:enter'], 'neither config:generate nor proxy:stop may run while activate is still in flight');
+
+  gate.resolve();
+  await activateRun;
+  await Promise.all([generateRun, stopRun]);
+  assert.deepEqual(order.slice(0, 2), ['activate:enter', 'activate:exit']);
+  assert.equal(order.length, 4);
+  assert.deepEqual(new Set(order.slice(2)), new Set(['generate:enter', 'stop:enter']));
+});
+
+test('ipc: CCA-15.3 — connections:create is UNAFFECTED by the activate override — still resolves to [config] alone and is not serialized against a background proxy operation', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      connections: {
+        create: async () => {
+          order.push('create:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.proxy.run(async () => {
+    order.push('bg-restart:enter');
+    await gate.promise;
+    order.push('bg-restart:exit');
+  });
+
+  await invoke('connections:create', {});
+  assert.deepEqual(order, ['bg-restart:enter', 'create:enter'], 'connections:create has no proxy-lock dependency — it must run without waiting on it');
+
+  gate.resolve();
+  await background;
+});
+
+test('ipc: CCA-15.3 — assertMethodMutexAliasesAreValid() rejects an entry for a domain.method CHANNELS does not define', () => {
+  assert.throws(
+    () => assertMethodMutexAliasesAreValid({ connections: { notAMethod: ['config'] } }, LOCK_ACQUISITION_ORDER, CHANNELS),
+    /CHANNELS defines no such method/
+  );
+});
+
+test('ipc: CCA-15.3 — assertMethodMutexAliasesAreValid() rejects an empty override array', () => {
+  assert.throws(
+    () => assertMethodMutexAliasesAreValid({ connections: { activate: [] } }, LOCK_ACQUISITION_ORDER, CHANNELS),
+    /empty override/
+  );
+});
+
+test('ipc: CCA-15.3 — assertMethodMutexAliasesAreValid() rejects a target domain missing from LOCK_ACQUISITION_ORDER', () => {
+  assert.throws(
+    () => assertMethodMutexAliasesAreValid({ connections: { activate: ['not-a-real-domain'] } }, LOCK_ACQUISITION_ORDER, CHANNELS),
+    /missing from LOCK_ACQUISITION_ORDER/
+  );
+});
+
+test('ipc: CCA-15.3 — assertMethodMutexAliasesAreValid() does not throw against the real METHOD_MUTEX_ALIASES/LOCK_ACQUISITION_ORDER/CHANNELS (no false positive)', () => {
+  assert.doesNotThrow(() => assertMethodMutexAliasesAreValid(METHOD_MUTEX_ALIASES, LOCK_ACQUISITION_ORDER, CHANNELS));
+});
+
+test('ipc: CCA-15.3 — the module-load call site actually wires assertMethodMutexAliasesAreValid against the real constants, not only exists for tests to call manually', () => {
+  const source = require('node:fs').readFileSync(require.resolve('../../src/main/ipc.js'), 'utf8');
+  assert.match(
+    source,
+    /^assertMethodMutexAliasesAreValid\(METHOD_MUTEX_ALIASES,\s*LOCK_ACQUISITION_ORDER,\s*CHANNELS\);/m,
+    'must call the new consistency assertion against the real constants at module scope (top-level, not inside a function)'
+  );
+});
+
+test('ipc: CCA-15.3 — METHOD_MUTEX_ALIASES is deep-frozen, so no consumer mutation after module load can change real lock resolution', () => {
+  assert.throws(() => {
+    'use strict';
+    METHOD_MUTEX_ALIASES.connections.activate.push('claudeCode');
+  }, TypeError);
 });
 
 // NCOW-50 SUPERSEDES the test that used to live right here ("a background

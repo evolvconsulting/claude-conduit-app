@@ -132,3 +132,57 @@ test('setup-view: exports mount/unmount and never calls config.generate/proxy.st
   assert.doesNotMatch(source, /nimProxy\.config\.generate\(/, 'activating a connection is CCA-15.3\'s job, not this view\'s');
   assert.doesNotMatch(source, /nimProxy\.proxy\.start\(/, 'activating a connection is CCA-15.3\'s job, not this view\'s');
 });
+
+// ---- CCA-15.3: the Activate affordance ----
+
+test('setup-view: the active connection\'s card shows a badge and no Activate button; every other card gets one (AC#1)', () => {
+  const source = read();
+  const cardsStart = source.indexOf('const activationInFlight');
+  assert.ok(cardsStart > 0, 'expected an activationInFlight declaration ahead of the connection cards .map()');
+  const cardTemplate = source.slice(cardsStart, source.indexOf('.join(', cardsStart));
+
+  assert.match(cardTemplate, /isActive\s*=\s*c\.id\s*===\s*state\.activeConnectionId/, 'must derive active-ness from state.activeConnectionId, not a hardcoded/stale flag');
+  assert.match(cardTemplate, /isActive\s*\?\s*''\s*:[\s\S]*?data-action="activate"/, 'a non-active card must render an Activate button; the active one must render nothing in its place');
+});
+
+test('setup-view: handleActivate shows visible in-progress state, then a clear success or failure result (AC#2)', () => {
+  const source = read();
+  const start = source.indexOf('async function handleActivate');
+  assert.ok(start > 0, 'expected a handleActivate(id) function');
+  const body = source.slice(start, source.indexOf('\n}', start));
+
+  assert.match(body, /state\.activating\s*=\s*id;/, 'must record which connection is being activated before the async call, for the disabled/"Activating…" state');
+  assert.match(body, /renderLibrary\(\);/, 'must re-render immediately so the in-progress state is actually visible');
+  assert.match(body, /await nimProxy\.connections\.activate\(\{\s*id\s*\}\);/, 'must call the real connections.activate IPC method');
+  assert.match(body, /state\.activating\s*=\s*null;/, 'must clear the in-progress flag regardless of outcome');
+  assert.match(body, /if \(!result\.ok\) \{[\s\S]*?toast\(`Could not activate this connection: \$\{result\.error\?\.message\}`, \{ kind: 'error' \}\);/, 'a failure must be toasted with the engine\'s own error message');
+  assert.match(body, /toast\('Connection activated[\s\S]*?\{ kind: 'success' \}\);/, 'a success must be toasted too — AC#2 requires a CLEAR result either way');
+});
+
+test('setup-view: a successful activate syncs the shared store and the local active-id state (so the badge moves without a full reload)', () => {
+  const source = read();
+  const start = source.indexOf('async function handleActivate');
+  const body = source.slice(start, source.indexOf('\n}', start));
+  assert.match(body, /syncManifestState\(result\.data\.manifest\)/, 'must push the returned manifest into the shared store, same as every other mutating handler in this file');
+  assert.match(body, /state\.activeConnectionId\s*=\s*result\.data\.manifest\.activeConnectionId;/, 'must update the local active-id so the badge/button set re-renders correctly without a full loadLibrary() refetch');
+});
+
+test('setup-view: activating a connection does NOT go through confirmDialog — it is not a destructive action, unlike delete', () => {
+  const source = read();
+  const start = source.indexOf('async function handleActivate');
+  const body = source.slice(start, source.indexOf('\n}', start));
+  assert.doesNotMatch(body, /confirmDialog/, 'a connection switch loses nothing and is safely retryable — no confirmation gate needed');
+});
+
+test('setup-view: activate buttons are disabled while ANY activation is in flight, not just the one being activated (prevents a concurrent second switch from the UI)', () => {
+  const source = read();
+  const cardsStart = source.indexOf('const activationInFlight');
+  const cardTemplate = source.slice(cardsStart, source.indexOf('.join(', cardsStart));
+  assert.match(cardTemplate, /activationInFlight\s*=\s*Boolean\(state\.activating\)/, 'expected a domain-wide (not per-card) in-flight flag');
+  assert.match(cardTemplate, /data-action="activate"[\s\S]{0,120}\$\{activationInFlight \? 'disabled' : ''\}/, 'every activate button must be disabled while activationInFlight is true');
+});
+
+test('setup-view: connections.activate is wired up (extends the CCA-15.2 wiring-sanity check)', () => {
+  const source = read();
+  assert.match(source, /nimProxy\.connections\.activate\(/, 'expected a call to nimProxy.connections.activate(...) somewhere in setup-view.js');
+});

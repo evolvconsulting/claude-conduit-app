@@ -82,6 +82,12 @@ const CHANNELS = {
       update: 'connections:update',
       duplicate: 'connections:duplicate',
       delete: 'connections:delete',
+      // CCA-15.3: makes a saved connection actually "live" — regenerates
+      // litellm.env/config.yaml from it and restarts the proxy. Locked
+      // differently than its siblings above (see ipc.js's
+      // METHOD_MUTEX_ALIASES) since it, unlike them, touches pm2-supervised
+      // proxy state.
+      activate: 'connections:activate',
     },
   },
   config: {
