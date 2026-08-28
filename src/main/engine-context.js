@@ -231,14 +231,33 @@ function createEngineContext(deps) {
   // absent here too, for the exact reason the guard immediately above this
   // block exists: readManifest() does a bare JSON.parse, and an unguarded
   // second read would reintroduce that same crash for this path alone.
+  //
+  // Review finding: secretStore.saveFor() can fail cleanly (e.g. `{ok:
+  // false, error: {code: 'ENCRYPTION_UNAVAILABLE'}}` — the same NCOW-29
+  // precondition apiKey.validateAndSave already has to handle) rather than
+  // throwing. The manifest patch below is only written when the credential
+  // copy actually succeeded (or there was never a credential to copy) — if
+  // it failed, `connections` is deliberately left unwritten so
+  // migrateManifestToConnections()'s own Array.isArray(manifest.connections)
+  // check finds nothing on the next launch and retries the whole migration,
+  // mirroring configGen.regenerateStaleConfig()'s own "leave the manifest
+  // unstamped on failure so the next launch retries" precedent (NCOW-31).
+  // Never mark the schema migrated with a connection that silently has no
+  // credential — AC#3 promises the credential stays intact, not "usually."
   const connectionsMigration = migrateManifestToConnections(manifestForRegenCheck);
   if (connectionsMigration.migrated) {
     const legacyKey = secretStore.load();
-    if (legacyKey) secretStore.saveFor(connectionsMigration.connectionId, legacyKey);
-    saveManifest({
-      connections: connectionsMigration.manifest.connections,
-      activeConnectionId: connectionsMigration.manifest.activeConnectionId,
-    });
+    const credentialCopyOk = !legacyKey || secretStore.saveFor(connectionsMigration.connectionId, legacyKey).ok;
+    if (credentialCopyOk) {
+      saveManifest({
+        connections: connectionsMigration.manifest.connections,
+        activeConnectionId: connectionsMigration.manifest.activeConnectionId,
+      });
+    } else {
+      (deps.logger ?? console).warn(
+        '[connections-migration] could not copy the legacy credential to the new connection-keyed slot; leaving the manifest unmigrated so the next launch retries'
+      );
+    }
   }
 
   // NCOW-31 AC#1: the single set of per-domain locks for this whole app

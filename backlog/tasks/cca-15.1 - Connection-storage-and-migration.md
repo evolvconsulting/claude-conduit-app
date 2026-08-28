@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude.coder2@evolvconsulting.com'
 created_date: '2026-08-28 15:01'
-updated_date: '2026-08-28 15:32'
+updated_date: '2026-08-28 15:37'
 labels: []
 dependencies: []
 parent_task_id: CCA-15
@@ -41,6 +41,8 @@ Extend the single-slot manifest into an ordered list of named connections plus o
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented: src/engine/connectionsMigration.js (pure migrateManifestToConnections), secretStore.js re-keyed from providerId to connection id (JSDoc+param rename only, no production caller existed yet), engine-context.js wired the migration on every launch reusing the already-guarded manifestForRegenCheck read (avoids reintroducing the corrupt-manifest crash the NCOW-30 fix-pass closed). Full suite 613/613 pass, including a non-vacuous fixture test against a real pre-CCA-15 manifest.json + legacy nim-key.enc, an idempotency test, a fresh-install no-op test, and a corrupt-manifest regression test.
+
+/code-review medium (pre-merge fresh-eyes pass, per campaign lifecycle step 6) found and this fixed 1 real bug: secretStore.saveFor()'s result was discarded during migration, so a failed credential copy (ENCRYPTION_UNAVAILABLE) would still mark the manifest migrated with no retry path — silently breaking AC#3's 'credential intact' promise. Fixed by only writing the connections/activeConnectionId patch when the copy actually succeeds (or there was nothing to copy), mirroring configGen.regenerateStaleConfig's own 'leave unstamped on failure so the next launch retries' precedent. New regression test proves the retry path works. Full suite 614/614.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
