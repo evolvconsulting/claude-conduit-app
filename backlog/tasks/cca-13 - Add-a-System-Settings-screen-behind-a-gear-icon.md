@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude.coder2@evolvconsulting.com'
 created_date: '2026-07-31 21:51'
-updated_date: '2026-08-28 13:51'
+updated_date: '2026-08-28 14:00'
 labels: []
 dependencies:
   - CCA-14
@@ -56,6 +56,8 @@ LIVE VERIFICATION (real Electron app, --dev, isolated NIM_PROXY_TEST_HOME, CDP d
 BUG FOUND AND FIXED by this live verification (would NOT have been caught by npm test — index.js is never require()'d by the suite, see NCOW-10.1's comment): the recovered code's 'before-quit' handler (src/main/index.js) called getAppSettings(), but that name was only destructured inside the app.whenReady().then() callback -- a SIBLING closure to 'before-quit', not an enclosing one. Every real quit (either quitBehavior value -- the crash is on the read, before branching) threw 'ReferenceError: getAppSettings is not defined', which Electron surfaces as a blocking native alert with no visible stack, wedging the whole process (confirmed via 'sample <pid>' showing the main thread stuck in -[NSAlert runModal], then root-caused precisely via Debugger.setPauseOnExceptions over the main process's --inspect port). Fix: hoisted a new 'let getAppSettingsForQuit = null' alongside the file's existing stopProxyForShutdown/stopStatusPoller/shuttingDown hoist-for-cross-closure pattern, assigned it right after the (unchanged, test-asserted-verbatim) destructure, and read getAppSettingsForQuit() from 'before-quit' instead. Re-verified: npm test still 602/602, and a real quit->relaunch round trip (both quitBehavior branches) now completes cleanly with no alert.
 
 AC#3 scope note: 'available from Settings' and 're-run on demand' are live-verified (prereqs-recheck-btn clicked, real check results rendered). The install-litellm sub-clause was NOT freshly triggered live -- this dev machine already has litellm installed, so the Install button never rendered, and uninstalling litellm from a real dev machine to force that branch was judged too disruptive/out of scope for this task. That sub-clause's coverage rests on prereqs-panel.js being the exact same component (not a reimplementation) Setup already exercised pre-CCA-13, plus the unchanged installLitellm() IPC handler.
+
+/code-review medium found 3 real bugs pre-merge, all fixed: (1) engine-context.js updatePort's Claude Desktop re-apply discarded applyGatewayConfig()'s returned entryId/backupPath instead of persisting them via saveManifest like the established claudeDesktop.applyGatewayConfig handler does -- fixed by capturing and saving them the same way. (2) settings-view.js's log-limit dropdown had no 10MB option, so a fresh install (default is 10MB) rendered the dropdown showing '5 MB' selected -- added the missing 10MB option matching appSettings.js's DEFAULT_APP_SETTINGS. (3) savePort() awaited confirmDialog() before setting any synchronous latch, so two fast clicks could stack two confirmation modals -- the exact class of bug CLAUDE.md documents for the About dialog; fixed with the same synchronous-latch pattern. npm test: 602/602 after all three fixes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

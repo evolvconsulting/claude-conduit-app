@@ -339,7 +339,7 @@ function createEngineContext(deps) {
       litellmProvider: activeProvider.litellmProvider,
       apiKeyEnvVar: activeProvider.apiKeyEnvVar,
     });
-    const updated = saveManifest({ port: newPort, litellm_path: litellmCheck.path });
+    let updated = saveManifest({ port: newPort, litellm_path: litellmCheck.path });
 
     const restart = await pm2Control.startOrRestart({
       ecosystemConfigPath: files.ecosystemConfig,
@@ -361,12 +361,27 @@ function createEngineContext(deps) {
       entryId: updated.desktop_config_entry_id,
     });
     if (desktopStatus.details?.isApplied) {
-      claudeDesktopConfig.applyGatewayConfig({
+      // Capture and persist entryId/backupPath exactly like the standalone
+      // claudeDesktop.applyGatewayConfig handler above does (saveManifest
+      // call a few lines up this file) — applyGatewayConfig() can create a
+      // brand-new entry (not just update the existing one) when the user
+      // deleted Claude Conduit's entry from Claude Desktop's own UI since it
+      // was last applied (detectStatus's `isApplied` only reflects the
+      // manifest's own record, not live entry existence). Discarding the
+      // result here would leave manifest.desktop_config_entry_id pointing at
+      // a stale/deleted id, so the next applyGatewayConfig call could no
+      // longer find the real entry and create a duplicate — the exact
+      // NCOW-12 invariant this file's other caller already protects.
+      const desktopResult = claudeDesktopConfig.applyGatewayConfig({
         configLibraryDir: claudeDesktopConfigLibraryDir,
         port: updated.port,
         masterKey,
         manifest: updated,
         consent: true,
+      });
+      updated = saveManifest({
+        desktop_config_entry_id: desktopResult.entryId,
+        desktop_config_backup: desktopResult.backupPath,
       });
       desktopReapplied = true;
     }

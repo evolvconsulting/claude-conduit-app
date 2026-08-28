@@ -25,8 +25,15 @@ import { navigate } from '../router.js';
 // component for later on-demand re-runs. One shared implementation, two
 // mount points for two different audiences — not duplicated logic.
 
+// The 10 MB entry matches appSettings.js's DEFAULT_APP_SETTINGS.logSizeLimitBytes
+// exactly — every install that has never touched this dropdown is sitting at
+// that default, and without a matching <option> here, `selected` (below)
+// never matches any of them, so the browser falls back to highlighting
+// whichever option happens to be first ('5 MB') while the real applied limit
+// is still 10 MB. Keep these two values in lockstep if either ever changes.
 const LOG_LIMIT_OPTIONS = [
   { label: '5 MB', bytes: 5 * 1024 * 1024 },
+  { label: '10 MB', bytes: 10 * 1024 * 1024 },
   { label: '25 MB', bytes: 25 * 1024 * 1024 },
   { label: '100 MB', bytes: 100 * 1024 * 1024 },
   { label: 'Unlimited', bytes: null },
@@ -116,6 +123,14 @@ function renderProxySection() {
   el.querySelector('#save-port-btn').addEventListener('click', savePort);
 }
 
+// CLAUDE.md's "Guard async dialog openers with a synchronous latch" rule
+// (a real observed bug in the About dialog, fixed the same way): state.
+// savingPort is only set true AFTER this function's first await, so it
+// cannot itself guard against a second fast click landing before then —
+// two clicks would both pass every check above, both call confirmDialog(),
+// and stack two confirmation modals for one port change.
+let confirmingPort = false;
+
 async function savePort() {
   const input = root.querySelector('#port-input');
   const newPort = Number(input.value);
@@ -124,12 +139,19 @@ async function savePort() {
     return;
   }
   if (newPort === state.port) return;
+  if (confirmingPort) return;
+  confirmingPort = true;
 
-  const confirmed = await confirmDialog({
-    title: 'Restart the proxy?',
-    message: `Changing the port to ${newPort} regenerates the config and restarts the proxy now. Claude Desktop and the Claude Code CLI will be re-pointed automatically if already connected.`,
-    confirmLabel: 'Save & Restart',
-  });
+  let confirmed;
+  try {
+    confirmed = await confirmDialog({
+      title: 'Restart the proxy?',
+      message: `Changing the port to ${newPort} regenerates the config and restarts the proxy now. Claude Desktop and the Claude Code CLI will be re-pointed automatically if already connected.`,
+      confirmLabel: 'Save & Restart',
+    });
+  } finally {
+    confirmingPort = false;
+  }
   if (!confirmed) return;
 
   state.savingPort = true;
