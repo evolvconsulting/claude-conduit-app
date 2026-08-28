@@ -139,6 +139,24 @@ const UNSERIALIZED_METHODS = {
   // here removes the inconsistency outright. `generate` remains the one
   // config method with a genuine mutating concern, and stays locked.
   config: ['getManifest'],
+  // CCA-15.2: `list`/`listProviders` are bare reads (getManifest(), and a
+  // static read of registry.js's PROVIDERS map — no manifest/secretStore
+  // touch at all), exactly the shape config.getManifest/apiKey.getMasked are
+  // already exempted for above. `validateCredential`/`listModels` are pure
+  // network probes with NO persistence step of their own (unlike
+  // apiKey.validateAndSave, which validates then immediately
+  // secretStore.save()s on success) — they're the same shape as this file's
+  // pre-existing `catalog.fetch`, which resolves to zero locks entirely.
+  // Holding mutexes.config for one of these would reintroduce exactly the
+  // NCOW-50 bug class (a slow/offline provider turning one Validate click
+  // into a multi-second hold on every other config-lock caller, including
+  // uninstall's claudeCode+config+proxy via DOMAIN_MUTEX_ALIASES) for no
+  // reason: neither call writes anything. `create`/`update`/`duplicate`/
+  // `delete` are deliberately NOT listed here — each persists a manifest
+  // patch and/or a secretStore.saveFor/clearFor(connectionId) call, the same
+  // mutating shape apiKey's `clear` has, so they stay locked via
+  // DOMAIN_MUTEX_ALIASES's `connections: 'config'` entry below.
+  connections: ['list', 'listProviders', 'validateCredential', 'listModels'],
 };
 
 /**
@@ -379,6 +397,17 @@ const DOMAIN_MUTEX_ALIASES = {
   // Claude Code's client config in one call — the exact same four-domain shape
   // as `uninstall`, so it takes all four rather than a narrower subset.
   settings: ['claudeCode', 'claudeDesktop', 'config', 'proxy'],
+  // CCA-15.2: connections.create/update/duplicate/delete each write
+  // manifest.json's `connections`/`activeConnectionId` fields (via the exact
+  // same manifestStore.writeManifest saveManifest() every other `config`
+  // mutation goes through) and, for create/update/duplicate, a
+  // secretStore.saveFor(connectionId)/clearFor(connectionId) call — the same
+  // "mutates state `config` already guards" shape apiKey aliases onto
+  // `config` for (NCOW-47). Without this alias, a connections:create could
+  // interleave its saveManifest() with config:generate's own read-modify-write
+  // of the identical manifest.json, or with settings:update-port's, and lose
+  // one side's write.
+  connections: 'config',
 };
 // NCOW-49 AC#5: deep-frozen below (after LOCK_ACQUISITION_ORDER is declared)
 // so neither table's membership, nested alias arrays, nor bare-string alias

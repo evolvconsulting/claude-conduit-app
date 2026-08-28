@@ -62,6 +62,28 @@ const CHANNELS = {
       fetch: 'catalog:fetch',
     },
   },
+  // CCA-15.2: CRUD over manifest.json's `connections[]` list (CCA-15.1's
+  // schema) — create/edit/duplicate/delete a saved connection, each routed
+  // through the SAME provider validateCredential/listModels path Setup
+  // already used for its one hard-pinned NVIDIA connection. Deliberately
+  // separate from `apiKey`/`catalog`/`config` above: those three all still
+  // operate on the single hard-pinned `activeProvider` (engine-context.js);
+  // this domain operates on an arbitrary provider by id and an arbitrary
+  // connection, and does not touch `activeProvider` or `activeConnectionId`
+  // resolution at all — see engine-context.js's `connections` handlers for
+  // the full boundary note.
+  connections: {
+    invoke: {
+      list: 'connections:list',
+      listProviders: 'connections:list-providers',
+      validateCredential: 'connections:validate-credential',
+      listModels: 'connections:list-models',
+      create: 'connections:create',
+      update: 'connections:update',
+      duplicate: 'connections:duplicate',
+      delete: 'connections:delete',
+    },
+  },
   config: {
     invoke: {
       generate: 'config:generate',

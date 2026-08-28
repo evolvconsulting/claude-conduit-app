@@ -1243,6 +1243,116 @@ test('ipc: NCOW-47 AC#1+#3 — an in-flight apiKey:clear blocks a subsequent con
   assert.deepEqual(order, ['clear:enter', 'clear:exit', 'generate:enter']);
 });
 
+// --- CCA-15.2: the `connections` domain (create/update/duplicate/delete a
+// saved connection) shares manifest.json + secretStore state with `config`,
+// the same shape apiKey's mutating methods share it for above (NCOW-47) — so
+// it aliases onto the same `config` lock. Its pure reads/network probes
+// (list/listProviders/validateCredential/listModels) are exempted via
+// UNSERIALIZED_METHODS, the same NCOW-50 standard applied to
+// apiKey.getMasked/validateAndSave and config.getManifest: none of them
+// persist anything, so holding mutexes.config for one — especially
+// validateCredential/listModels, up to a real 10s network round trip per
+// providers/*.js's own timeoutMs default — would reintroduce the exact
+// multi-second lock-everything freeze NCOW-50 fixed.
+
+test('ipc: CCA-15.2 — resolveDomainLocks() resolves connections onto the config lock (same alias shape as apiKey)', () => {
+  const mutexes = createDomainMutexes();
+  const locks = resolveDomainLocks(mutexes, 'connections');
+  assert.deepEqual(locks, [mutexes.config], 'connections must resolve to exactly mutexes.config, nothing else');
+});
+
+test('ipc: CCA-15.2 — a background config:generate holding the config lock blocks connections:create (create shares config\'s manifest/secretStore state)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      connections: {
+        create: async () => {
+          order.push('create:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  // Stands in for an in-flight config:generate call, same technique as the
+  // apiKey:clear test above.
+  const background = mutexes.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+    order.push('bg-generate:exit');
+  });
+
+  const createRun = invoke('connections:create', {});
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(order, ['bg-generate:enter'], 'connections:create must queue behind the in-flight config lock holder, not interleave');
+
+  gate.resolve();
+  await background;
+  await createRun;
+  assert.deepEqual(order, ['bg-generate:enter', 'bg-generate:exit', 'create:enter']);
+});
+
+test('ipc: CCA-15.2 — connections:list/listProviders/validateCredential/listModels run immediately even while the config lock is held (pure reads/network probes, no persistence)', async () => {
+  reset();
+  const mutexes = createDomainMutexes();
+  const order = [];
+  const gate = deferred();
+
+  registerIpcHandlers(
+    {
+      connections: {
+        list: async () => {
+          order.push('list:enter');
+          return { ok: true };
+        },
+        listProviders: async () => {
+          order.push('listProviders:enter');
+          return { ok: true };
+        },
+        validateCredential: async () => {
+          order.push('validateCredential:enter');
+          return { ok: true };
+        },
+        listModels: async () => {
+          order.push('listModels:enter');
+          return { ok: true };
+        },
+      },
+    },
+    { mutexes }
+  );
+
+  const background = mutexes.config.run(async () => {
+    order.push('bg-generate:enter');
+    await gate.promise;
+  });
+  // mutexes.config.run() only SCHEDULES its callback (chain.then(...)) —
+  // let that microtask actually land before invoking anything, or
+  // bg-generate:enter could race behind an unserialized call whose own
+  // handler body has no internal await (same reason the apiKey background
+  // test above flushes microtasks before asserting order).
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+
+  await invoke('connections:list');
+  await invoke('connections:list-providers');
+  await invoke('connections:validate-credential', {});
+  await invoke('connections:list-models', {});
+
+  assert.deepEqual(
+    order,
+    ['bg-generate:enter', 'list:enter', 'listProviders:enter', 'validateCredential:enter', 'listModels:enter'],
+    'none of these must wait for the held config lock — each resolved without needing gate.resolve() first'
+  );
+
+  gate.resolve();
+  await background;
+});
+
 // NCOW-50 SUPERSEDES the test that used to live right here ("a background
 // config:generate holding the config lock also blocks apiKey:validateAndSave").
 // That test asserted the exact behavior NCOW-50 found to be the bug: the IPC

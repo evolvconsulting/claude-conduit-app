@@ -6,82 +6,129 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // Static source checks + behavioral reproduction via the Function
-// constructor — same technique as diagnostics-view.test.js/
-// test/main/index.test.js's extractConfigRegenBlock(). No DOM harness in
-// this project (see dashboard-view.test.js), so this executes the real
-// extracted quick-validation row-rendering logic against real result
-// objects rather than just grepping the source for matching text.
+// constructor — same technique this project already uses elsewhere (see
+// renderer-contracts.test.js's own header comment): no DOM harness in this
+// project, so a pure helper gets extracted from the real source and executed
+// directly, while anything DOM-shaped is verified by pattern rather than by
+// actually rendering it.
 
 const SOURCE_PATH = path.join(__dirname, '..', '..', 'src', 'renderer', 'views', 'setup-view.js');
 const read = () => fs.readFileSync(SOURCE_PATH, 'utf8');
 
-function extractQuickResultHelpers(source) {
-  const classMatch = source.match(/function quickResultClass\(status\) \{[\s\S]*?\n\}/);
-  const symbolMatch = source.match(/function quickResultSymbol\(status\) \{[\s\S]*?\n\}/);
-  assert.ok(classMatch, 'expected a quickResultClass(status) helper in setup-view.js');
-  assert.ok(symbolMatch, 'expected a quickResultSymbol(status) helper in setup-view.js');
-  const quickResultClass = new Function('status', `${classMatch[0]}\nreturn quickResultClass(status);`);
-  const quickResultSymbol = new Function('status', `${symbolMatch[0]}\nreturn quickResultSymbol(status);`);
-  return { quickResultClass, quickResultSymbol };
+function extractCanSave(source) {
+  const match = source.match(/function canSave\(f\) \{[\s\S]*?\n\}/);
+  assert.ok(match, 'expected a canSave(f) helper in setup-view.js');
+  return new Function('f', `${match[0]}\nreturn canSave(f);`);
 }
 
-function extractRenderLi(source) {
-  const arrowMatch = source.match(/\(r\) => (`<li[\s\S]*?<\/li>`)\)/);
-  assert.ok(arrowMatch, 'expected the quickValidation <li> row template inside renderGenerateStep()');
-  // Behavioral reproduction: the exact extracted template literal, with its
-  // real quickResultClass(r.status)/quickResultSymbol(r.status) calls still
-  // inline, executed via the Function constructor.
-  return new Function('r', 'escapeHtml', 'quickResultClass', 'quickResultSymbol', `return ${arrowMatch[1]};`);
-}
+test('setup-view: canSave requires a validated credential + both models chosen before a NEW connection can be saved', () => {
+  const canSave = extractCanSave(read());
 
-test('setup-view: quickResultClass/quickResultSymbol treat a "skipped" result as a distinct, non-failure state (CCA-14.4 finding A)', () => {
-  const { quickResultClass, quickResultSymbol } = extractQuickResultHelpers(read());
+  const notValidated = { mode: 'create', saving: false, apiKeyInput: '', validated: false, primaryModel: null, smallModel: null };
+  assert.equal(canSave(notValidated), false, 'an unvalidated new connection must not be saveable');
 
-  assert.equal(quickResultClass('skipped'), 'skip', 'a skipped result must not be classed "fail"');
-  assert.notEqual(quickResultClass('skipped'), 'fail');
-  assert.equal(quickResultSymbol('skipped'), '–', 'a skipped result must not render the ✗ failure symbol');
-  assert.notEqual(quickResultSymbol('skipped'), '✗');
+  const validatedNoModels = { mode: 'create', saving: false, apiKeyInput: 'nvapi-x', validated: true, primaryModel: null, smallModel: null };
+  assert.equal(canSave(validatedNoModels), false, 'validated but with no model chosen must still block Save');
 
-  // Controls, so this test would fail against a regression that collapsed
-  // everything back to the old two-way ternary.
-  assert.equal(quickResultClass('pass'), 'pass');
-  assert.equal(quickResultClass('fail'), 'fail');
-  assert.equal(quickResultSymbol('pass'), '✓');
-  assert.equal(quickResultSymbol('fail'), '✗');
+  const readyToSave = { mode: 'create', saving: false, apiKeyInput: 'nvapi-x', validated: true, primaryModel: 'meta/llama-3.1-8b', smallModel: 'meta/llama-3.1-8b' };
+  assert.equal(canSave(readyToSave), true, 'a validated connection with both models chosen must be saveable');
 });
 
-test('setup-view: a real skipped quickValidation row renders with the neutral "skip" class and a non-✗ symbol, not the fail styling (CCA-14.4 finding A)', () => {
-  const source = read();
-  const { quickResultClass, quickResultSymbol } = extractQuickResultHelpers(source);
-  const renderLi = extractRenderLi(source);
-  const escapeHtml = (value) => String(value);
+test('setup-view: canSave lets an edit through with an unchanged credential, but still gates a newly-typed one on validation (CCA-15.2 AC#2)', () => {
+  const canSave = extractCanSave(read());
 
-  const skippedResult = {
-    label: 'Model catalog',
-    status: 'skipped',
-    detail: 'Not applicable — Custom/Local does not support listing its model catalog.',
+  const unchangedCredential = { mode: 'edit', saving: false, apiKeyInput: '', validated: true, primaryModel: 'm1', smallModel: 'm2' };
+  assert.equal(canSave(unchangedCredential), true, 'editing name/models with the existing credential must not require re-validation');
+
+  const newCredentialUnvalidated = { mode: 'edit', saving: false, apiKeyInput: 'nvapi-new', validated: false, primaryModel: 'm1', smallModel: 'm2' };
+  assert.equal(canSave(newCredentialUnvalidated), false, 'typing a new credential must block Save until it is validated — a stale success flag would let an unverified key through');
+
+  const newCredentialValidated = { mode: 'edit', saving: false, apiKeyInput: 'nvapi-new', validated: true, primaryModel: 'm1', smallModel: 'm2' };
+  assert.equal(canSave(newCredentialValidated), true, 'once the new credential is validated and both models are chosen, Save must be allowed');
+});
+
+test('setup-view: canSave requires a fresh validation when the provider is switched during an edit, even with apiKeyInput still blank', () => {
+  const canSave = extractCanSave(read());
+
+  const switchedNoValidation = {
+    mode: 'edit',
+    saving: false,
+    apiKeyInput: '', // untouched — the user never retyped a credential
+    originalProviderId: 'custom-local',
+    providerId: 'openrouter', // but DID change the provider select
+    validated: false,
+    primaryModel: null,
+    smallModel: null,
   };
-  const html = renderLi(skippedResult, escapeHtml, quickResultClass, quickResultSymbol);
+  assert.equal(canSave(switchedNoValidation), false, 'switching providers must require a fresh credential, not silently keep the old one');
 
-  // Before this fix: class="fail" and the ✗ symbol on a check that never
-  // even ran. Assert the actual rendered markup, not just source text.
-  assert.match(html, /class="skip"/, `expected class="skip", got: ${html}`);
-  assert.doesNotMatch(html, /class="fail"/, `a skipped row must never render class="fail", got: ${html}`);
-  assert.doesNotMatch(html, />✗/, `a skipped row must never render the ✗ symbol, got: ${html}`);
-  assert.match(html, />–/, `expected the neutral "–" symbol, got: ${html}`);
+  const unchangedProvider = { ...switchedNoValidation, providerId: 'custom-local', validated: true, primaryModel: 'm1', smallModel: 'm2' };
+  assert.equal(canSave(unchangedProvider), true, 'an unchanged provider with an unchanged credential must remain saveable without re-validation (control)');
 });
 
-test('setup-view: control — the same row template still renders "fail"/✗ for a genuine failure, and "pass"/✓ for a genuine pass (proves the harness discriminates)', () => {
+test('setup-view: canSave is false while a save is already in flight, regardless of mode', () => {
+  const canSave = extractCanSave(read());
+  assert.equal(canSave({ mode: 'edit', saving: true, apiKeyInput: '', validated: true, primaryModel: 'm1', smallModel: 'm2' }), false);
+});
+
+test('setup-view: deleting a connection goes through confirmDialog (danger-styled), never window.confirm — AC#4', () => {
   const source = read();
-  const { quickResultClass, quickResultSymbol } = extractQuickResultHelpers(source);
-  const renderLi = extractRenderLi(source);
-  const escapeHtml = (value) => String(value);
+  assert.match(source, /confirmDialog\(\{/, 'handleDelete must use the async confirmDialog component');
+  const handleDeleteBody = source.slice(source.indexOf('async function handleDelete'));
+  assert.match(handleDeleteBody.slice(0, handleDeleteBody.indexOf('\n}')), /danger:\s*true/, 'a destructive delete must render with the danger style');
+  // renderer-contracts.test.js already forbids window.confirm/alert/prompt
+  // across every renderer file; this test is the CCA-15.2-specific proof
+  // that the deletion path in particular is wired through the real async
+  // replacement, not just that the banned calls are textually absent.
+});
 
-  const failHtml = renderLi({ label: 'Completion', status: 'fail', detail: 'boom' }, escapeHtml, quickResultClass, quickResultSymbol);
-  assert.match(failHtml, /class="fail"/);
-  assert.match(failHtml, />✗/);
+test('setup-view: the connection card template escapes the connection name and id before interpolating them', () => {
+  const source = read();
+  const cardTemplateStart = source.indexOf('.map(');
+  assert.ok(cardTemplateStart > 0, 'expected the connection list .map(...) template');
+  const cardTemplate = source.slice(cardTemplateStart, source.indexOf('.join(', cardTemplateStart));
+  assert.match(cardTemplate, /data-id="\$\{escapeHtml\(c\.id\)\}"/, 'the data-id attribute must escape the connection id');
+  assert.match(cardTemplate, /<strong>\$\{escapeHtml\(c\.name\)\}<\/strong>/, 'the displayed name must be escaped, not interpolated raw');
+});
 
-  const passHtml = renderLi({ label: 'Tool calling', status: 'pass', detail: '' }, escapeHtml, quickResultClass, quickResultSymbol);
-  assert.match(passHtml, /class="pass"/);
-  assert.match(passHtml, />✓/);
+// Review finding (bug): creating the first connection on a fresh install
+// persisted manifest.json to disk (via connections.create) but never told
+// the renderer's own store about it — app.js's nav guard and sidebar gate
+// every route but 'setup'/'settings' on getState().manifest, set only once
+// at boot from `null`, so the user was trapped on Setup with no way to
+// reach Dashboard until a full app restart.
+test('setup-view: every successful create/update/duplicate/delete pushes the returned manifest into the shared store (so the nav guard unlocks immediately)', () => {
+  const source = read();
+  assert.match(source, /import \{ setState \} from '\.\.\/store\.js';/, 'must import setState to keep the store in sync with what connections.* just persisted');
+
+  const successPaths = [
+    { name: 'handleDuplicate', from: 'async function handleDuplicate' },
+    { name: 'handleDelete', from: 'async function handleDelete' },
+    { name: 'saveForm', from: 'async function saveForm' },
+  ];
+  for (const { name, from } of successPaths) {
+    const start = source.indexOf(from);
+    assert.ok(start > 0, `expected a ${name}() function`);
+    const body = source.slice(start, source.indexOf('\n}', start));
+    assert.match(body, /syncManifestState\(result\.data\.manifest\)|setState\(\{\s*manifest/, `${name}() must sync the store with the manifest its IPC call returned`);
+  }
+});
+
+test('setup-view: every CRUD/list IPC method the CRUD UI needs is actually called somewhere in the file (wiring sanity)', () => {
+  const source = read();
+  for (const method of ['list', 'listProviders', 'validateCredential', 'listModels', 'create', 'update', 'duplicate', 'delete']) {
+    assert.match(
+      source,
+      new RegExp(`nimProxy\\.connections\\.${method}\\(`),
+      `expected a call to nimProxy.connections.${method}(...) somewhere in setup-view.js`
+    );
+  }
+});
+
+test('setup-view: exports mount/unmount and never calls config.generate/proxy.start — CCA-15.2 does not make a connection "live"', () => {
+  const source = read();
+  assert.match(source, /export function mount\s*\(/);
+  assert.match(source, /export function unmount\s*\(/);
+  assert.doesNotMatch(source, /nimProxy\.config\.generate\(/, 'activating a connection is CCA-15.3\'s job, not this view\'s');
+  assert.doesNotMatch(source, /nimProxy\.proxy\.start\(/, 'activating a connection is CCA-15.3\'s job, not this view\'s');
 });
