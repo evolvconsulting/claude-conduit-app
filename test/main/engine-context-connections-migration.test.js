@@ -202,6 +202,71 @@ test('createEngineContext: migration is idempotent — a second launch against a
   });
 });
 
+// Review finding (pre-merge /code-review pass): a failed credential copy
+// must not be masked as a successful migration — the manifest would then
+// permanently look migrated (Array.isArray(manifest.connections) is true)
+// with a connection that has NO credential in its keyed slot, and AC#3's
+// "credential intact" promise would silently break with no way to retry.
+test('createEngineContext: a failed credential copy (e.g. ENCRYPTION_UNAVAILABLE) leaves the manifest unmigrated so the next launch retries, instead of masking the failure', async () => {
+  await withFakeHome(async (homeDir) => {
+    const files = seedPreCCA15Install(homeDir, { generated_by_version: '0.2.0' });
+    const userDataDir = path.join(homeDir, 'userData');
+    seedLegacySecretStoreFile(userDataDir, 'nvapi-old-install');
+
+    const unavailableSafeStorage = {
+      isEncryptionAvailable: () => false,
+      encryptString: () => {
+        throw new Error('must not be called when encryption is unavailable');
+      },
+      // The legacy load() must still succeed (decryptString has no
+      // isEncryptionAvailable() guard — see secretStore.js's loadFromPath),
+      // reproducing the real scenario: a credential saved while encryption
+      // was available is now unreadable-to-migrate because encryption has
+      // since become unavailable (a real, documented NCOW-29 precondition).
+      decryptString: (b) => {
+        const text = b.toString('utf8');
+        if (!text.startsWith('enc:')) throw new Error('bad blob');
+        return text.slice(4);
+      },
+    };
+
+    const context = createEngineContext({
+      safeStorage: unavailableSafeStorage,
+      userDataDir,
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control: fakePm2Control(),
+    });
+    await context.configRegeneration;
+
+    const manifestAfter = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestAfter.connections, undefined, 'must not mark the manifest migrated when the credential copy failed');
+    assert.equal(manifestAfter.activeConnectionId, undefined);
+
+    // The legacy slot is untouched, so a retry on the next launch (once
+    // encryption is available again) can still recover the credential.
+    const { createSecretStore } = require('../../src/engine/secretStore');
+    const legacyStore = createSecretStore(fakeSafeStorage(), path.join(userDataDir, 'nim-key.enc'));
+    assert.equal(legacyStore.load(), 'nvapi-old-install');
+
+    // And a subsequent launch with encryption available again completes the
+    // migration normally — proving this is a retry, not a permanent wedge.
+    const retryContext = createEngineContext({
+      safeStorage: fakeSafeStorage(),
+      userDataDir,
+      appDataDir: path.join(homeDir, 'appData'),
+      broadcast: () => {},
+      appVersion: '0.2.0',
+      pm2Control: fakePm2Control(),
+    });
+    await retryContext.configRegeneration;
+    const manifestAfterRetry = JSON.parse(fs.readFileSync(files.manifestJson, 'utf8'));
+    assert.equal(manifestAfterRetry.connections.length, 1);
+    assert.equal(legacyStore.loadFor(manifestAfterRetry.activeConnectionId), 'nvapi-old-install');
+  });
+});
+
 // Same bug class engine-context-config-regen.test.js's own corrupt-manifest
 // regression test guards against (readManifest() does a bare JSON.parse, and
 // writeManifest() is a non-atomic writeFileSync, so a crash/power-loss mid-
