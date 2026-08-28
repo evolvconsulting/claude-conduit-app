@@ -1,15 +1,14 @@
 import { escapeHtml, toast } from '../components/dom.js';
+import { createPrereqsPanel } from '../components/prereqs-panel.js';
 import { setState, getState } from '../store.js';
 import { navigate } from '../router.js';
 
 let root = null;
 let nimProxy = null;
+let prereqsPanel = null;
 
 const wiz = {
   step: 'prereqs',
-  prereqChecks: null,
-  installingLitellm: false,
-  installOutput: '',
   apiKeyInput: '',
   apiKeyValidated: null, // { maskedKey, models } | null
   apiKeyError: null,
@@ -27,10 +26,11 @@ export function mount(container, ctx) {
   root = container;
   nimProxy = ctx.nimProxy;
   renderAll();
-  runPrereqs();
 }
 
 export function unmount() {
+  prereqsPanel?.unmount();
+  prereqsPanel = null;
   root = null;
 }
 
@@ -48,66 +48,28 @@ function renderAll() {
 }
 
 // ---- Step 1: Prerequisites ----
-
-async function runPrereqs() {
-  const result = await nimProxy.prereqs.check();
-  wiz.prereqChecks = result.ok ? result.data.results : [];
-  renderPrereqs();
-}
+//
+// CCA-13 AC#4 (documented decision): Setup keeps this as a genuine first-run
+// gate — a brand-new install with no litellm on PATH can't usefully continue
+// past it — rather than removing it in favor of System Settings' copy.
+// System Settings (settings-view.js) mounts the exact same prereqs-panel.js
+// component for later on-demand re-runs; this step is not duplicated logic,
+// it's the one shared implementation mounted twice for two different
+// audiences (blocking first-run vs. anytime re-check).
 
 function renderPrereqs() {
   const el = root?.querySelector('#wiz-prereqs');
   if (!el) return;
 
-  const rows = (wiz.prereqChecks ?? []).map((c) => {
-    const status = c.ok ? '✅' : c.critical ? '❌' : '⚠️';
-    const detail = c.fixHint ?? c.message ?? c.path ?? c.version ?? '';
-    return `<tr><td>${status}</td><td>${escapeHtml(c.label)}</td><td>${escapeHtml(detail)}</td></tr>`;
+  el.innerHTML = `<div class="card"><h2>1. Prerequisites</h2><div id="prereqs-panel-mount"></div></div>`;
+  prereqsPanel = createPrereqsPanel({
+    nimProxy,
+    onContinue: () => {
+      wiz.step = 'apiKey';
+      renderApiKeyStep();
+    },
   });
-
-  const litellmCheck = (wiz.prereqChecks ?? []).find((c) => c.id === 'litellm');
-  const needsLitellm = litellmCheck && !litellmCheck.ok;
-  const allCriticalOk = (wiz.prereqChecks ?? []).every((c) => !c.critical || c.ok);
-
-  el.innerHTML = `
-    <div class="card">
-      <h2>1. Prerequisites</h2>
-      <table>${wiz.prereqChecks ? rows.join('') : '<tr><td colspan="3">Checking…</td></tr>'}</table>
-      ${needsLitellm ? `
-        <button id="install-litellm-btn" ${wiz.installingLitellm ? 'disabled' : ''}>
-          ${wiz.installingLitellm ? 'Installing…' : 'Install litellm'}
-        </button>
-        <pre class="log-viewer" style="height:100px;margin-top:0.5rem;">${escapeHtml(wiz.installOutput)}</pre>
-      ` : ''}
-      <div style="margin-top:0.75rem;">
-        <button class="primary" id="prereqs-continue-btn" ${allCriticalOk ? '' : 'disabled'}>Continue</button>
-      </div>
-    </div>
-  `;
-
-  el.querySelector('#install-litellm-btn')?.addEventListener('click', installLitellm);
-  el.querySelector('#prereqs-continue-btn')?.addEventListener('click', () => {
-    wiz.step = 'apiKey';
-    renderApiKeyStep();
-  });
-}
-
-async function installLitellm() {
-  wiz.installingLitellm = true;
-  wiz.installOutput = '';
-  renderPrereqs();
-
-  const unsubscribe = nimProxy.prereqs.onInstallProgress((chunk) => {
-    wiz.installOutput += chunk;
-    root?.querySelector('#wiz-prereqs .log-viewer') && (root.querySelector('#wiz-prereqs .log-viewer').textContent = wiz.installOutput);
-  });
-
-  const result = await nimProxy.prereqs.installLitellm();
-  unsubscribe();
-  wiz.installingLitellm = false;
-  if (!result.ok) toast(`litellm install failed: ${result.error?.message}`, { kind: 'error' });
-  else toast('litellm installed', { kind: 'success' });
-  await runPrereqs();
+  prereqsPanel.mount(el.querySelector('#prereqs-panel-mount'));
 }
 
 // ---- Step 2: API key ----

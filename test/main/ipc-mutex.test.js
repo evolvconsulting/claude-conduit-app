@@ -967,7 +967,7 @@ test('index.js: passes engine-context\'s own mutexes into registerIpcHandlers', 
   const source = fs
     .readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8')
     .replace(/\r\n/g, '\n');
-  assert.match(source, /mutexes\s*\}\s*=\s*createEngineContext/, 'must destructure mutexes off the engine context');
+  assert.match(source, /mutexes,\s*getAppSettings\s*\}\s*=\s*createEngineContext/, 'must destructure mutexes off the engine context');
   assert.match(source, /registerIpcHandlers\([\s\S]*?\n\s*mutexes,\n\s*\}\);/, 'must pass those same mutexes to registerIpcHandlers');
 });
 
@@ -1005,7 +1005,15 @@ test('ipc: NCOW-46 AC#2 — two DOMAIN_MUTEX_ALIASES entries resolving to the sa
   // where two of uninstall's alias targets point at the same function made
   // uninstall:run never settle — the handler body never entered.
   const shared = createDomainMutex();
-  const mutexes = { claudeCode: shared, config: shared, proxy: createDomainMutex() };
+  // claudeDesktop is irrelevant to uninstall's own alias (['claudeCode',
+  // 'config', 'proxy']) and does not change any assertion below — it's
+  // here only because registerIpcHandlers() now also resolves locks for
+  // every OTHER CHANNELS domain up front (CCA-13's `settings` domain
+  // aliases onto claudeDesktop too), and a mutex set missing a domain an
+  // alias references is a loud throw by design (see resolveDomainLocks's
+  // own doc comment) — this fixture must be the complete set, not a
+  // uninstall-specific subset.
+  const mutexes = { claudeCode: shared, claudeDesktop: createDomainMutex(), config: shared, proxy: createDomainMutex() };
   const order = [];
 
   registerIpcHandlers(
@@ -2179,7 +2187,11 @@ test('ipc: NCOW-49 fix pass 2 — end to end, a Proxy-wrapped alias target no lo
   reset();
   const shared = createDomainMutex();
   const proxied = new Proxy(shared, {});
-  const mutexes = { claudeCode: proxied, config: shared, proxy: createDomainMutex() };
+  // See the matching comment on the NCOW-46 AC#2 test above: claudeDesktop
+  // is irrelevant to uninstall's own alias, but registerIpcHandlers() now
+  // resolves every CHANNELS domain up front, and CCA-13's `settings` domain
+  // aliases onto claudeDesktop too — so this fixture must be complete.
+  const mutexes = { claudeCode: proxied, claudeDesktop: createDomainMutex(), config: shared, proxy: createDomainMutex() };
   const order = [];
 
   registerIpcHandlers(

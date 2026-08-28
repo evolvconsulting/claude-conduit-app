@@ -993,7 +993,7 @@ test('engine-context.js: requiring it (and therefore mutex.js) pulls no electron
 // static source-check approach for the same reason.
 test('index.js: a failed configRegeneration is logged, not silently dropped', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'index.js'), 'utf8');
-  assert.match(source, /const \{ handlers, pm2Control, configRegeneration, mutexes \} = createEngineContext/);
+  assert.match(source, /const \{ handlers, pm2Control, configRegeneration, mutexes, getAppSettings \} = createEngineContext/);
   assert.match(source, /configRegeneration[\s\S]{0,200}console\.warn/, 'expected configRegeneration to be observed and logged on failure');
 });
 
@@ -1344,7 +1344,7 @@ test('index.js: the `mutexes` identifier is bound exactly once (the createEngine
   );
   assert.match(
     declarations[0],
-    /const \{ handlers, pm2Control, configRegeneration, mutexes \}\s*=$/,
+    /const \{ handlers, pm2Control, configRegeneration, mutexes, getAppSettings \}\s*=$/,
     'the sole "mutexes" binding must be the createEngineContext() destructure, not some other declaration'
   );
 
@@ -1407,7 +1407,7 @@ test('index.js: the `handlers` identifier is bound exactly once (the createEngin
   );
   assert.match(
     declarations[0],
-    /const \{ handlers, pm2Control, configRegeneration, mutexes \}\s*=$/,
+    /const \{ handlers, pm2Control, configRegeneration, mutexes, getAppSettings \}\s*=$/,
     'the sole "handlers" binding must be the createEngineContext() destructure, not some other declaration'
   );
 
