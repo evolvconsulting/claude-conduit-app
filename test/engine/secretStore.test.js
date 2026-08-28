@@ -146,6 +146,23 @@ test('loadFor: a corrupt/undecryptable blob for one provider degrades to null wi
   assert.equal(store.loadFor('openrouter'), 'sk-or-xyz789');
 });
 
+// CCA-15.1: saveFor/loadFor/clearFor are now keyed by a CONNECTION's own id,
+// not a provider id — the exact scenario CCA-15 needs and CCA-14.5's own
+// provider-keyed shape could not support: two connections of the SAME
+// provider type must never collide, since a user can save two NVIDIA NIM
+// accounts side by side.
+
+test('saveFor/loadFor: two connections of the SAME provider type hold independent credentials without colliding', () => {
+  const store = createSecretStore(fakeSafeStorage(), tempStoragePath());
+  const workAccount = store.saveFor('conn-nvidia-work', 'nvapi-work-key');
+  const personalAccount = store.saveFor('conn-nvidia-personal', 'nvapi-personal-key');
+
+  assert.equal(workAccount.ok, true);
+  assert.equal(personalAccount.ok, true);
+  assert.equal(store.loadFor('conn-nvidia-work'), 'nvapi-work-key');
+  assert.equal(store.loadFor('conn-nvidia-personal'), 'nvapi-personal-key');
+});
+
 test('importFromExistingEnvFile: with a providerId, seeds that provider\'s own slot instead of the legacy slot', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-secret-import-test-'));
   const envPath = path.join(dir, 'litellm.env');
